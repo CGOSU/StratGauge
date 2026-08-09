@@ -1,0 +1,50 @@
+[
+  {
+    "security_id": "security-1",
+    "symbol": "000001.SZ",
+    "session_date": "2026-01-05",
+    "provider": "fixture",
+    "provider_symbol": "000001",
+    "open": "10.00",
+    "high": "10.50",
+    "low": "9.80",
+    "close": "10.20",
+    "volume": "1000",
+    "amount": "10200",
+    "event_time": "2026-01-05T00:00:00+00:00",
+    "available_at": "2026-01-05T00:00:00+00:00",
+    "ingested_at": "2026-01-05T00:00:00+00:00"
+  },
+  {
+    "security_id": "security-1",
+    "symbol": "000001.SZ",
+    "session_date": "2026-01-06",
+    "provider": "fixture",
+    "provider_symbol": "000001",
+    "open": "10.00",
+    "high": "10.50",
+    "low": "9.80",
+    "close": "10.20",
+    "volume": "1000",
+    "amount": "10200",
+    "event_time": "2026-01-06T00:00:00+00:00",
+    "available_at": "2026-01-06T00:00:00+00:00",
+    "ingested_at": "2026-01-06T00:00:00+00:00"
+  },
+  {
+    "security_id": "security-1",
+    "symbol": "000001.SZ",
+    "session_date": "2026-01-07",
+    "provider": "fixture",
+    "provider_symbol": "000001",
+    "open": "10.20",
+    "high": "10.90",
+    "low": "10.00",
+    "close": "10.70",
+    "volume": "1200",
+    "amount": "12840",
+    "event_time": "2026-01-07T00:00:00+00:00",
+    "available_at": "2026-01-07T00:00:00+00:00",
+    "ingested_at": "2026-01-07T00:00:00+00:00"
+  }
+]

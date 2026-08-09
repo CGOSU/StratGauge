@@ -1,0 +1,18 @@
+{
+  "mode": "auto",
+  "architect": {
+    "provider": "openai-codex",
+    "model": "gpt-5.6-sol",
+    "thinkingLevel": "max"
+  },
+  "developer-test": {
+    "provider": "openai-codex",
+    "model": "gpt-5.6-luna",
+    "thinkingLevel": "max"
+  },
+  "docs-commit": {
+    "provider": "openai-codex",
+    "model": "gpt-5.6-luna",
+    "thinkingLevel": "medium"
+  }
+}
