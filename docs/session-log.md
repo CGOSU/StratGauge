@@ -80,4 +80,14 @@
 - 完成实现：新增 `domain/selections.py`、`data_pipeline/tdx_import.py` 和 `selection_store.py`；支持 UTF-8/GB18030、CSV/TSV/分号分隔、显式交换所校验、公式/文件哈希、原始文件与解析 JSON 的不可变保存；新增 `import_tdx_selection.py` 和 `label_tdx_selection.py` 命令；人工标签采用追加式保存。
 - 结果切片：新增 `backtest/selection_outcomes.py`，按“下一可交易日开盘进入、固定持有交易日后收盘退出”计算净收益，输出胜/负/平、未入场和未解决；严格按 `available_at` 和评估时间过滤未来行情，不擅自加入止盈止损。新增 `backtest/selection_stats.py`，完成样本与未解决样本分开统计。
 - 验证：Ruff、MyPy 通过；后端 61 项测试通过（1 项环境相关跳过）；CLI 端到端导入并标注烟测通过。
-- 遗留问题：尚未接入候选队列 API/前端和自动成熟任务；需要真实脱敏导出样例确认市场列格式；用户止盈止损、持有期和胜负阈值尚未冻结；Git 已初始化但未提交。
+- 完成 API/前端：新增 `/v1/selection-batches` 导入和列表接口、批次详情接口及人工标签接口；新增 React 候选队列、批次选择、备注和四类人工标签操作，所有写操作仍不连接券商。
+- 验证：后端测试 65 项通过（1 项环境相关跳过）；Ruff、MyPy 通过；前端 `corepack pnpm typecheck`、`build`、`lint` 通过。
+- 结果持久化：选股结果按内容寻址写入 `tdx/outcomes`，候选详情 API 和前端可显示最新结果；新增按批次评估全部候选的纯函数入口，严格遵守 `available_at` 和评估时点。
+- 验证：后端测试 67 项通过（1 项环境相关跳过）；Ruff、MyPy 通过；前端 `corepack pnpm typecheck`、`build`、`lint` 通过。
+- 自动成熟入口：新增 `mature_tdx_selection.py`，显式选择 AKShare/BaoStock/歪枣网、评估时间和固定持有期；逐候选请求，质量门失败不写入结果；成功后保存行情快照和客观结果；不启动后台定时器、不自动交易。
+- 验证：后端测试 69 项通过（1 项环境相关跳过）；Ruff、MyPy 通过。
+- 数据集出口：新增 `selection_dataset.py` 和 `export_tdx_dataset.py`，将批次、公式版本、最新人工标签、客观结果和来源快照 ID 导出为不可覆盖 JSONL；无成熟结果的候选保留为待定。
+- 验证：后端测试 72 项通过（1 项环境相关跳过）；Ruff、MyPy 通过。
+- 审查修复：结果新增追踪政策指纹、费用方案和名义金额；最低佣金无名义金额时拒绝计算；统计和 JSONL 只取每候选/每政策最新结果；人工标签限制在导出后至下一自然日 00:00；新增批次统计 API；前端展示待成熟数量和胜负分布；修复 React StrictMode 健康检查和过期请求 loading 状态。
+- 验证：后端测试 77 项通过（1 项环境相关跳过）；Ruff、MyPy 通过；前端 `corepack pnpm typecheck`、`build`、`lint` 通过。
+- 遗留问题：尚未接入真正的后台定时调度；需要真实脱敏导出样例确认市场列格式；用户止盈止损、持有期、胜负阈值和名义金额尚未冻结；当前新增改动尚未提交。

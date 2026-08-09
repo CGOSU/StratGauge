@@ -8,6 +8,8 @@ from stratgauge.data_pipeline.tdx_import import import_tdx_export
 from stratgauge.domain.selections import (
     ManualSelectionDecision,
     ManualSelectionLabel,
+    SelectionOutcome,
+    SelectionOutcomeStatus,
     TdxSelectionImport,
 )
 
@@ -78,6 +80,41 @@ class SelectionImportStoreTests(unittest.TestCase):
 
             with self.assertRaisesRegex(SelectionStoreError, "does not belong"):
                 store.write_label(parsed.batch.batch_id, label)
+
+    def test_labels_after_freeze_deadline_are_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SelectionImportStore(directory)
+            parsed = parsed_import()
+            store.write(CONTENT, parsed)
+            label = ManualSelectionLabel(
+                candidate_id=parsed.candidates[0].candidate_id,
+                decision=ManualSelectionDecision.WATCH,
+                labeled_at=datetime(2026, 1, 6, 9, tzinfo=UTC),
+            )
+
+            with self.assertRaisesRegex(SelectionStoreError, "freeze deadline"):
+                store.write_label(parsed.batch.batch_id, label)
+
+    def test_outcomes_are_content_addressed_and_listed(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SelectionImportStore(directory)
+            parsed = parsed_import()
+            store.write(CONTENT, parsed)
+            outcome = SelectionOutcome(
+                candidate_id=parsed.candidates[0].candidate_id,
+                batch_id=parsed.batch.batch_id,
+                selection_date=parsed.batch.selection_date,
+                status=SelectionOutcomeStatus.UNRESOLVED,
+                evaluated_at=IMPORTED_AT,
+                horizon_sessions=5,
+                reason="insufficient_horizon_data",
+            )
+
+            first = store.write_outcome(outcome)
+            second = store.write_outcome(outcome)
+
+            self.assertEqual(first, second)
+            self.assertEqual(store.list_outcomes(outcome.candidate_id), (outcome,))
 
 
 if __name__ == "__main__":

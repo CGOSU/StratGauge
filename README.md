@@ -77,7 +77,20 @@ PYTHONPATH=src uv run python scripts/label_tdx_selection.py \
   --candidate-id <candidate_id> \
   --decision watch \
   --labeled-at 2026-01-05T15:10:00+08:00
+# 显式用已有日线源成熟一个批次；不会自动交易
+PYTHONPATH=src uv run python scripts/mature_tdx_selection.py \
+  --batch-id <batch_id> \
+  --provider baostock \
+  --evaluated-at 2026-01-10T17:00:00+08:00 \
+  --horizon-sessions 5 \
+  --position-notional 10000
+# 导出可追溯 JSONL 数据集；目标文件已存在时拒绝覆盖
+PYTHONPATH=src uv run python scripts/export_tdx_dataset.py \
+  --batch-id <batch_id> \
+  --output data/selection-datasets/batch.jsonl
 ```
+
+成熟任务要求显式提供单笔名义金额；这是最低佣金换算为收益率所必需的参数，系统不会猜测。
 
 前端：
 

@@ -5,14 +5,18 @@ from decimal import Decimal
 from stratgauge.backtest.models import BacktestPolicy
 from stratgauge.backtest.selection_outcomes import (
     SelectionTrackingPolicy,
+    evaluate_selection_batch,
     evaluate_selection_outcome,
+    latest_selection_outcomes,
 )
 from stratgauge.backtest.selection_stats import summarize_selection_outcomes
 from stratgauge.domain.models import DailyBar, Exchange
 from stratgauge.domain.selections import (
+    SelectionBatch,
     SelectionCandidate,
     SelectionOutcome,
     SelectionOutcomeStatus,
+    TdxSelectionImport,
 )
 
 
@@ -98,6 +102,29 @@ class SelectionOutcomeTests(unittest.TestCase):
         self.assertEqual(result.net_return, Decimal("0.1"))
         self.assertEqual(result.source_snapshot_ids, ("snapshot-1", "snapshot-2"))
 
+    def test_minimum_commission_uses_explicit_position_notional(self) -> None:
+        result = evaluate_selection_outcome(
+            candidate(),
+            selection_date=date(2026, 1, 5),
+            bars=[
+                make_bar(date(2026, 1, 6), open=Decimal("10.00")),
+                make_bar(date(2026, 1, 7), close=Decimal("10.50")),
+            ],
+            evaluated_at=datetime(2026, 1, 7, 17, tzinfo=UTC),
+            policy=SelectionTrackingPolicy(
+                horizon_sessions=1,
+                position_notional=Decimal("10000"),
+                cost_policy=BacktestPolicy(
+                    commission_rate=Decimal("0.001"),
+                    minimum_commission=Decimal("5"),
+                    stamp_duty=Decimal("0"),
+                ),
+            ),
+        )
+
+        self.assertEqual(result.net_return, Decimal("0.04795"))
+        self.assertEqual(result.position_notional, Decimal("10000"))
+
     def test_non_tradable_first_session_is_not_counted_as_a_loss(self) -> None:
         result = evaluate_selection_outcome(
             candidate(),
@@ -112,6 +139,66 @@ class SelectionOutcomeTests(unittest.TestCase):
 
         self.assertEqual(result.status, SelectionOutcomeStatus.NO_ENTRY)
         self.assertIsNone(result.net_return)
+
+    def test_batch_evaluation_uses_batch_selection_date_for_each_candidate(self) -> None:
+        imported = TdxSelectionImport(
+            batch=SelectionBatch(
+                batch_id="tdx-batch",
+                selection_date=date(2026, 1, 5),
+                exported_at=datetime(2026, 1, 5, 15, 5, tzinfo=UTC),
+                imported_at=datetime(2026, 1, 5, 15, 10, tzinfo=UTC),
+                formula_name="公式 A",
+                source_file_sha256="a" * 64,
+                candidate_count=1,
+            ),
+            candidates=(candidate(),),
+        )
+
+        outcomes = evaluate_selection_batch(
+            imported,
+            bars=[
+                make_bar(date(2026, 1, 6)),
+                make_bar(date(2026, 1, 7)),
+            ],
+            evaluated_at=datetime(2026, 1, 7, 17, tzinfo=UTC),
+            policy=SelectionTrackingPolicy(
+                horizon_sessions=1,
+                position_notional=Decimal("10000"),
+            ),
+        )
+
+        self.assertEqual(len(outcomes), 1)
+        self.assertEqual(outcomes[0].entry_session, date(2026, 1, 6))
+
+    def test_minimum_commission_without_notional_is_rejected_for_completed_outcome(self) -> None:
+        with self.assertRaisesRegex(ValueError, "position_notional"):
+            evaluate_selection_outcome(
+                candidate(),
+                selection_date=date(2026, 1, 5),
+                bars=[make_bar(date(2026, 1, 6)), make_bar(date(2026, 1, 7))],
+                evaluated_at=datetime(2026, 1, 7, 17, tzinfo=UTC),
+                policy=SelectionTrackingPolicy(horizon_sessions=1),
+            )
+
+    def test_latest_outcome_keeps_one_row_per_policy(self) -> None:
+        older = make_outcome(SelectionOutcomeStatus.WIN, Decimal("0.10")).model_copy(
+            update={
+                "candidate_id": candidate().candidate_id,
+                "batch_id": candidate().batch_id,
+                "tracking_policy_id": "policy-1",
+                "evaluated_at": datetime(2026, 1, 7, 17, tzinfo=UTC),
+            }
+        )
+        newer = older.model_copy(
+            update={
+                "evaluated_at": datetime(2026, 1, 8, 17, tzinfo=UTC),
+                "net_return": Decimal("0.12"),
+            }
+        )
+
+        latest = latest_selection_outcomes([older, newer])
+
+        self.assertEqual(latest, (newer,))
 
     def test_future_bars_beyond_evaluation_time_do_not_complete_outcome(self) -> None:
         result = evaluate_selection_outcome(

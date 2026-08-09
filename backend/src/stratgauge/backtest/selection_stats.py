@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from stratgauge.backtest.selection_outcomes import latest_selection_outcomes
 from stratgauge.domain.selections import SelectionOutcome, SelectionOutcomeStatus
 
 
@@ -31,7 +32,7 @@ def summarize_selection_outcomes(
 ) -> SelectionOutcomeStats:
     """Summarize completed outcomes separately from unresolved observations."""
 
-    rows = tuple(outcomes)
+    rows = latest_selection_outcomes(outcomes)
     completed_statuses = {
         SelectionOutcomeStatus.WIN,
         SelectionOutcomeStatus.LOSS,

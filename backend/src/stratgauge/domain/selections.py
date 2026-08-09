@@ -170,9 +170,12 @@ class SelectionOutcome(DomainModel):
     gross_return: Decimal | None = None
     net_return: Decimal | None = None
     reason: str
+    tracking_policy_id: str = "legacy-unknown"
+    cost_schedule_id: str = "unspecified"
+    position_notional: Decimal | None = Field(default=None, gt=0)
     source_snapshot_ids: tuple[str, ...] = ()
 
-    @field_validator("candidate_id", "batch_id", "reason")
+    @field_validator("candidate_id", "batch_id", "reason", "tracking_policy_id", "cost_schedule_id")
     @classmethod
     def validate_outcome_text(cls, value: str) -> str:
         if not value.strip():
@@ -186,7 +189,14 @@ class SelectionOutcome(DomainModel):
             raise ValueError("evaluated_at must include a timezone")
         return value
 
-    @field_validator("entry_price", "exit_price", "gross_return", "net_return", mode="before")
+    @field_validator(
+        "entry_price",
+        "exit_price",
+        "gross_return",
+        "net_return",
+        "position_notional",
+        mode="before",
+    )
     @classmethod
     def validate_outcome_decimals(cls, value: Any) -> Decimal | None:
         if value is None:

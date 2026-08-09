@@ -21,6 +21,20 @@
 - 修复：测试先检查 `importlib.util.find_spec`；provider 已安装时跳过缺失依赖分支。默认 `uv sync --no-extra live-data` 仍覆盖未安装行为。
 - 验证：默认环境后端 44 项测试通过；安装可选依赖时该测试安全跳过。
 
+### 2026-08-09：最低佣金不能按单股价格直接扣除
+
+- 现象：固定持有期结果使用默认最低佣金时，收益率可能被夸大扣减。
+- 根因：最低佣金是按一笔交易金额计价，领域结果只有价格而没有名义金额；按每股价格直接相减会把货币金额和每股收益混算。
+- 修复：结果政策要求显式 `position_notional`；缺失时拒绝有最低佣金的完整结果，已知名义金额后按交易数量换算费用。
+- 验证：`test_minimum_commission_uses_explicit_position_notional` 和 `test_minimum_commission_without_notional_is_rejected_for_completed_outcome`。
+
+### 2026-08-09：React StrictMode 下的一次性请求守卫不能配合 AbortController
+
+- 现象：开发模式首次 effect 清理后，健康状态可能永久停留在“检测中”。
+- 根因：StrictMode 会执行“挂载—清理—重新挂载”；第一次 effect 将 ref 标记为已启动并中止请求，第二次 effect 被守卫跳过。
+- 修复：健康检查不使用一次性 ref 守卫，依赖 effect 自带的 AbortController；批次详情请求在清理后不再覆盖新请求的 loading 状态。
+- 验证：前端 `corepack pnpm typecheck`、`build`、`lint` 通过。
+
 ### 2026-08-09：AKShare 默认历史接口受代理影响
 
 - 现象：`verify_live_adapters.py` 的 AKShare 请求访问 `push2his.eastmoney.com` 时因代理远端断开失败；BaoStock 同一有限区间可成功返回 4 行。
