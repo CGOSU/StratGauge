@@ -1682,6 +1682,16 @@ function DataManagementWorkspace({
     }
   }
 
+  function selectManagedBatch(batchId: string) {
+    setSelectedBatchId(batchId)
+    requestAnimationFrame(() => {
+      document.getElementById('management-detail-panel')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    })
+  }
+
   function resetStatsFilters() {
     setStatsFormulaVersion('all')
     setStatsDateFrom('')
@@ -2035,7 +2045,8 @@ function DataManagementWorkspace({
                             type="button"
                             size="sm"
                             variant="outline"
-                            onClick={() => setSelectedBatchId(item.batch.batch_id)}
+                            aria-controls="management-detail-panel"
+                            onClick={() => selectManagedBatch(item.batch.batch_id)}
                           >
                             查看详情
                           </Button>
@@ -2078,7 +2089,11 @@ function DataManagementWorkspace({
             </Card>
           </div>
 
-          <Card className="management-detail panel" aria-labelledby="management-detail-title">
+          <Card
+            id="management-detail-panel"
+            className="management-detail panel"
+            aria-labelledby="management-detail-title"
+          >
             <div className="section-heading">
               <div>
                 <p className="eyebrow">证据详情</p>

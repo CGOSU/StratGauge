@@ -41,3 +41,10 @@
 - 根因：当前宿主网络/代理无法连通 AKShare 所用的 Eastmoney 接口，非质量门静默降级。
 - 修复：保留带上下文的 `AdapterError`，验证脚本返回结构化错误和非零退出码；不以 BaoStock 结果替代 AKShare 主源完成双源验证。
 - 验证：`PYTHONPATH=src uv run python scripts/verify_live_adapters.py --symbol 000001.SZ --start-date 2024-01-02 --end-date 2024-01-05` 返回退出码 2；BaoStock 单独抓取并入库后质量状态为 `approved`。
+
+### 2026-08-10：管理列表详情面板位于页面下方
+
+- 现象：数据管理批次的“查看详情”按钮实际改变了选中批次，但详情面板位于列表下方，用户当前视口看不到变化，容易误认为点击无效。
+- 根因：选择状态更新没有同步滚动或明确的视口反馈。
+- 修复：点击后保留原生按钮语义，设置选中批次并滚动到带 `management-detail-panel` 标识的详情面板。
+- 验证：前端 `corepack pnpm typecheck`、`build`、`lint` 通过。

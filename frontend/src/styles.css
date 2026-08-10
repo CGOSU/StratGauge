@@ -254,6 +254,10 @@
   min-width: 0;
 }
 
+.management-detail {
+  scroll-margin-top: 20px;
+}
+
 .management-record-list {
   display: grid;
   gap: 10px;
