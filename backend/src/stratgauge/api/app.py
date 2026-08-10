@@ -18,6 +18,7 @@ from stratgauge.api.analysis import (
     InMemoryAnalysisRepository,
 )
 from stratgauge.api.selections import (
+    ManualSelectionRequest,
     SelectionApiError,
     SelectionBatchView,
     SelectionFormulaCreateRequest,
@@ -131,6 +132,14 @@ def create_app(
     @app.post("/v1/selection-batches", response_model=SelectionBatchView, status_code=201)
     def import_selection_batch(request: SelectionImportRequest) -> SelectionBatchView:
         return selections.import_batch(request)
+
+    @app.post(
+        "/v1/selection-batches/manual",
+        response_model=SelectionBatchView,
+        status_code=201,
+    )
+    def create_manual_selection_batch(request: ManualSelectionRequest) -> SelectionBatchView:
+        return selections.create_manual_batch(request)
 
     @app.get(
         "/v1/data-management/batches",

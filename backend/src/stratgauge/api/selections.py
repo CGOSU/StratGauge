@@ -20,10 +20,16 @@ from stratgauge.backtest.selection_outcomes import (
     latest_selection_outcomes,
 )
 from stratgauge.backtest.selection_stats import SelectionOutcomeStats, summarize_selection_outcomes
+from stratgauge.data_pipeline.manual_selection import (
+    ManualSelectionCandidateInput,
+    ManualSelectionError,
+    build_manual_selection,
+)
 from stratgauge.data_pipeline.selection_store import SelectionImportStore, SelectionStoreError
 from stratgauge.data_pipeline.store import SnapshotStore
 from stratgauge.data_pipeline.tdx_import import TdxImportError, import_tdx_export
 from stratgauge.data_sources.base import MarketDataAdapter
+from stratgauge.domain.models import Exchange
 from stratgauge.domain.selections import (
     ManualSelectionDecision,
     ManualSelectionLabel,
@@ -72,6 +78,44 @@ class SelectionImportRequest(BaseModel):
     def require_aware_export_time(cls, value: datetime) -> datetime:
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("exported_at must include a timezone")
+        return value
+
+
+class ManualSelectionCandidateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    local_code: str
+    exchange: Exchange
+    name: str | None = None
+    note: str | None = None
+
+    @field_validator("local_code")
+    @classmethod
+    def normalize_local_code(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if len(normalized) != 6 or not normalized.isascii() or not normalized.isdigit():
+            raise ValueError("local_code must contain exactly six digits")
+        return normalized
+
+    @field_validator("name", "note")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        return None if value is None else value.strip() or None
+
+
+class ManualSelectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    selection_date: date
+    recorded_at: datetime
+    formula_id: str = Field(min_length=1)
+    candidates: list[ManualSelectionCandidateRequest] = Field(min_length=1)
+
+    @field_validator("recorded_at")
+    @classmethod
+    def require_aware_recorded_time(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("recorded_at must include a timezone")
         return value
 
 
@@ -393,23 +437,54 @@ class SelectionService:
         except ValueError as exc:
             raise SelectionApiError("INVALID_SELECTION_METADATA", str(exc), 422) from exc
 
+    def create_manual_batch(self, request: ManualSelectionRequest) -> SelectionBatchView:
+        formula = self._load_active_formula(request.formula_id)
+        try:
+            result = build_manual_selection(
+                selection_date=request.selection_date,
+                recorded_at=request.recorded_at,
+                imported_at=datetime.now(UTC),
+                formula_id=formula.formula_id,
+                formula_name=formula.name,
+                formula_version=formula.version,
+                candidates=tuple(
+                    ManualSelectionCandidateInput(
+                        local_code=candidate.local_code,
+                        exchange=candidate.exchange,
+                        name=candidate.name,
+                        note=candidate.note,
+                    )
+                    for candidate in request.candidates
+                ),
+            )
+            self._store.write(result.raw_content, result.imported)
+            return self._view(self._store.load_import(result.imported.batch.batch_id))
+        except ManualSelectionError as exc:
+            raise SelectionApiError("INVALID_MANUAL_SELECTION", str(exc), 422) from exc
+        except SelectionStoreError as exc:
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+        except ValueError as exc:
+            raise SelectionApiError("INVALID_MANUAL_SELECTION", str(exc), 422) from exc
+
     def _formula_metadata(
         self,
         request: SelectionImportRequest,
     ) -> tuple[str, str | None, str | None]:
         if request.formula_id is not None:
-            try:
-                formula = self._store.load_formula(request.formula_id)
-            except SelectionStoreError as exc:
-                raise SelectionApiError(
-                    "SELECTION_FORMULA_NOT_FOUND", "选股公式不存在。", 404
-                ) from exc
-            if not self._store.is_entity_active("formula", formula.formula_id):
-                raise SelectionApiError("SELECTION_FORMULA_ARCHIVED", "选股公式已停用。", 422)
+            formula = self._load_active_formula(request.formula_id)
             return formula.name, formula.version, formula.formula_id
         if request.formula_name is None:
             raise SelectionApiError("SELECTION_FORMULA_REQUIRED", "必须选择一个选股公式。", 422)
         return request.formula_name, request.formula_version, None
+
+    def _load_active_formula(self, formula_id: str) -> SelectionFormula:
+        try:
+            formula = self._store.load_formula(formula_id)
+        except SelectionStoreError as exc:
+            raise SelectionApiError("SELECTION_FORMULA_NOT_FOUND", "选股公式不存在。", 404) from exc
+        if not self._store.is_entity_active("formula", formula.formula_id):
+            raise SelectionApiError("SELECTION_FORMULA_ARCHIVED", "选股公式已停用。", 422)
+        return formula
 
     def mature_batch(
         self,

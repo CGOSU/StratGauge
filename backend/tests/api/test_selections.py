@@ -169,6 +169,158 @@ class SelectionApiTests(unittest.TestCase):
         self.assertEqual(stats.json()["pending"], 1)
         self.assertEqual(stats.json()["summary"]["total"], 0)
 
+    def test_manual_batch_persists_canonical_raw_evidence_and_is_idempotent(self) -> None:
+        formula = self.client.post(
+            "/v1/formulas",
+            json={"name": "手工公式", "version": "v1"},
+        ).json()["formula"]
+        request = {
+            "selection_date": "2026-01-05",
+            "recorded_at": "2026-01-05T15:05:00+08:00",
+            "formula_id": formula["formula_id"],
+            "candidates": [
+                {
+                    "local_code": "000001",
+                    "exchange": "SZ",
+                    "name": "平安银行",
+                    "note": "收盘后确认",
+                }
+            ],
+        }
+
+        first = self.client.post("/v1/selection-batches/manual", json=request)
+        second = self.client.post("/v1/selection-batches/manual", json=request)
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(first.json(), second.json())
+        batch = first.json()["batch"]
+        self.assertEqual(batch["source"], "manual")
+        self.assertEqual(batch["source_filename"], "manual-2026-01-05.json")
+        self.assertEqual(first.json()["candidates"][0]["candidate"]["symbol"], "000001.SZ")
+        self.assertEqual(
+            first.json()["candidates"][0]["candidate"]["source_fields"],
+            {"note": "收盘后确认"},
+        )
+
+        raw = self.client.get(f"/v1/data-management/batches/{batch['batch_id']}/raw")
+        expected = (
+            '{"candidates":[{"exchange":"SZ","local_code":"000001",'
+            '"name":"平安银行","note":"收盘后确认"}],'
+            f'"formula_id":"{formula["formula_id"]}",'
+            '"recorded_at":"2026-01-05T15:05:00+08:00",'
+            '"selection_date":"2026-01-05"}'
+        ).encode()
+        self.assertEqual(raw.status_code, 200)
+        self.assertEqual(raw.content, expected)
+
+    def test_manual_batch_rejects_duplicate_symbol(self) -> None:
+        formula = self.client.post(
+            "/v1/formulas",
+            json={"name": "重复校验公式", "version": "v1"},
+        ).json()["formula"]
+        response = self.client.post(
+            "/v1/selection-batches/manual",
+            json={
+                "selection_date": "2026-01-05",
+                "recorded_at": "2026-01-05T15:05:00+08:00",
+                "formula_id": formula["formula_id"],
+                "candidates": [
+                    {"local_code": "000001", "exchange": "SZ"},
+                    {"local_code": "000001", "exchange": "SZ"},
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["error"]["code"], "INVALID_MANUAL_SELECTION")
+
+    def test_manual_batch_uses_each_explicit_exchange(self) -> None:
+        formula = self.client.post(
+            "/v1/formulas",
+            json={"name": "显式交易所公式", "version": "v1"},
+        ).json()["formula"]
+        response = self.client.post(
+            "/v1/selection-batches/manual",
+            json={
+                "selection_date": "2026-01-05",
+                "recorded_at": "2026-01-05T15:05:00+08:00",
+                "formula_id": formula["formula_id"],
+                "candidates": [
+                    {"local_code": "000001", "exchange": "SH"},
+                    {"local_code": "000001", "exchange": "SZ"},
+                    {"local_code": "920001", "exchange": "BJ"},
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            [item["candidate"]["symbol"] for item in response.json()["candidates"]],
+            ["000001.SH", "000001.SZ", "920001.BJ"],
+        )
+
+    def test_manual_batch_reuses_formula_not_found_and_archived_errors(self) -> None:
+        request = {
+            "selection_date": "2026-01-05",
+            "recorded_at": "2026-01-05T15:05:00+08:00",
+            "formula_id": "formula-ffffffffffffffffffff",
+            "candidates": [{"local_code": "000001", "exchange": "SZ"}],
+        }
+        unknown = self.client.post("/v1/selection-batches/manual", json=request)
+        self.assertEqual(unknown.status_code, 404)
+        self.assertEqual(unknown.json()["error"]["code"], "SELECTION_FORMULA_NOT_FOUND")
+
+        formula = self.client.post(
+            "/v1/formulas",
+            json={"name": "归档公式", "version": "v1"},
+        ).json()["formula"]
+        archived = self.client.post(
+            f"/v1/data-management/formulas/{formula['formula_id']}/archive",
+            json={"reason": "手工测试"},
+        )
+        self.assertEqual(archived.status_code, 200)
+        request["formula_id"] = formula["formula_id"]
+        response = self.client.post("/v1/selection-batches/manual", json=request)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["error"]["code"], "SELECTION_FORMULA_ARCHIVED")
+
+    def test_formula_versions_can_coexist_without_changing_historical_manual_batch(self) -> None:
+        v1 = self.client.post(
+            "/v1/formulas",
+            json={"name": "版本化公式", "version": "v1"},
+        ).json()["formula"]
+        v2 = self.client.post(
+            "/v1/formulas",
+            json={"name": "版本化公式", "version": "v2"},
+        ).json()["formula"]
+        request = {
+            "selection_date": "2026-01-05",
+            "recorded_at": "2026-01-05T15:05:00+08:00",
+            "candidates": [{"local_code": "000001", "exchange": "SZ"}],
+        }
+        request["formula_id"] = v1["formula_id"]
+        first = self.client.post("/v1/selection-batches/manual", json=request)
+        request["formula_id"] = v2["formula_id"]
+        second = self.client.post("/v1/selection-batches/manual", json=request)
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        first_batch = first.json()["batch"]
+        second_batch = second.json()["batch"]
+        self.assertNotEqual(first_batch["batch_id"], second_batch["batch_id"])
+        self.assertEqual(first_batch["formula_id"], v1["formula_id"])
+        self.assertEqual(first_batch["formula_version"], "v1")
+        self.assertEqual(second_batch["formula_id"], v2["formula_id"])
+        self.assertEqual(second_batch["formula_version"], "v2")
+
+        historical = self.client.get(f"/v1/selection-batches/{first_batch['batch_id']}")
+        self.assertEqual(historical.status_code, 200)
+        self.assertEqual(historical.json()["batch"]["formula_id"], v1["formula_id"])
+        self.assertEqual(historical.json()["batch"]["formula_version"], "v1")
+        self.assertEqual(len(self.client.get("/v1/formulas").json()), 2)
+
     def test_mature_endpoint_runs_injected_provider_and_refreshes_results(self) -> None:
         with TemporaryDirectory() as market_directory:
             evaluated_at = datetime(2026, 1, 7, 9, tzinfo=UTC)

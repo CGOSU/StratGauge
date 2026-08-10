@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, KeyboardEvent } from 'react'
 import { Archive, Database, Download, LayoutDashboard, Pencil, Plus, RotateCcw } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -17,6 +17,9 @@ type OutcomeStatus = 'win' | 'loss' | 'flat' | 'no_entry' | 'unresolved'
 type Workspace = 'research' | 'management'
 type LifecycleStatus = 'active' | 'archived'
 type ManagementFilter = 'all' | LifecycleStatus
+type BatchSource = 'tongdaxin' | 'manual'
+type ManagementSourceFilter = 'all' | BatchSource
+type Exchange = 'SH' | 'SZ' | 'BJ'
 
 type Formula = {
   formula_id: string
@@ -28,6 +31,7 @@ type Formula = {
 
 type Batch = {
   batch_id: string
+  source: BatchSource
   formula_id: string | null
   source_filename: string | null
   selection_date: string
@@ -59,9 +63,17 @@ type Candidate = {
   batch_id: string
   local_code: string
   symbol: string
-  exchange: 'SH' | 'SZ' | 'BJ'
+  exchange: Exchange
   name: string | null
   source_fields: Record<string, string>
+}
+
+type ManualCandidateDraft = {
+  id: number
+  local_code: string
+  exchange: Exchange
+  name: string
+  note: string
 }
 
 type CandidateView = {
@@ -147,6 +159,12 @@ const providerLabels = {
   waizao: '歪枣网（临时恢复源）',
 } as const
 
+const exchangeLabels: Record<Exchange, string> = {
+  SH: '上海 SH',
+  SZ: '深圳 SZ',
+  BJ: '北京 BJ',
+}
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init)
   const payload = (await response.json()) as T | ApiErrorPayload
@@ -195,6 +213,17 @@ function App() {
   const [newFormulaDescription, setNewFormulaDescription] = useState('')
   const [formulaDialogOpen, setFormulaDialogOpen] = useState(false)
   const [formulaBusy, setFormulaBusy] = useState(false)
+  const [manualDialogOpen, setManualDialogOpen] = useState(false)
+  const [manualFormulaId, setManualFormulaId] = useState('')
+  const [manualSelectionDate, setManualSelectionDate] = useState('')
+  const [manualRecordedAt, setManualRecordedAt] = useState('')
+  const [manualCandidateCode, setManualCandidateCode] = useState('')
+  const [manualCandidateExchange, setManualCandidateExchange] = useState<Exchange | ''>('')
+  const [manualCandidateName, setManualCandidateName] = useState('')
+  const [manualCandidateNote, setManualCandidateNote] = useState('')
+  const [manualCandidates, setManualCandidates] = useState<ManualCandidateDraft[]>([])
+  const [manualBusy, setManualBusy] = useState(false)
+  const [manualError, setManualError] = useState<string | null>(null)
   const [batches, setBatches] = useState<Batch[]>([])
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
   const [selectedBatch, setSelectedBatch] = useState<BatchView | null>(null)
@@ -219,6 +248,7 @@ function App() {
   const formulasLoadStarted = useRef(false)
   const workspaceInitialized = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const nextManualCandidateId = useRef(0)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -459,6 +489,122 @@ function App() {
     }
   }
 
+  function openManualDialog() {
+    const availableFormulaId = formulas.some((formula) => formula.formula_id === selectedFormulaId)
+      ? selectedFormulaId
+      : formulas[0]?.formula_id ?? ''
+    setManualFormulaId(availableFormulaId)
+    setManualSelectionDate(selectionDate)
+    setManualRecordedAt(exportedAt)
+    setManualError(null)
+    setManualDialogOpen(true)
+  }
+
+  function resetManualForm() {
+    setManualFormulaId('')
+    setManualSelectionDate('')
+    setManualRecordedAt('')
+    setManualCandidateCode('')
+    setManualCandidateExchange('')
+    setManualCandidateName('')
+    setManualCandidateNote('')
+    setManualCandidates([])
+    setManualError(null)
+    nextManualCandidateId.current = 0
+  }
+
+  function closeManualDialog() {
+    if (manualBusy) {
+      return
+    }
+    resetManualForm()
+    setManualDialogOpen(false)
+  }
+
+  function addManualCandidate() {
+    const localCode = manualCandidateCode.trim()
+    if (!/^\d{6}$/.test(localCode)) {
+      setManualError('股票代码必须是六位数字。')
+      return
+    }
+    if (!manualCandidateExchange) {
+      setManualError('请选择交易所，系统不会根据代码前缀猜测交易所。')
+      return
+    }
+    if (
+      manualCandidates.some(
+        (candidate) =>
+          candidate.local_code === localCode && candidate.exchange === manualCandidateExchange,
+      )
+    ) {
+      setManualError(`${localCode}.${manualCandidateExchange} 已在预览中。`)
+      return
+    }
+    nextManualCandidateId.current += 1
+    setManualCandidates((current) => [
+      ...current,
+      {
+        id: nextManualCandidateId.current,
+        local_code: localCode,
+        exchange: manualCandidateExchange,
+        name: manualCandidateName.trim(),
+        note: manualCandidateNote.trim(),
+      },
+    ])
+    setManualCandidateCode('')
+    setManualCandidateExchange('')
+    setManualCandidateName('')
+    setManualCandidateNote('')
+    setManualError(null)
+  }
+
+  function handleManualCandidateKeyDown(
+    event: KeyboardEvent<HTMLInputElement> | KeyboardEvent<HTMLSelectElement>,
+  ) {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      addManualCandidate()
+    }
+  }
+
+  function removeManualCandidate(candidateId: number) {
+    setManualCandidates((current) => current.filter((candidate) => candidate.id !== candidateId))
+  }
+
+  async function createManualBatch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!manualFormulaId || !manualSelectionDate || !manualRecordedAt || manualCandidates.length === 0) {
+      setManualError('请选择公式、日期和记录时间，并至少加入一条候选。')
+      return
+    }
+    setManualBusy(true)
+    setManualError(null)
+    try {
+      const result = await requestJson<BatchView>(`${apiBase}/v1/selection-batches/manual`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          selection_date: manualSelectionDate,
+          recorded_at: toShanghaiDateTime(manualRecordedAt),
+          formula_id: manualFormulaId,
+          candidates: manualCandidates.map((candidate) => ({
+            local_code: candidate.local_code,
+            exchange: candidate.exchange,
+            name: candidate.name || null,
+            note: candidate.note || null,
+          })),
+        }),
+      })
+      await loadBatches(result.batch.batch_id)
+      resetManualForm()
+      setManualDialogOpen(false)
+    } catch (reason: unknown) {
+      setManualError(reason instanceof Error ? reason.message : '创建手工批次失败。')
+    } finally {
+      setManualBusy(false)
+    }
+  }
+
   return (
     <main className="shell">
       <header className="hero">
@@ -524,7 +670,217 @@ function App() {
               <p className="eyebrow">01 · 导入</p>
               <h2>新建选股批次</h2>
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={manualBusy}
+              aria-haspopup="dialog"
+              onClick={openManualDialog}
+            >
+              <Plus className="h-4 w-4" />
+              手动添加候选
+            </Button>
           </div>
+          <Dialog
+            open={manualDialogOpen}
+            onOpenChange={(open) => {
+              if (!open && manualBusy) {
+                return
+              }
+              if (!open) {
+                resetManualForm()
+              }
+              setManualDialogOpen(open)
+              if (open) {
+                setManualError(null)
+              }
+            }}
+          >
+            <DialogContent className="manual-dialog-content">
+              <DialogHeader>
+                <DialogTitle>手动添加候选</DialogTitle>
+                <DialogDescription>
+                  明确记录选股批次和交易所，不根据代码前缀猜测市场。提交后会保存为手工来源批次。
+                </DialogDescription>
+              </DialogHeader>
+              <form className="dialog-form manual-dialog-form" onSubmit={createManualBatch}>
+                <div className="manual-metadata-fields">
+                  <div className="field">
+                    <Label htmlFor="manual-formula-select">启用公式</Label>
+                    <Select value={manualFormulaId} onValueChange={setManualFormulaId}>
+                      <SelectTrigger id="manual-formula-select" aria-describedby="manual-formula-help">
+                        <SelectValue placeholder={formulas.length ? '选择启用公式' : '暂无启用公式'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {formulas.map((formula) => (
+                          <SelectItem key={formula.formula_id} value={formula.formula_id}>
+                            {formula.name}{formula.version ? ` · ${formula.version}` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <small id="manual-formula-help">
+                      {formulas.length ? '仅显示当前启用公式。' : '请先新建一个公式。'}
+                    </small>
+                  </div>
+                  <div className="field">
+                    <Label htmlFor="manual-selection-date">选股日期</Label>
+                    <Input
+                      id="manual-selection-date"
+                      type="date"
+                      value={manualSelectionDate}
+                      onChange={(event) => setManualSelectionDate(event.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="field">
+                    <Label htmlFor="manual-recorded-at">记录时间（北京时间）</Label>
+                    <Input
+                      id="manual-recorded-at"
+                      type="datetime-local"
+                      value={manualRecordedAt}
+                      onChange={(event) => setManualRecordedAt(event.target.value)}
+                      required
+                    />
+                    <small>提交时会带上 +08:00 时区。</small>
+                  </div>
+                </div>
+
+                <div className="manual-candidate-entry">
+                  <div>
+                    <h3>添加一条候选</h3>
+                    <p>代码必须为六位数字，交易所必须显式选择。</p>
+                  </div>
+                  <div className="manual-entry-fields">
+                    <div className="field">
+                      <Label htmlFor="manual-candidate-code">六位代码</Label>
+                      <Input
+                        id="manual-candidate-code"
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        pattern="[0-9]{6}"
+                        value={manualCandidateCode}
+                        onChange={(event) => setManualCandidateCode(event.target.value)}
+                        onKeyDown={handleManualCandidateKeyDown}
+                        placeholder="例如 600000"
+                        aria-describedby="manual-candidate-help"
+                      />
+                    </div>
+                    <div className="field">
+                      <Label htmlFor="manual-candidate-exchange">交易所</Label>
+                      <select
+                        id="manual-candidate-exchange"
+                        className="native-select"
+                        value={manualCandidateExchange}
+                        onChange={(event) => setManualCandidateExchange(event.target.value as Exchange | '')}
+                        onKeyDown={handleManualCandidateKeyDown}
+                      >
+                        <option value="">选择交易所</option>
+                        {Object.entries(exchangeLabels).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="field">
+                      <Label htmlFor="manual-candidate-name">名称（可选）</Label>
+                      <Input
+                        id="manual-candidate-name"
+                        type="text"
+                        value={manualCandidateName}
+                        onChange={(event) => setManualCandidateName(event.target.value)}
+                        onKeyDown={handleManualCandidateKeyDown}
+                        placeholder="例如 平安银行"
+                      />
+                    </div>
+                    <div className="field">
+                      <Label htmlFor="manual-candidate-note">备注（可选）</Label>
+                      <Input
+                        id="manual-candidate-note"
+                        type="text"
+                        value={manualCandidateNote}
+                        onChange={(event) => setManualCandidateNote(event.target.value)}
+                        onKeyDown={handleManualCandidateKeyDown}
+                        placeholder="记录当时的判断"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={manualBusy}
+                      onClick={addManualCandidate}
+                    >
+                      加入预览
+                    </Button>
+                  </div>
+                  <small id="manual-candidate-help">按 Enter 也可以加入预览。</small>
+                </div>
+
+                {manualError && (
+                  <p className="manual-form-error" role="alert">
+                    {manualError}
+                  </p>
+                )}
+
+                <div className="manual-preview" aria-labelledby="manual-preview-title">
+                  <div className="manual-preview-heading">
+                    <h3 id="manual-preview-title">候选预览</h3>
+                    <span>{manualCandidates.length} 条</span>
+                  </div>
+                  {manualCandidates.length === 0 ? (
+                    <p className="empty-copy">尚未加入候选，至少添加一条后才能提交。</p>
+                  ) : (
+                    <div className="manual-preview-list">
+                      {manualCandidates.map((candidate) => (
+                        <article className="manual-preview-row" key={candidate.id}>
+                          <div className="manual-preview-identity">
+                            <strong>{candidate.local_code}.{candidate.exchange}</strong>
+                            <span>{candidate.name || '未提供名称'}</span>
+                          </div>
+                          <span className="manual-preview-note">{candidate.note || '未填写备注'}</span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={manualBusy}
+                            aria-label={`移除 ${candidate.local_code}.${candidate.exchange}`}
+                            onClick={() => removeManualCandidate(candidate.id)}
+                          >
+                            移除
+                          </Button>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={manualBusy}
+                    onClick={closeManualDialog}
+                  >
+                    取消
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={
+                      manualBusy ||
+                      !manualFormulaId ||
+                      !manualSelectionDate ||
+                      !manualRecordedAt ||
+                      manualCandidates.length === 0
+                    }
+                  >
+                    {manualBusy ? '提交中…' : '提交手工批次'}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
           <form className="import-form" onSubmit={importSelection}>
             <div className="field">
               <Label htmlFor="selection-file">通达信导出文件</Label>
@@ -662,7 +1018,9 @@ function App() {
                 >
                   <span>
                     <strong>{batch.formula_name}</strong>
-                    <small>{batch.selection_date} · {batch.source_filename ?? '未记录文件名'}</small>
+                    <small>
+                      {batch.selection_date} · {sourceLabel(batch.source)} · {batch.source_filename ?? '未记录文件名'}
+                    </small>
                   </span>
                   <span className="batch-count">{batch.candidate_count} 只</span>
                 </Button>
@@ -866,6 +1224,7 @@ function DataManagementWorkspace({ apiBase }: { apiBase: string }) {
   const [formulas, setFormulas] = useState<ManagedFormula[]>([])
   const [batches, setBatches] = useState<ManagedBatch[]>([])
   const [filter, setFilter] = useState<ManagementFilter>('all')
+  const [sourceFilter, setSourceFilter] = useState<ManagementSourceFilter>('all')
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
   const [selectedBatch, setSelectedBatch] = useState<ManagedBatchDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -929,6 +1288,26 @@ function DataManagementWorkspace({ apiBase }: { apiBase: string }) {
       })
     return () => controller.abort()
   }, [apiBase, selectedBatchId])
+
+  useEffect(() => {
+    if (!selectedBatchId) {
+      return
+    }
+    const selectedItem = batches.find((item) => item.batch.batch_id === selectedBatchId)
+    if (
+      selectedItem &&
+      matchesManagementFilter(selectedItem.active, filter) &&
+      matchesSourceFilter(selectedItem.batch.source, sourceFilter)
+    ) {
+      return
+    }
+    const nextItem = batches.find(
+      (item) =>
+        matchesManagementFilter(item.active, filter) &&
+        matchesSourceFilter(item.batch.source, sourceFilter),
+    )
+    setSelectedBatchId(nextItem?.batch.batch_id ?? null)
+  }, [batches, filter, selectedBatchId, sourceFilter])
 
   function beginFormulaRevision(item: ManagedFormula) {
     setEditingFormula(item)
@@ -1001,7 +1380,11 @@ function DataManagementWorkspace({ apiBase }: { apiBase: string }) {
   }
 
   const visibleFormulas = formulas.filter((item) => matchesManagementFilter(item.active, filter))
-  const visibleBatches = batches.filter((item) => matchesManagementFilter(item.active, filter))
+  const visibleBatches = batches.filter(
+    (item) =>
+      matchesManagementFilter(item.active, filter) &&
+      matchesSourceFilter(item.batch.source, sourceFilter),
+  )
 
   return (
     <section className="management-workspace" aria-label="数据管理工作区">
@@ -1011,18 +1394,33 @@ function DataManagementWorkspace({ apiBase }: { apiBase: string }) {
           <h2>管理公式、批次和原始证据</h2>
           <p>停用只改变工作台可见性，不删除原始导出、标签历史或客观结果。</p>
         </div>
-        <div className="management-filter" role="group" aria-label="数据状态筛选">
-          {(['all', 'active', 'archived'] as ManagementFilter[]).map((value) => (
-            <Button
-              key={value}
-              type="button"
-              size="sm"
-              variant={filter === value ? 'default' : 'outline'}
-              onClick={() => setFilter(value)}
-            >
-              {managementFilterLabel(value)}
-            </Button>
-          ))}
+        <div className="management-filters">
+          <div className="management-filter" role="group" aria-label="数据状态筛选">
+            {(['all', 'active', 'archived'] as ManagementFilter[]).map((value) => (
+              <Button
+                key={value}
+                type="button"
+                size="sm"
+                variant={filter === value ? 'default' : 'outline'}
+                onClick={() => setFilter(value)}
+              >
+                {managementFilterLabel(value)}
+              </Button>
+            ))}
+          </div>
+          <div className="management-filter" role="group" aria-label="批次来源筛选">
+            {(['all', 'tongdaxin', 'manual'] as ManagementSourceFilter[]).map((value) => (
+              <Button
+                key={value}
+                type="button"
+                size="sm"
+                variant={sourceFilter === value ? 'default' : 'outline'}
+                onClick={() => setSourceFilter(value)}
+              >
+                {sourceFilterLabel(value)}
+              </Button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1129,12 +1527,20 @@ function DataManagementWorkspace({ apiBase }: { apiBase: string }) {
                             <strong>{item.batch.formula_name}</strong>
                             <span>{item.batch.selection_date}</span>
                           </div>
-                          <Badge
-                            variant={item.active ? 'secondary' : 'outline'}
-                            className={`lifecycle-badge lifecycle-badge--${item.active ? 'active' : 'archived'}`}
-                          >
-                            {item.active ? '启用' : '已归档'}
-                          </Badge>
+                          <div className="management-badge-group">
+                            <Badge
+                              variant="outline"
+                              className={`source-badge source-badge--${item.batch.source}`}
+                            >
+                              {sourceLabel(item.batch.source)}
+                            </Badge>
+                            <Badge
+                              variant={item.active ? 'secondary' : 'outline'}
+                              className={`lifecycle-badge lifecycle-badge--${item.active ? 'active' : 'archived'}`}
+                            >
+                              {item.active ? '启用' : '已归档'}
+                            </Badge>
+                          </div>
                         </div>
                         <p>{item.batch.source_filename ?? '未记录原始文件名'}</p>
                         <div className="management-record-meta">
@@ -1196,9 +1602,17 @@ function DataManagementWorkspace({ apiBase }: { apiBase: string }) {
                 <h2 id="management-detail-title">批次内容与生命周期</h2>
               </div>
               {selectedBatch && (
-                <Badge variant={selectedBatch.active ? 'secondary' : 'outline'}>
-                  {selectedBatch.active ? '启用' : '已归档'}
-                </Badge>
+                <div className="management-badge-group">
+                  <Badge
+                    variant="outline"
+                    className={`source-badge source-badge--${selectedBatch.view.batch.source}`}
+                  >
+                    {sourceLabel(selectedBatch.view.batch.source)}
+                  </Badge>
+                  <Badge variant={selectedBatch.active ? 'secondary' : 'outline'}>
+                    {selectedBatch.active ? '启用' : '已���档'}
+                  </Badge>
+                </div>
               )}
             </div>
             {detailLoading ? (
@@ -1212,7 +1626,10 @@ function DataManagementWorkspace({ apiBase }: { apiBase: string }) {
               <>
                 <div className="management-detail-summary">
                   <div>
-                    <strong>{selectedBatch.view.batch.source_filename ?? '未记录原始文件名'}</strong>
+                    <strong>
+                      {sourceLabel(selectedBatch.view.batch.source)} ·{' '}
+                      {selectedBatch.view.batch.source_filename ?? '未记录原始文件名'}
+                    </strong>
                     <span>{selectedBatch.view.batch.formula_name} · {selectedBatch.view.batch.selection_date}</span>
                   </div>
                   <div className="management-record-actions">
@@ -1352,6 +1769,18 @@ function matchesManagementFilter(active: boolean, filter: ManagementFilter): boo
 
 function managementFilterLabel(filter: ManagementFilter): string {
   return filter === 'all' ? '全部' : filter === 'active' ? '启用中' : '已停用'
+}
+
+function matchesSourceFilter(source: BatchSource, filter: ManagementSourceFilter): boolean {
+  return filter === 'all' || source === filter
+}
+
+function sourceFilterLabel(filter: ManagementSourceFilter): string {
+  return filter === 'all' ? '全部' : sourceLabel(filter)
+}
+
+function sourceLabel(source: BatchSource): string {
+  return source === 'manual' ? '手工' : '通达信'
 }
 
 function formatManagementDate(value: string): string {
