@@ -365,10 +365,11 @@ PYTHONPATH=src uv run python scripts/validate_walk_forward.py \
   --input data/selection-features/features.jsonl \
   --folds data/selection-features/walk-forward-folds.json \
   --final-test-start 2026-10-01 \
-  --output data/models/walk-forward-v1/report.json
+  --outcomes data/selection-datasets/batch.jsonl \
+  --output data/models/walk-forward-v2/report.json
 ```
 
-折 JSON 必须由研究配置显式提供；最终测试期只计数、不参与折验证。当前输入契约没有成交/净收益序列，因此报告中的成交率、净收益、回撤和换手保持为空。
+折 JSON 必须由研究配置显式提供；最终测试期只计数、不参与折验证。`--outcomes` 可选，提供后按候选/选股日关联 `selection-dataset-v2` 的客观结果：未解决样本不进入执行率分母，缺少净收益或名义金额时对应收益/换手指标保持为空；不提供时仍只生成概率指标和标签清除审计。
 
 模型注册会复制模型、评估报告和训练 manifest，并校验 SHA-256；生命周期只能人工追加，不能自动晋升：
 

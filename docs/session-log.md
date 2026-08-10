@@ -328,3 +328,9 @@
 - 完成内容：新增 `ml` 可选依赖、`lightgbm_training.py` 和 `train_selection_lightgbm.py`；固定确定性 LightGBM 配置，复用特征 JSONL 和时间切分，输出模型文本、未校准分区指标、预测明细及不可覆盖 manifest；默认路径不加载 LightGBM，不影响原始策略流程。
 - 验证：默认后端 195 项测试通过（1 项环境相关跳过）；Ruff、MyPy、CLI 帮助检查通过；显式 `uv run --extra ml` 安装 LightGBM 4.7.0 后完成真实小样本训练与工件写入；前端 typecheck/build/lint 和 `git diff --check` 通过。
 - 遗留问题：完整走步成交/收益指标、概率校准、LightGBM 模型注册/影子评分、批次自动接入和 Web 展示仍未实现。
+
+### 2026-08-10 走步验证指标补齐
+
+- 完成内容：走步报告升级为 `selection-walk-forward-v2`；`validate_walk_forward.py` 增加可选 `--outcomes`，按候选/选股日关联客观结果并输出结果覆盖率、执行率、平均净收益、最大回撤、换手和市场状态平均收益；最终测试行仍不参与折评估，结果源哈希写入报告。
+- 验证：后端 196 项测试通过（1 项环境相关跳过）；Ruff、MyPy、CLI 帮助检查、前端 typecheck/build/lint 和 `git diff --check` 通过。
+- 遗留问题：概率校准、模型批次自动接入、Web 评分和完整模型运营仍未实现。
