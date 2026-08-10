@@ -25,6 +25,8 @@ class SelectionDatasetRow(BaseModel):
     batch_id: str
     symbol: str
     selection_date: str
+    source_filename: str | None
+    formula_id: str | None
     formula_name: str
     formula_version: str | None
     manual_decision: ManualSelectionDecision | None
@@ -59,6 +61,8 @@ def build_selection_dataset(
                     batch_id=batch_id,
                     symbol=candidate.symbol,
                     selection_date=imported.batch.selection_date.isoformat(),
+                    source_filename=imported.batch.source_filename,
+                    formula_id=imported.batch.formula_id,
                     formula_name=imported.batch.formula_name,
                     formula_version=imported.batch.formula_version,
                     manual_decision=latest_label.decision if latest_label else None,
@@ -86,6 +90,12 @@ def build_selection_dataset(
     return tuple(rows)
 
 
+def serialize_selection_dataset(rows: Iterable[SelectionDatasetRow]) -> str:
+    """Serialize dataset rows as newline-delimited JSON."""
+
+    return "".join(f"{row.model_dump_json()}\n" for row in rows)
+
+
 def write_selection_dataset(path: str | Path, rows: Iterable[SelectionDatasetRow]) -> None:
     """Write newline-delimited JSON without overwriting an existing dataset."""
 
@@ -93,7 +103,7 @@ def write_selection_dataset(path: str | Path, rows: Iterable[SelectionDatasetRow
     if destination.exists():
         raise FileExistsError(f"dataset already exists: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    content = "".join(f"{row.model_dump_json()}\n" for row in rows)
+    content = serialize_selection_dataset(rows)
     temporary = destination.with_suffix(f"{destination.suffix}.tmp")
     try:
         temporary.write_text(content, encoding="utf-8", newline="\n")

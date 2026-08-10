@@ -37,6 +37,29 @@ class TdxImportTests(unittest.TestCase):
         self.assertEqual(imported.candidates[0].source_fields["评分"], "85")
         self.assertTrue(imported.candidates[0].candidate_id.startswith("tdx-"))
 
+    def test_imports_tongdaxin_gbk_quote_table_without_exchange_column(self) -> None:
+        content = (
+            "代码\t名称(4)\t涨幅%\t现价\t\n"
+            "002167\t东方锆业\t3.31\t17.79\t\n"
+            "600593\t大连圣亚\t1.30\t39.81\t\n"
+            "#数据来源:通达信\r\n"
+        ).encode("gbk")
+
+        imported = import_tdx_export(
+            content,
+            selection_date=EXPORTED_AT.date(),
+            exported_at=EXPORTED_AT,
+            imported_at=IMPORTED_AT,
+            formula_name="公式 A",
+        )
+
+        self.assertEqual(
+            [candidate.symbol for candidate in imported.candidates],
+            ["002167.SZ", "600593.SH"],
+        )
+        self.assertEqual(imported.candidates[0].name, "东方锆业")
+        self.assertEqual(imported.candidates[0].source_fields["涨幅%"], "3.31")
+
     def test_imports_tongdaxin_ebk_market_prefixed_codes(self) -> None:
         content = b"\r\n0002167\r\n1600593\r\n1603183\r\n1603980\r\n"
 

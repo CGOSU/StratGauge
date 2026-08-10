@@ -20,6 +20,7 @@ def main() -> int:
             selection_date=arguments.selection_date,
             exported_at=arguments.exported_at,
             imported_at=arguments.imported_at,
+            source_filename=arguments.file.name,
             formula_name=arguments.formula_name,
             formula_version=arguments.formula_version,
             formula_sha256=arguments.formula_sha256,

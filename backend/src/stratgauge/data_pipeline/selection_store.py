@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, time, timedelta
+import re
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 
 from stratgauge.domain.models import DomainModel
 from stratgauge.domain.selections import (
     ManualSelectionLabel,
+    SelectionFormula,
+    SelectionLifecycleEvent,
+    SelectionLifecycleStatus,
     SelectionOutcome,
     TdxSelectionImport,
 )
@@ -40,14 +45,79 @@ class SelectionImportStore:
         self.manifest_dir = self.root / "tdx" / "manifests"
         self.label_dir = self.root / "tdx" / "labels"
         self.outcome_dir = self.root / "tdx" / "outcomes"
+        self.formula_dir = self.root / "tdx" / "formulas"
+        self.lifecycle_dir = self.root / "tdx" / "lifecycle"
         for directory in (
             self.raw_dir,
             self.import_dir,
             self.manifest_dir,
             self.label_dir,
             self.outcome_dir,
+            self.formula_dir,
+            self.lifecycle_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
+
+    def create_formula(
+        self,
+        *,
+        name: str,
+        version: str | None = None,
+        description: str | None = None,
+    ) -> SelectionFormula:
+        normalized_name = name.strip()
+        normalized_version = version.strip() if version else None
+        identity = f"{normalized_name}\0{normalized_version or ''}"
+        formula_id = f"formula-{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:20]}"
+        formula = SelectionFormula(
+            formula_id=formula_id,
+            name=normalized_name,
+            version=normalized_version,
+            description=description,
+            created_at=datetime.now(UTC),
+        )
+        path = self.formula_dir / f"{formula_id}.json"
+        if path.exists():
+            existing = self.load_formula(formula_id)
+            if (
+                existing.name != formula.name
+                or existing.version != formula.version
+                or existing.description != formula.description
+            ):
+                raise SelectionStoreError("formula identity already exists with different metadata")
+            return existing
+        _atomic_write_text(path, formula.model_dump_json(indent=2))
+        return formula
+
+    def list_formulas(self, *, include_archived: bool = False) -> tuple[SelectionFormula, ...]:
+        try:
+            formulas = tuple(
+                SelectionFormula.model_validate_json(path.read_text(encoding="utf-8"))
+                for path in self.formula_dir.glob("formula-*.json")
+            )
+        except Exception as exc:
+            raise SelectionStoreError("selection formula is invalid") from exc
+        ordered = tuple(
+            sorted(
+                formulas, key=lambda formula: (formula.created_at, formula.formula_id), reverse=True
+            )
+        )
+        if include_archived:
+            return ordered
+        return tuple(
+            formula for formula in ordered if self.is_entity_active("formula", formula.formula_id)
+        )
+
+    def load_formula(self, formula_id: str) -> SelectionFormula:
+        if not re.fullmatch(r"formula-[0-9a-f]{20}", formula_id):
+            raise SelectionStoreError(f"invalid selection formula id: {formula_id}")
+        path = self.formula_dir / f"{formula_id}.json"
+        if not path.exists():
+            raise SelectionStoreError(f"selection formula does not exist: {formula_id}")
+        try:
+            return SelectionFormula.model_validate_json(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise SelectionStoreError(f"selection formula is invalid: {formula_id}") from exc
 
     def write(
         self,
@@ -160,10 +230,117 @@ class SelectionImportStore:
                 labels.append(label)
         return tuple(sorted(labels, key=lambda label: label.labeled_at))
 
-    def list_manifests(self) -> tuple[SelectionImportManifest, ...]:
-        return tuple(
+    def list_manifests(
+        self, *, include_archived: bool = False
+    ) -> tuple[SelectionImportManifest, ...]:
+        manifests = tuple(
             self.load_manifest(path.stem) for path in sorted(self.manifest_dir.glob("*.json"))
         )
+        if include_archived:
+            return manifests
+        return tuple(
+            manifest for manifest in manifests if self.is_entity_active("batch", manifest.batch_id)
+        )
+
+    def list_lifecycle_events(
+        self,
+        entity_type: Literal["formula", "batch"],
+        entity_id: str,
+    ) -> tuple[SelectionLifecycleEvent, ...]:
+        events: list[SelectionLifecycleEvent] = []
+        try:
+            for path in self.lifecycle_dir.glob("lifecycle-*.json"):
+                event = SelectionLifecycleEvent.model_validate_json(
+                    path.read_text(encoding="utf-8")
+                )
+                if event.entity_type == entity_type and event.entity_id == entity_id:
+                    events.append(event)
+        except Exception as exc:
+            raise SelectionStoreError("selection lifecycle event is invalid") from exc
+        return tuple(sorted(events, key=lambda event: (event.changed_at, event.event_id)))
+
+    def is_entity_active(self, entity_type: Literal["formula", "batch"], entity_id: str) -> bool:
+        events = self.list_lifecycle_events(entity_type, entity_id)
+        return not events or events[-1].status is SelectionLifecycleStatus.ACTIVE
+
+    def set_formula_status(
+        self,
+        formula_id: str,
+        status: SelectionLifecycleStatus,
+        *,
+        changed_at: datetime,
+        reason: str | None = None,
+    ) -> SelectionLifecycleEvent:
+        self.load_formula(formula_id)
+        return self._set_entity_status(
+            entity_type="formula",
+            entity_id=formula_id,
+            status=status,
+            changed_at=changed_at,
+            reason=reason,
+        )
+
+    def set_batch_status(
+        self,
+        batch_id: str,
+        status: SelectionLifecycleStatus,
+        *,
+        changed_at: datetime,
+        reason: str | None = None,
+    ) -> SelectionLifecycleEvent:
+        self.load_import(batch_id)
+        return self._set_entity_status(
+            entity_type="batch",
+            entity_id=batch_id,
+            status=status,
+            changed_at=changed_at,
+            reason=reason,
+        )
+
+    def load_raw(self, batch_id: str) -> bytes:
+        manifest = self.load_manifest(batch_id)
+        path = self.root / manifest.raw_path
+        if not path.exists():
+            raise SelectionStoreError(f"selection raw file does not exist: {batch_id}")
+        try:
+            return path.read_bytes()
+        except OSError as exc:
+            raise SelectionStoreError(f"failed to read selection raw file: {batch_id}") from exc
+
+    def _set_entity_status(
+        self,
+        *,
+        entity_type: Literal["formula", "batch"],
+        entity_id: str,
+        status: SelectionLifecycleStatus,
+        changed_at: datetime,
+        reason: str | None,
+    ) -> SelectionLifecycleEvent:
+        events = self.list_lifecycle_events(entity_type, entity_id)
+        if events and events[-1].status is status:
+            return events[-1]
+        identity = "\0".join(
+            (entity_type, entity_id, status.value, changed_at.isoformat(), reason or "")
+        )
+        event_id = f"lifecycle-{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:20]}"
+        event = SelectionLifecycleEvent(
+            event_id=event_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            status=status,
+            changed_at=changed_at,
+            reason=reason,
+        )
+        path = self.lifecycle_dir / f"{event_id}.json"
+        if path.exists():
+            try:
+                return SelectionLifecycleEvent.model_validate_json(path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                raise SelectionStoreError(
+                    f"selection lifecycle event is invalid: {event_id}"
+                ) from exc
+        _atomic_write_text(path, event.model_dump_json(indent=2))
+        return event
 
     def load_manifest(self, batch_id: str) -> SelectionImportManifest:
         path = self.manifest_dir / f"{batch_id}.json"

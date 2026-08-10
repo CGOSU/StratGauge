@@ -25,7 +25,9 @@ class TdxImportError(ValueError):
 
 _CODE_HEADERS: Final[frozenset[str]] = frozenset({"代码", "证券代码", "股票代码", "code", "symbol"})
 _EXCHANGE_HEADERS: Final[frozenset[str]] = frozenset({"市场", "交易所", "exchange", "market"})
-_NAME_HEADERS: Final[frozenset[str]] = frozenset({"名称", "证券名称", "股票名称", "name"})
+_NAME_HEADERS: Final[frozenset[str]] = frozenset(
+    {"名称", "名称(4)", "证券名称", "股票名称", "name"}
+)
 _EXCHANGE_ALIASES: Final[dict[str, Exchange]] = {
     "SH": Exchange.SH,
     "SSE": Exchange.SH,
@@ -55,7 +57,9 @@ def import_tdx_export(
     exported_at: datetime,
     imported_at: datetime,
     formula_name: str,
+    source_filename: str | None = None,
     formula_version: str | None = None,
+    formula_id: str | None = None,
     formula_sha256: str | None = None,
 ) -> TdxSelectionImport:
     """Parse one TongdaXin CSV/TSV/TXT or market-prefixed ``.EBK`` export.
@@ -78,25 +82,33 @@ def import_tdx_export(
         rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))
         headers = _parse_headers(rows)
         indexes = _column_indexes(headers)
+        is_tdx_table = _is_tdx_table(headers, indexes)
         data_rows = tuple(
             (line_number, row, False) for line_number, row in enumerate(rows[1:], start=2)
         )
     else:
         headers = ("代码",)
         indexes = _ColumnIndexes(code=0, exchange=None, name=None)
+        is_tdx_table = False
         data_rows = tuple((line_number, [code], True) for line_number, code in ebk_rows)
     batch_id = _batch_id(
         source_file_sha256=source_file_sha256,
         selection_date=selection_date,
         formula_name=formula_name,
         formula_version=formula_version,
+        formula_id=formula_id,
         formula_sha256=formula_sha256,
     )
 
     candidates: list[SelectionCandidate] = []
     seen_symbols: set[str] = set()
     for line_number, row, is_ebk in data_rows:
+        row = list(row)
+        while row and not row[-1].strip():
+            row.pop()
         if not any(cell.strip() for cell in row):
+            continue
+        if is_tdx_table and row[0].strip().startswith("#"):
             continue
         if len(row) > len(headers):
             raise TdxImportError(f"line {line_number} contains more fields than the header")
@@ -105,6 +117,8 @@ def import_tdx_export(
         exchange_value = values[indexes.exchange].strip() if indexes.exchange is not None else ""
         if is_ebk:
             code_value = _parse_ebk_security(code_value, line_number)
+        if is_tdx_table and not exchange_value and "." not in code_value:
+            code_value = _parse_tdx_table_security(code_value, line_number)
         local_code, exchange = _parse_security(code_value, exchange_value, line_number)
         symbol = f"{local_code}.{exchange.value}"
         if symbol in seen_symbols:
@@ -133,8 +147,10 @@ def import_tdx_export(
         selection_date=selection_date,
         exported_at=exported_at,
         imported_at=imported_at,
+        source_filename=source_filename,
         formula_name=formula_name,
         formula_version=formula_version,
+        formula_id=formula_id,
         formula_sha256=formula_sha256,
         source_file_sha256=source_file_sha256,
         candidate_count=len(candidates),
@@ -192,7 +208,10 @@ def _detect_delimiter(text: str) -> str:
 def _parse_headers(rows: Sequence[list[str]]) -> tuple[str, ...]:
     if not rows:
         raise TdxImportError("TongdaXin export has no header row")
-    headers = tuple(_normalize_header(header) for header in rows[0])
+    raw_headers = list(rows[0])
+    while raw_headers and not raw_headers[-1].strip():
+        raw_headers.pop()
+    headers = tuple(_normalize_header(header) for header in raw_headers)
     if not headers or any(not header for header in headers):
         raise TdxImportError("TongdaXin export contains an empty header")
     if len(set(headers)) != len(headers):
@@ -209,6 +228,30 @@ def _column_indexes(headers: tuple[str, ...]) -> _ColumnIndexes:
         exchange=_find_header(headers, _EXCHANGE_HEADERS),
         name=_find_header(headers, _NAME_HEADERS),
     )
+
+
+def _is_tdx_table(headers: tuple[str, ...], indexes: _ColumnIndexes) -> bool:
+    if indexes.exchange is not None or indexes.code != 0:
+        return False
+    normalized = {_normalize_header(header) for header in headers}
+    return "名称(4)" in normalized and "涨幅%" in normalized
+
+
+def _parse_tdx_table_security(value: str, line_number: int) -> str:
+    if not re.fullmatch(r"\d{6}", value):
+        raise TdxImportError(f"line {line_number} has an invalid TongdaXin table code")
+    market = {
+        "0": "SZ",
+        "3": "SZ",
+        "4": "BJ",
+        "6": "SH",
+        "8": "BJ",
+    }.get(value[0])
+    if market is None:
+        raise TdxImportError(
+            f"line {line_number} has an unsupported TongdaXin table market namespace"
+        )
+    return f"{value}.{market}"
 
 
 def _find_header(headers: tuple[str, ...], candidates: frozenset[str]) -> int | None:
@@ -256,10 +299,12 @@ def _batch_id(
     selection_date: date,
     formula_name: str,
     formula_version: str | None,
+    formula_id: str | None,
     formula_sha256: str | None,
 ) -> str:
     identity = json.dumps(
         {
+            "formula_id": formula_id,
             "formula_name": formula_name.strip(),
             "formula_sha256": formula_sha256,
             "formula_version": formula_version.strip() if formula_version else None,

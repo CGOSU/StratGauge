@@ -3,7 +3,7 @@
   "architect": {
     "provider": "openai-codex",
     "model": "gpt-5.6-sol",
-    "thinkingLevel": "max"
+    "thinkingLevel": "xhigh"
   },
   "developer-test": {
     "provider": "openai-codex",

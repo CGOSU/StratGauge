@@ -6,9 +6,10 @@ from collections.abc import Callable, Mapping
 from datetime import date
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from stratgauge.api.analysis import (
     AnalysisError,
@@ -19,8 +20,14 @@ from stratgauge.api.analysis import (
 from stratgauge.api.selections import (
     SelectionApiError,
     SelectionBatchView,
+    SelectionFormulaCreateRequest,
+    SelectionFormulaView,
     SelectionImportRequest,
     SelectionLabelRequest,
+    SelectionLifecycleChangeRequest,
+    SelectionManagedBatchDetailView,
+    SelectionManagedBatchView,
+    SelectionManagedFormulaView,
     SelectionMatureRequest,
     SelectionMatureView,
     SelectionService,
@@ -32,7 +39,11 @@ from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.baostock import BaoStockAdapter
 from stratgauge.data_sources.base import MarketDataAdapter
 from stratgauge.data_sources.waizao import WaizaoAdapter
-from stratgauge.domain.selections import SelectionBatch
+from stratgauge.domain.selections import (
+    SelectionBatch,
+    SelectionFormula,
+    SelectionLifecycleStatus,
+)
 
 
 def create_app(
@@ -70,6 +81,49 @@ def create_app(
     def get_stock_analysis(symbol: str, as_of: date) -> AnalysisRecord:
         return service.get(symbol, as_of)
 
+    @app.get("/v1/formulas", response_model=list[SelectionFormula])
+    def list_formulas() -> list[SelectionFormula]:
+        return list(selections.list_formulas())
+
+    @app.post("/v1/formulas", response_model=SelectionFormulaView, status_code=201)
+    def create_formula(request: SelectionFormulaCreateRequest) -> SelectionFormulaView:
+        return selections.create_formula(request)
+
+    @app.get(
+        "/v1/data-management/formulas",
+        response_model=list[SelectionManagedFormulaView],
+    )
+    def list_managed_formulas() -> list[SelectionManagedFormulaView]:
+        return list(selections.list_managed_formulas())
+
+    @app.post(
+        "/v1/data-management/formulas/{formula_id}/archive",
+        response_model=SelectionManagedFormulaView,
+    )
+    def archive_formula(
+        formula_id: str,
+        request: SelectionLifecycleChangeRequest,
+    ) -> SelectionManagedFormulaView:
+        return selections.set_formula_status(
+            formula_id,
+            SelectionLifecycleStatus.ARCHIVED,
+            request,
+        )
+
+    @app.post(
+        "/v1/data-management/formulas/{formula_id}/restore",
+        response_model=SelectionManagedFormulaView,
+    )
+    def restore_formula(
+        formula_id: str,
+        request: SelectionLifecycleChangeRequest,
+    ) -> SelectionManagedFormulaView:
+        return selections.set_formula_status(
+            formula_id,
+            SelectionLifecycleStatus.ACTIVE,
+            request,
+        )
+
     @app.get("/v1/selection-batches", response_model=list[SelectionBatch])
     def list_selection_batches() -> list[SelectionBatch]:
         return list(selections.list_batches())
@@ -77,6 +131,75 @@ def create_app(
     @app.post("/v1/selection-batches", response_model=SelectionBatchView, status_code=201)
     def import_selection_batch(request: SelectionImportRequest) -> SelectionBatchView:
         return selections.import_batch(request)
+
+    @app.get(
+        "/v1/data-management/batches",
+        response_model=list[SelectionManagedBatchView],
+    )
+    def list_managed_batches() -> list[SelectionManagedBatchView]:
+        return list(selections.list_managed_batches())
+
+    @app.get(
+        "/v1/data-management/batches/{batch_id}/raw",
+        response_class=Response,
+    )
+    def download_managed_batch_raw(batch_id: str) -> Response:
+        content, filename = selections.load_raw_batch(batch_id)
+        encoded_filename = quote(filename)
+        return Response(
+            content=content,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"},
+        )
+
+    @app.get(
+        "/v1/data-management/batches/{batch_id}/dataset",
+        response_class=Response,
+    )
+    def download_managed_batch_dataset(batch_id: str) -> Response:
+        content = selections.export_dataset(batch_id)
+        return Response(
+            content=content,
+            media_type="application/x-ndjson",
+            headers={
+                "Content-Disposition": (f"attachment; filename=selection-{quote(batch_id)}.jsonl")
+            },
+        )
+
+    @app.get(
+        "/v1/data-management/batches/{batch_id}",
+        response_model=SelectionManagedBatchDetailView,
+    )
+    def get_managed_batch(batch_id: str) -> SelectionManagedBatchDetailView:
+        return selections.get_managed_batch(batch_id)
+
+    @app.post(
+        "/v1/data-management/batches/{batch_id}/archive",
+        response_model=SelectionManagedBatchDetailView,
+    )
+    def archive_batch(
+        batch_id: str,
+        request: SelectionLifecycleChangeRequest,
+    ) -> SelectionManagedBatchDetailView:
+        return selections.set_batch_status(
+            batch_id,
+            SelectionLifecycleStatus.ARCHIVED,
+            request,
+        )
+
+    @app.post(
+        "/v1/data-management/batches/{batch_id}/restore",
+        response_model=SelectionManagedBatchDetailView,
+    )
+    def restore_batch(
+        batch_id: str,
+        request: SelectionLifecycleChangeRequest,
+    ) -> SelectionManagedBatchDetailView:
+        return selections.set_batch_status(
+            batch_id,
+            SelectionLifecycleStatus.ACTIVE,
+            request,
+        )
 
     @app.get("/v1/selection-batches/{batch_id}", response_model=SelectionBatchView)
     def get_selection_batch(batch_id: str) -> SelectionBatchView:

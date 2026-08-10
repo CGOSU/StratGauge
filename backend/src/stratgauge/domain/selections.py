@@ -6,7 +6,7 @@ import re
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -32,11 +32,87 @@ class SelectionOutcomeStatus(StrEnum):
     UNRESOLVED = "unresolved"
 
 
+class SelectionLifecycleStatus(StrEnum):
+    """Lifecycle state used by the web data-management archive controls."""
+
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class SelectionLifecycleEvent(DomainModel):
+    """Append-only lifecycle change for a formula or imported batch."""
+
+    event_id: str
+    entity_type: Literal["formula", "batch"]
+    entity_id: str
+    status: SelectionLifecycleStatus
+    changed_at: datetime
+    reason: str | None = None
+
+    @field_validator("event_id", "entity_id")
+    @classmethod
+    def validate_lifecycle_ids(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("lifecycle identifier must not be empty")
+        return value.strip()
+
+    @field_validator("changed_at")
+    @classmethod
+    def validate_lifecycle_time(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("changed_at must include a timezone")
+        return value
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_lifecycle_reason(cls, value: str | None) -> str | None:
+        return None if value is None else value.strip() or None
+
+
+class SelectionFormula(DomainModel):
+    """A named formula reference; TongdaXin remains the formula executor."""
+
+    formula_id: str
+    name: str
+    version: str | None = None
+    description: str | None = None
+    created_at: datetime
+
+    @field_validator("formula_id")
+    @classmethod
+    def validate_formula_id(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not re.fullmatch(r"formula-[0-9a-f]{20}", normalized):
+            raise ValueError("formula_id has an invalid format")
+        return normalized
+
+    @field_validator("name")
+    @classmethod
+    def validate_formula_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("formula name must not be empty")
+        return value.strip()
+
+    @field_validator("version", "description")
+    @classmethod
+    def normalize_optional_formula_text(cls, value: str | None) -> str | None:
+        return None if value is None else value.strip() or None
+
+    @field_validator("created_at")
+    @classmethod
+    def validate_formula_created_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("created_at must include a timezone")
+        return value
+
+
 class SelectionBatch(DomainModel):
     """Immutable metadata for one TongdaXin export."""
 
     batch_id: str
     source: str = "tongdaxin"
+    source_filename: str | None = None
+    formula_id: str | None = None
     selection_date: date
     exported_at: datetime
     imported_at: datetime
@@ -52,6 +128,18 @@ class SelectionBatch(DomainModel):
         if not value.strip():
             raise ValueError("value must not be empty")
         return value.strip()
+
+    @field_validator("source_filename")
+    @classmethod
+    def validate_source_filename(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if any(character in normalized for character in ("/", "\\", "\0", "\r", "\n")):
+            raise ValueError("source_filename must be a file name")
+        return normalized
 
     @field_validator("formula_version")
     @classmethod

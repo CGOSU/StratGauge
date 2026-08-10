@@ -11,6 +11,7 @@ backend/.venv/
 data/
 artifacts/
 *.EBK
+/[0-9]*.txt
 
 # Frontend dependencies and build output
 frontend/node_modules/
