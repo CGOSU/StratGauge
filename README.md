@@ -256,6 +256,14 @@ PYTHONPATH=src uv run python scripts/queue_selection_maturity_tasks.py \
 - `no_entry` 和 `unresolved` 保留为独立状态，不强行算作输或赢；
 - 胜率和平均净收益是历史描述性统计，不是未来收益保证。
 
+研究工作台候选卡片的“查看历史条件分析”会调用：
+
+```text
+GET /v1/selection-batches/{batch_id}/candidates/{candidate_id}/analysis
+```
+
+接口按当前批次导出时间点筛选同公式历史结果；如历史样本包含多个追踪政策，需要追加 `tracking_policy_id` 查询参数。完成样本少于 100 个时显示“证据不足”而不返回胜率；历史入场价仅显示实际入场价分布，不构成买入价建议。
+
 ### 7. 导出数据集和时间切分
 
 数据管理可以下载带 `schema_version=selection-dataset-v2` 的 JSONL；每条成熟结果同时记录 `outcome_policy_id`。CLI 导出不会覆盖已有文件：

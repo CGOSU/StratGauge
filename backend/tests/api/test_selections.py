@@ -133,6 +133,32 @@ class SelectionApiTests(unittest.TestCase):
         )
         self.assertTrue(restored_formula.json()["active"])
 
+    def test_candidate_analysis_returns_evidence_insufficient_without_history(self) -> None:
+        imported = self.client.post(
+            "/v1/selection-batches",
+            json={
+                "content_base64": base64.b64encode(CONTENT).decode(),
+                "selection_date": "2026-01-05",
+                "exported_at": "2026-01-05T15:05:00+08:00",
+                "formula_name": "趋势选股",
+            },
+        )
+        self.assertEqual(imported.status_code, 201)
+        batch = imported.json()
+        batch_id = batch["batch"]["batch_id"]
+        candidate_id = batch["candidates"][0]["candidate"]["candidate_id"]
+
+        response = self.client.get(
+            f"/v1/selection-batches/{batch_id}/candidates/{candidate_id}/analysis"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        analysis = response.json()
+        self.assertIsNone(analysis["tracking_policy_id"])
+        self.assertFalse(analysis["conditional_stats"]["evidence_sufficient"])
+        self.assertIsNone(analysis["conditional_stats"]["win_rate"])
+        self.assertEqual(analysis["entry_price_stats"]["sample_count"], 0)
+
     def test_import_list_view_and_label_candidate(self) -> None:
         imported = self.client.post(
             "/v1/selection-batches",

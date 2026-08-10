@@ -47,6 +47,7 @@ from stratgauge.api.universe import (
     UniverseSearchResponse,
     UniverseSearchService,
 )
+from stratgauge.backtest.selection_analysis import SelectionCandidateAnalysis
 from stratgauge.data_pipeline.portfolio_store import ManualPortfolioStore
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.data_pipeline.store import SnapshotStore
@@ -333,6 +334,21 @@ def create_app(
     @app.get("/v1/selection-batches/{batch_id}/stats", response_model=SelectionStatsView)
     def summarize_selection_batch(batch_id: str) -> SelectionStatsView:
         return selections.summarize_batch(batch_id)
+
+    @app.get(
+        "/v1/selection-batches/{batch_id}/candidates/{candidate_id}/analysis",
+        response_model=SelectionCandidateAnalysis,
+    )
+    def analyze_selection_candidate(
+        batch_id: str,
+        candidate_id: str,
+        tracking_policy_id: str | None = None,
+    ) -> SelectionCandidateAnalysis:
+        return selections.analyze_candidate(
+            batch_id,
+            candidate_id,
+            tracking_policy_id=tracking_policy_id,
+        )
 
     @app.post(
         "/v1/selection-batches/{batch_id}/mature",

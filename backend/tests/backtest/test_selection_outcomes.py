@@ -299,6 +299,19 @@ class SelectionOutcomeTests(unittest.TestCase):
 
 
 class SelectionStatsTests(unittest.TestCase):
+    def test_summary_reveals_win_rate_at_evidence_threshold(self) -> None:
+        outcomes = tuple(
+            make_outcome(SelectionOutcomeStatus.WIN, Decimal("0.1")).model_copy(
+                update={"candidate_id": f"candidate-{index}"}
+            )
+            for index in range(100)
+        )
+
+        stats = summarize_selection_outcomes(outcomes)
+
+        self.assertTrue(stats.evidence_sufficient)
+        self.assertEqual(stats.win_rate, Decimal("1"))
+
     def test_summary_keeps_unresolved_rows_out_of_win_rate(self) -> None:
         stats = summarize_selection_outcomes(
             [
@@ -315,7 +328,9 @@ class SelectionStatsTests(unittest.TestCase):
         self.assertEqual(stats.wins, 1)
         self.assertEqual(stats.no_entry, 1)
         self.assertEqual(stats.unresolved, 1)
-        self.assertEqual(stats.win_rate, Decimal(1) / Decimal(3))
+        self.assertIsNone(stats.win_rate)
+        self.assertFalse(stats.evidence_sufficient)
+        self.assertEqual(stats.minimum_evidence_samples, 100)
         self.assertEqual(
             stats.average_net_return,
             (Decimal("0.10") - Decimal("0.05")) / Decimal(3),

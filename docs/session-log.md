@@ -310,3 +310,9 @@
 - 完成内容：快照模式执行直接重放本地行情，校验快照状态、来源、交易日、创建时间和股票池，不重新请求供应商；旧 provider 模式保持兼容。
 - 验证：新增连续交易日门槛、队列重复扫描和快照模式供应商零调用测试；后端 `PYTHONPATH=src uv run python -m unittest discover -s tests -q`（188 项通过，1 项环境相关跳过）；Ruff/MyPy 通过。
 - 遗留问题：`trade_cal` 配额恢复前仍不能完成真实初始填充；历史批量因子补齐、条件胜率和买入价分析查询尚未实现；本轮代码和文档改动尚未提交。
+
+### 2026-08-10 条件胜率与历史入场价分析
+
+- 完成内容：新增 `selection_analysis.py` 和 `GET /v1/selection-batches/{batch_id}/candidates/{candidate_id}/analysis`；按同公式、早于当前选股日且在批次导出时间前已知的结果构建历史队列；支持追踪政策筛选。统计默认至少 100 个完成样本才输出胜率，入场价分析只返回历史实际入场价的描述统计；研究页候选卡片增加按需分析面板。
+- 验证：`cd backend && uv run ruff format --check . && uv run ruff check . && uv run mypy src tests scripts`；`PYTHONPATH=src uv run python -m unittest discover -s tests -q`（190 项通过，1 项环境相关跳过）；`cd frontend && corepack pnpm typecheck && corepack pnpm build && corepack pnpm lint`；`git diff --check`，均通过。
+- 遗留问题：`trade_cal` 真实填充仍受 Tushare 当前 Token 频率限制；历史批量因子补齐、LightGBM、概率校准和推荐工作台仍未实现。

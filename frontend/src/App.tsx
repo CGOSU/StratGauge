@@ -97,8 +97,36 @@ type StatsSummary = {
   flats: number
   no_entry: number
   unresolved: number
+  minimum_evidence_samples: number
+  evidence_sufficient: boolean
   win_rate: string | null
   average_net_return: string | null
+}
+
+type EntryPriceStats = {
+  sample_count: number
+  minimum: string | null
+  lower_quartile: string | null
+  median: string | null
+  upper_quartile: string | null
+  maximum: string | null
+  average: string | null
+}
+
+type CandidateAnalysis = {
+  batch_id: string
+  candidate_id: string
+  symbol: string
+  reference_at: string
+  formula_id: string | null
+  formula_name: string
+  formula_version: string | null
+  tracking_policy_id: string | null
+  available_tracking_policy_ids: string[]
+  cohort_batch_count: number
+  cohort_candidate_count: number
+  conditional_stats: StatsSummary
+  entry_price_stats: EntryPriceStats
 }
 
 type BatchStats = {
@@ -242,6 +270,43 @@ function latestOutcome(outcomes: Outcome[]): Outcome | null {
   return outcomes.length === 0 ? null : outcomes[outcomes.length - 1]
 }
 
+function CandidateAnalysisPanel({ analysis }: { analysis: CandidateAnalysis }) {
+  const stats = analysis.conditional_stats
+  const prices = analysis.entry_price_stats
+  return (
+    <section className="candidate-analysis" aria-label={`${analysis.symbol} 历史条件分析`}>
+      <div className="candidate-analysis-heading">
+        <strong>历史条件分析</strong>
+        <span>{analysis.tracking_policy_id ?? '尚无可用结果政策'}</span>
+      </div>
+      <div className="candidate-analysis-grid">
+        <div>
+          <span>同公式历史完成胜率</span>
+          <strong>{formatWinRate(stats)}</strong>
+        </div>
+        <div>
+          <span>完成样本</span>
+          <strong>{stats.completed}</strong>
+        </div>
+        <div>
+          <span>同公式历史入场价</span>
+          <strong>
+            {prices.sample_count ? `${formatPrice(prices.minimum)} – ${formatPrice(prices.maximum)}` : '—'}
+          </strong>
+        </div>
+        <div>
+          <span>入场价中位数</span>
+          <strong>{formatPrice(prices.median)}</strong>
+        </div>
+      </div>
+      <p>
+        参考 {formatManagementDate(analysis.reference_at)} · {analysis.cohort_batch_count} 个历史批次、
+        {analysis.cohort_candidate_count} 个历史候选；入场价仅为历史实际成交假设的描述统计，不是买入建议。
+      </p>
+    </section>
+  )
+}
+
 function App() {
   const [workspace, setWorkspace] = useState<Workspace>('research')
   const [healthState, setHealthState] = useState<HealthState>('checking')
@@ -262,6 +327,8 @@ function App() {
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
   const [selectedBatch, setSelectedBatch] = useState<BatchView | null>(null)
   const [selectedStats, setSelectedStats] = useState<BatchStats | null>(null)
+  const [candidateAnalyses, setCandidateAnalyses] = useState<Record<string, CandidateAnalysis>>({})
+  const [analysisLoadingId, setAnalysisLoadingId] = useState<string | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [selectionDate, setSelectionDate] = useState('')
   const [exportedAt, setExportedAt] = useState('')
@@ -338,6 +405,8 @@ function App() {
     if (!selectedBatchId) {
       setSelectedBatch(null)
       setSelectedStats(null)
+      setCandidateAnalyses({})
+      setAnalysisLoadingId(null)
       setMaturityTasks([])
       setLoadingMaturityTasks(false)
       return
@@ -345,6 +414,8 @@ function App() {
     const controller = new AbortController()
     setSelectedBatch(null)
     setSelectedStats(null)
+    setCandidateAnalyses({})
+    setAnalysisLoadingId(null)
     setMaturityTasks([])
     setLoadingBatch(true)
     setLoadingMaturityTasks(true)
@@ -551,6 +622,25 @@ function App() {
       setError(reason instanceof Error ? reason.message : '执行成熟任务失败。')
     } finally {
       setMaturityTaskAction(null)
+    }
+  }
+
+  async function loadCandidateAnalysis(candidateId: string) {
+    if (!selectedBatchId || analysisLoadingId !== null) {
+      return
+    }
+    const analysisKey = `${selectedBatchId}:${candidateId}`
+    setAnalysisLoadingId(analysisKey)
+    setError(null)
+    try {
+      const analysis = await requestJson<CandidateAnalysis>(
+        `${apiBase}/v1/selection-batches/${encodeURIComponent(selectedBatchId)}/candidates/${encodeURIComponent(candidateId)}/analysis`,
+      )
+      setCandidateAnalyses((current) => ({ ...current, [candidateId]: analysis }))
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '加载历史条件分析失败。')
+    } finally {
+      setAnalysisLoadingId(null)
     }
   }
 
@@ -1109,7 +1199,7 @@ function App() {
             </div>
             <div>
               <span>完成样本胜率</span>
-              <strong>{formatPercent(selectedStats.summary.win_rate)}</strong>
+              <strong>{formatWinRate(selectedStats.summary)}</strong>
             </div>
           </div>
         )}
@@ -1149,6 +1239,23 @@ function App() {
                       <Badge variant={outcome ? 'secondary' : 'outline'} className={`outcome-badge outcome-badge--${outcome?.status ?? 'pending'}`}>
                         {outcome ? outcomeLabel(outcome.status) : '结果待跟踪'}
                       </Badge>
+                    </div>
+                    <div className="candidate-analysis-actions">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="secondary-button"
+                        disabled={analysisLoadingId !== null}
+                        data-saving={analysisLoadingId === `${selectedBatchId}:${candidate.candidate_id}`}
+                        aria-expanded={Boolean(candidateAnalyses[candidate.candidate_id])}
+                        onClick={() => void loadCandidateAnalysis(candidate.candidate_id)}
+                      >
+                        {analysisLoadingId === `${selectedBatchId}:${candidate.candidate_id}` ? '分析中…' : '查看历史条件分析'}
+                      </Button>
+                      {candidateAnalyses[candidate.candidate_id] && (
+                        <CandidateAnalysisPanel analysis={candidateAnalyses[candidate.candidate_id]} />
+                      )}
                     </div>
                     <Input
                       className="note-input"
@@ -1860,7 +1967,7 @@ function DataManagementWorkspace({
             </div>
             <div>
               <span>胜率</span>
-              <strong>{formatPercent(stats.summary.win_rate)}</strong>
+              <strong>{formatWinRate(stats.summary)}</strong>
             </div>
             <div>
               <span>平均净收益</span>
@@ -2339,6 +2446,21 @@ function formatManagementDate(value: string): string {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(parsed)
+}
+
+function formatWinRate(summary: StatsSummary): string {
+  if (!summary.evidence_sufficient) {
+    return `证据不足（${summary.completed}/${summary.minimum_evidence_samples}）`
+  }
+  return formatPercent(summary.win_rate)
+}
+
+function formatPrice(value: string | null): string {
+  if (value === null) {
+    return '—'
+  }
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric.toFixed(2) : value
 }
 
 function formatPercent(value: string | null): string {

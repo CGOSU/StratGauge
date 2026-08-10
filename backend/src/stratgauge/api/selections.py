@@ -10,6 +10,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from stratgauge.backtest.selection_analysis import (
+    SelectionAnalysisError,
+    SelectionCandidateAnalysis,
+    analyze_selection_candidate,
+)
 from stratgauge.backtest.selection_dataset import (
     build_selection_dataset,
     serialize_selection_dataset,
@@ -634,6 +639,38 @@ class SelectionService:
             raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
         except (OSError, ValueError) as exc:
             raise SelectionApiError("SELECTION_MATURE_FAILED", str(exc), 422) from exc
+
+    def analyze_candidate(
+        self,
+        batch_id: str,
+        candidate_id: str,
+        *,
+        tracking_policy_id: str | None = None,
+    ) -> SelectionCandidateAnalysis:
+        try:
+            return analyze_selection_candidate(
+                self._store,
+                batch_id=batch_id,
+                candidate_id=candidate_id,
+                tracking_policy_id=tracking_policy_id,
+            )
+        except SelectionAnalysisError as exc:
+            message = str(exc)
+            if "candidate does not belong" in message:
+                raise SelectionApiError(
+                    "SELECTION_CANDIDATE_NOT_FOUND", "候选股票不属于该选股批次。", 404
+                ) from exc
+            if "does not exist" in message:
+                raise SelectionApiError(
+                    "SELECTION_BATCH_NOT_FOUND", "选股批次不存在。", 404
+                ) from exc
+            if "multiple tracking policies" in message:
+                raise SelectionApiError(
+                    "TRACKING_POLICY_REQUIRED", "历史样本包含多个结果政策，请明确指定政策。", 422
+                ) from exc
+            raise SelectionApiError("SELECTION_ANALYSIS_FAILED", message, 500) from exc
+        except ValueError as exc:
+            raise SelectionApiError("SELECTION_ANALYSIS_INVALID", str(exc), 422) from exc
 
     def summarize_batch(self, batch_id: str) -> SelectionStatsView:
         try:
