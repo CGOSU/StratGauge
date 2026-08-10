@@ -199,6 +199,46 @@ class DailyBar(DomainModel):
         return self
 
 
+class AdjustmentFactor(DomainModel):
+    """One provider adjustment factor kept separate from raw daily prices."""
+
+    security_id: str
+    symbol: str
+    session_date: date
+    provider: str
+    provider_symbol: str
+    factor: Decimal
+    event_time: datetime
+    available_at: datetime
+    ingested_at: datetime
+    quality_state: str = "pending"
+
+    @field_validator("security_id", "provider", "provider_symbol", "quality_state")
+    @classmethod
+    def validate_text_fields(cls, value: str) -> str:
+        return _require_id(value)
+
+    @field_validator("factor", mode="before")
+    @classmethod
+    def validate_factor(cls, value: Any) -> Decimal:
+        return _decimal(value)
+
+    @field_validator("event_time", "available_at", "ingested_at")
+    @classmethod
+    def validate_timestamps(cls, value: datetime) -> datetime:
+        return _require_aware(value)
+
+    @model_validator(mode="after")
+    def validate_values(self) -> AdjustmentFactor:
+        if self.factor <= 0:
+            raise ValueError("adjustment factor must be positive")
+        if self.available_at < self.event_time:
+            raise ValueError("available_at cannot precede event_time")
+        if self.ingested_at < self.available_at:
+            raise ValueError("ingested_at cannot precede available_at")
+        return self
+
+
 class StrategyVersion(DomainModel):
     strategy_version_id: str
     strategy_id: str

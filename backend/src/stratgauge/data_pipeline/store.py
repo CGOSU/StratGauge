@@ -8,15 +8,19 @@ from collections.abc import Mapping
 from datetime import date, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import duckdb
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field
 
 from stratgauge.data_pipeline.quality import QualityReport
-from stratgauge.data_sources.base import AdapterResult, MarketAdapterResult
-from stratgauge.domain.models import DailyBar
+from stratgauge.data_sources.base import (
+    AdapterResult,
+    AdjustmentFactorAdapterResult,
+    MarketAdapterResult,
+)
+from stratgauge.domain.models import AdjustmentFactor, DailyBar
 
 
 class SnapshotStoreError(RuntimeError):
@@ -47,6 +51,7 @@ class SnapshotManifest(BaseModel):
     created_at: datetime
     request_kind: str = "security_daily"
     universe_snapshot_id: str | None = None
+    source_daily_snapshot_id: str | None = None
 
 
 class SnapshotStore:
@@ -68,7 +73,10 @@ class SnapshotStore:
             directory.mkdir(parents=True, exist_ok=True)
         self._initialize_catalog()
 
-    def write(self, result: AdapterResult | MarketAdapterResult) -> SnapshotManifest:
+    def write(
+        self,
+        result: AdapterResult | MarketAdapterResult | AdjustmentFactorAdapterResult,
+    ) -> SnapshotManifest:
         payload = {
             "provider": result.provider,
             "adapter_version": result.adapter_version,
@@ -92,20 +100,33 @@ class SnapshotStore:
         raw_path = self.raw_dir / f"{snapshot_id}.json"
         normalized_path = self.normalized_dir / f"{snapshot_id}.parquet"
         _atomic_write_text(raw_path, canonical_payload)
-        pl.DataFrame([bar.model_dump() for bar in result.bars]).write_parquet(normalized_path)
+        normalized_rows: tuple[Any, ...]
+        if isinstance(result, AdjustmentFactorAdapterResult):
+            normalized_rows = result.factors
+        else:
+            normalized_rows = cast(AdapterResult, result).bars
+        if normalized_rows:
+            normalized_frame = pl.DataFrame([row.model_dump() for row in normalized_rows])
+        else:
+            model_type = (
+                AdjustmentFactor if isinstance(result, AdjustmentFactorAdapterResult) else DailyBar
+            )
+            normalized_frame = pl.DataFrame(schema=list(model_type.model_fields))
+        normalized_frame.write_parquet(normalized_path)
         manifest = SnapshotManifest(
             snapshot_id=snapshot_id,
             provider=result.provider,
             adapter_version=result.adapter_version,
             start_date=result.request.start_date,
             end_date=result.request.end_date,
-            row_count=len(result.bars),
+            row_count=len(normalized_rows),
             content_sha256=content_sha256,
             raw_path=str(raw_path.relative_to(self.root)),
             normalized_path=str(normalized_path.relative_to(self.root)),
             created_at=result.fetched_at,
             request_kind=result.request.request_kind,
             universe_snapshot_id=getattr(result.request, "universe_snapshot_id", None),
+            source_daily_snapshot_id=getattr(result.request, "source_daily_snapshot_id", None),
         )
         _atomic_write_text(
             manifest_path,
@@ -137,6 +158,27 @@ class SnapshotStore:
             return tuple(DailyBar.model_validate(row) for row in rows)
         except Exception as exc:
             raise SnapshotStoreError(f"normalized snapshot is invalid: {snapshot_id}") from exc
+
+    def load_adjustment_factors(self, snapshot_id: str) -> tuple[AdjustmentFactor, ...]:
+        """Load normalized factors only from an approved snapshot."""
+
+        manifest = self.load_manifest(snapshot_id)
+        if manifest.status is not SnapshotStatus.APPROVED:
+            raise SnapshotStoreError(f"snapshot is not approved: {snapshot_id}")
+        if manifest.request_kind != "adjustment_factor":
+            raise SnapshotStoreError(
+                f"snapshot is not an adjustment-factor snapshot: {snapshot_id}"
+            )
+        path = self.root / manifest.normalized_path
+        if not path.exists():
+            raise SnapshotStoreError(f"normalized snapshot does not exist: {snapshot_id}")
+        try:
+            rows = pl.read_parquet(path).to_dicts()
+            return tuple(AdjustmentFactor.model_validate(row) for row in rows)
+        except Exception as exc:
+            raise SnapshotStoreError(
+                f"normalized adjustment factors are invalid: {snapshot_id}"
+            ) from exc
 
     def update_status(
         self,
@@ -175,6 +217,26 @@ class SnapshotStore:
                 ],
             )
         return str(path.relative_to(self.root))
+
+    def find_approved_adjustment_factor_snapshot(
+        self,
+        *,
+        provider: str,
+        session_date: date,
+        universe_snapshot_id: str,
+        source_daily_snapshot_id: str,
+    ) -> SnapshotManifest | None:
+        for manifest in self.list_manifests(SnapshotStatus.APPROVED):
+            if (
+                manifest.request_kind == "adjustment_factor"
+                and manifest.provider == provider
+                and manifest.start_date == session_date
+                and manifest.end_date == session_date
+                and manifest.universe_snapshot_id == universe_snapshot_id
+                and manifest.source_daily_snapshot_id == source_daily_snapshot_id
+            ):
+                return manifest
+        return None
 
     def find_approved_market_snapshot(
         self,
@@ -223,7 +285,8 @@ class SnapshotStore:
                     quality_run_id VARCHAR,
                     created_at VARCHAR NOT NULL,
                     request_kind VARCHAR NOT NULL DEFAULT 'security_daily',
-                    universe_snapshot_id VARCHAR
+                    universe_snapshot_id VARCHAR,
+                    source_daily_snapshot_id VARCHAR
                 )
                 """
             )
@@ -233,6 +296,10 @@ class SnapshotStore:
             )
             connection.execute(
                 "ALTER TABLE snapshot_catalog ADD COLUMN IF NOT EXISTS universe_snapshot_id VARCHAR"
+            )
+            connection.execute(
+                "ALTER TABLE snapshot_catalog "
+                "ADD COLUMN IF NOT EXISTS source_daily_snapshot_id VARCHAR"
             )
             connection.execute(
                 """
@@ -255,8 +322,8 @@ class SnapshotStore:
                 INSERT OR REPLACE INTO snapshot_catalog
                 (snapshot_id, provider, adapter_version, start_date, end_date, row_count,
                  content_sha256, raw_path, normalized_path, status, quality_run_id, created_at,
-                 request_kind, universe_snapshot_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 request_kind, universe_snapshot_id, source_daily_snapshot_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     manifest.snapshot_id,
@@ -273,6 +340,7 @@ class SnapshotStore:
                     manifest.created_at.isoformat(),
                     manifest.request_kind,
                     manifest.universe_snapshot_id,
+                    manifest.source_daily_snapshot_id,
                 ],
             )
 

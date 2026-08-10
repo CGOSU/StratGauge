@@ -8,7 +8,8 @@ from collections.abc import Iterable, Sequence
 from datetime import date, datetime
 from decimal import Decimal, localcontext
 
-from stratgauge.domain.models import DailyBar
+from stratgauge.domain.models import AdjustmentFactor, DailyBar
+from stratgauge.features.adjustments import PriceAdjustmentError, forward_adjust_daily_bars
 from stratgauge.features.contract import (
     FeatureDefinition,
     FeatureSetVersion,
@@ -35,12 +36,30 @@ def compute_daily_features(
     feature_set: FeatureSetVersion | None = None,
     benchmark_bars: Sequence[DailyBar] = (),
     benchmark_source_snapshot_ids: Iterable[str] = (),
+    adjustment_factors: Sequence[AdjustmentFactor] = (),
+    adjustment_factor_source_snapshot_ids: Iterable[str] = (),
+    benchmark_adjustment_factors: Sequence[AdjustmentFactor] = (),
+    benchmark_adjustment_factor_source_snapshot_ids: Iterable[str] = (),
 ) -> FeatureSnapshot:
     """Compute one immutable feature row without reading future or unavailable bars."""
 
     resolved_set = feature_set or default_feature_set()
+    candidate_factor_sources = tuple(adjustment_factor_source_snapshot_ids)
+    benchmark_factor_sources = tuple(benchmark_adjustment_factor_source_snapshot_ids)
     candidate_bars = _validated_bars(bars, selection_date, as_of, "candidate")
     benchmark = _validated_bars(benchmark_bars, selection_date, as_of, "benchmark")
+    candidate_bars = _adjust_for_features(
+        candidate_bars,
+        adjustment_factors,
+        as_of=as_of,
+        label="candidate",
+    )
+    benchmark = _adjust_for_features(
+        benchmark,
+        benchmark_adjustment_factors,
+        as_of=as_of,
+        label="benchmark",
+    )
     required_input_sessions = max(
         _required_input_sessions(definition) for definition in resolved_set.definitions
     )
@@ -48,6 +67,17 @@ def compute_daily_features(
         raise FeatureComputationError(
             "insufficient_history",
             f"candidate history requires at least {required_input_sessions} sessions",
+        )
+
+    if adjustment_factors and not candidate_factor_sources:
+        raise FeatureComputationError(
+            "missing_lineage",
+            "candidate adjustment factors require a source snapshot ID",
+        )
+    if benchmark_adjustment_factors and not benchmark_factor_sources:
+        raise FeatureComputationError(
+            "missing_lineage",
+            "benchmark adjustment factors require a source snapshot ID",
         )
 
     required_names = resolved_set.names
@@ -62,7 +92,14 @@ def compute_daily_features(
 
     benchmark_by_date = {bar.session_date: bar for bar in benchmark}
     values = _compute_values(candidate_bars, required_names, benchmark_by_date)
-    snapshot_sources = _unique_ids((*source_snapshot_ids, *benchmark_source_snapshot_ids))
+    snapshot_sources = _unique_ids(
+        (
+            *source_snapshot_ids,
+            *benchmark_source_snapshot_ids,
+            *candidate_factor_sources,
+            *benchmark_factor_sources,
+        )
+    )
     if not snapshot_sources:
         raise FeatureComputationError(
             "missing_lineage",
@@ -99,6 +136,26 @@ def compute_daily_features(
         source_snapshot_ids=snapshot_sources,
         values=values,
     )
+
+
+def _adjust_for_features(
+    bars: tuple[DailyBar, ...],
+    factors: Sequence[AdjustmentFactor],
+    *,
+    as_of: datetime,
+    label: str,
+) -> tuple[DailyBar, ...]:
+    if not factors:
+        return bars
+    if not bars:
+        return bars
+    try:
+        return forward_adjust_daily_bars(bars, factors, as_of=as_of)
+    except PriceAdjustmentError as exc:
+        raise FeatureComputationError(
+            "invalid_adjustment_factors",
+            f"{label} adjustment factors are invalid: {exc}",
+        ) from exc
 
 
 def _validated_bars(

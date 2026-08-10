@@ -10,7 +10,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from stratgauge.domain.models import DailyBar, Security
+from stratgauge.domain.models import AdjustmentFactor, DailyBar, Security
 
 SHANGHAI = timezone(timedelta(hours=8), name="Asia/Shanghai")
 
@@ -84,6 +84,43 @@ class DailyBarRequest(BaseModel):
         return self
 
 
+class AdjustmentFactorRequest(BaseModel):
+    """One factor request bound to an approved same-day market snapshot."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    session_date: date
+    universe_snapshot_id: str
+    source_daily_snapshot_id: str
+    expected_security_ids: tuple[str, ...]
+
+    @property
+    def request_kind(self) -> str:
+        return "adjustment_factor"
+
+    @property
+    def start_date(self) -> date:
+        return self.session_date
+
+    @property
+    def end_date(self) -> date:
+        return self.session_date
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> AdjustmentFactorRequest:
+        if not self.universe_snapshot_id.strip():
+            raise ValueError("universe_snapshot_id must not be empty")
+        if not self.source_daily_snapshot_id.strip():
+            raise ValueError("source_daily_snapshot_id must not be empty")
+        if not self.expected_security_ids:
+            raise ValueError("adjustment-factor request requires expected securities")
+        if any(not security_id.strip() for security_id in self.expected_security_ids):
+            raise ValueError("expected security IDs must not be empty")
+        if len(set(self.expected_security_ids)) != len(self.expected_security_ids):
+            raise ValueError("expected security IDs must be unique")
+        return self
+
+
 class MarketDailyRequest(BaseModel):
     """One full-market daily request scoped to an approved universe snapshot."""
 
@@ -138,6 +175,16 @@ class MarketAdapterResult:
     bars: tuple[DailyBar, ...]
 
 
+@dataclass(frozen=True)
+class AdjustmentFactorAdapterResult:
+    provider: str
+    adapter_version: str
+    request: AdjustmentFactorRequest
+    fetched_at: datetime
+    raw_records: tuple[Mapping[str, Any], ...]
+    factors: tuple[AdjustmentFactor, ...]
+
+
 class MarketDataAdapter(Protocol):
     """Common interface consumed by the ingestion pipeline."""
 
@@ -158,8 +205,20 @@ class MarketDailyDataAdapter(Protocol):
     ) -> MarketAdapterResult: ...
 
 
+class AdjustmentFactorDataAdapter(Protocol):
+    provider: str
+    adjustment_factor_adapter_version: str
+
+    def fetch_adjustment_factors(
+        self,
+        request: AdjustmentFactorRequest,
+        securities: Sequence[Security],
+    ) -> AdjustmentFactorAdapterResult: ...
+
+
 Fetcher = Callable[[DailyBarRequest], Iterable[Mapping[str, Any]]]
 MarketFetcher = Callable[[MarketDailyRequest], Iterable[Mapping[str, Any]]]
+AdjustmentFactorFetcher = Callable[[AdjustmentFactorRequest], Iterable[Mapping[str, Any]]]
 Clock = Callable[[], datetime]
 
 
@@ -173,6 +232,7 @@ _COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
     "previous_close": ("preclose", "previous_close", "前收盘", "昨收"),
     "volume": ("volume", "成交量"),
     "amount": ("amount", "成交额"),
+    "adjustment_factor": ("adj_factor", "adjustment_factor", "factor", "复权因子"),
     "trade_status": ("tradestatus", "trade_status", "交易状态"),
     "suspended": ("suspended", "停牌"),
     "tradable": ("tradable", "可交易"),
@@ -281,6 +341,55 @@ def normalize_daily_rows(
                 ingested_at=max(fetched_at, _event_time(session_date)),
                 suspended=suspended,
                 tradable=tradable and not suspended,
+                quality_state="pending",
+            )
+        )
+    return tuple(normalized)
+
+
+def normalize_adjustment_factor_rows(
+    rows: Iterable[Mapping[str, Any]],
+    request: AdjustmentFactorRequest,
+    securities: Sequence[Security],
+    provider: str,
+    adapter_version: str,
+    fetched_at: datetime,
+) -> tuple[AdjustmentFactor, ...]:
+    """Normalize provider factors only for the explicitly approved universe."""
+
+    if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
+        raise AdapterError("fetched_at must include a timezone")
+    expected_ids = set(request.expected_security_ids)
+    security_by_symbol = {
+        security.symbol: security for security in securities if security.security_id in expected_ids
+    }
+    normalized: list[AdjustmentFactor] = []
+    for raw in rows:
+        session_date = _parse_date(_required(raw, "session_date", provider), provider)
+        if session_date != request.session_date:
+            raise AdapterError(
+                f"{provider} returned {session_date.isoformat()} outside requested factor session"
+            )
+        provider_symbol = str(_required(raw, "provider_symbol", provider)).strip().upper()
+        security = security_by_symbol.get(provider_symbol)
+        if security is None:
+            continue
+        event_time = _event_time(session_date)
+        normalized.append(
+            AdjustmentFactor(
+                security_id=security.security_id,
+                symbol=security.symbol,
+                session_date=session_date,
+                provider=provider,
+                provider_symbol=provider_symbol,
+                factor=_parse_decimal(
+                    _required(raw, "adjustment_factor", provider),
+                    "adjustment_factor",
+                    provider,
+                ),
+                event_time=event_time,
+                available_at=max(fetched_at, event_time),
+                ingested_at=max(fetched_at, event_time),
                 quality_state="pending",
             )
         )

@@ -8,6 +8,10 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from stratgauge.data_pipeline.adjustment_factor_sync import (
+    AdjustmentFactorSyncError,
+    sync_adjustment_factor_session,
+)
 from stratgauge.data_pipeline.history_backfill import read_trading_sessions
 from stratgauge.data_pipeline.market_daily_sync import (
     MarketDailySyncError,
@@ -39,15 +43,30 @@ def main() -> int:
         universe = UniverseSnapshotStore(arguments.universe_root).load(
             arguments.universe_snapshot_id
         )
+        adapter = TushareAdapter()
+        store = SnapshotStore(arguments.market_root)
         results = sync_market_sessions(
-            adapter=TushareAdapter(),
+            adapter=adapter,
             session_dates=selected_sessions,
             universe=universe,
-            store=SnapshotStore(arguments.market_root),
+            store=store,
             minimum_security_coverage=arguments.minimum_coverage,
+        )
+        adjustment_factor_results = tuple(
+            sync_adjustment_factor_session(
+                adapter=adapter,
+                session_date=result.session_date,
+                universe=universe,
+                source_daily_snapshot_id=result.snapshot_id,
+                store=store,
+                minimum_security_coverage=arguments.minimum_coverage,
+            )
+            for result in results
+            if result.status is SnapshotStatus.APPROVED
         )
     except (
         AdapterError,
+        AdjustmentFactorSyncError,
         MarketDailySyncError,
         OSError,
         SnapshotStoreError,
@@ -56,12 +75,17 @@ def main() -> int:
     ) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
         return 2
-    rejected = any(result.status is SnapshotStatus.REJECTED for result in results)
+    rejected = any(result.status is SnapshotStatus.REJECTED for result in results) or any(
+        result.status is SnapshotStatus.REJECTED for result in adjustment_factor_results
+    )
     print(
         json.dumps(
             {
                 "status": "partial" if rejected else "completed",
                 "results": [result.model_dump(mode="json") for result in results],
+                "adjustment_factor_results": [
+                    result.model_dump(mode="json") for result in adjustment_factor_results
+                ],
             },
             ensure_ascii=False,
             indent=2,

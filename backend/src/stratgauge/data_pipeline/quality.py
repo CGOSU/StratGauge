@@ -9,7 +9,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from stratgauge.domain.models import DailyBar
+from stratgauge.domain.models import AdjustmentFactor, DailyBar
 
 
 class QualityIssue(BaseModel):
@@ -139,6 +139,105 @@ def check_bars(
             )
 
     return QualityReport(snapshot_id=snapshot_id, checked_rows=len(bars), issues=tuple(issues))
+
+
+def check_adjustment_factors(
+    factors: Sequence[AdjustmentFactor],
+    *,
+    snapshot_id: str,
+    expected_sessions: Iterable[date] = (),
+    expected_security_ids: Iterable[str] = (),
+    missing_security_severity: str = "warning",
+    minimum_security_coverage: Decimal | None = None,
+) -> QualityReport:
+    """Check factor identity, positivity and coverage for one or more sessions."""
+
+    if missing_security_severity not in {"error", "warning"}:
+        raise ValueError("missing_security_severity must be error or warning")
+    if minimum_security_coverage is not None and not 0 <= minimum_security_coverage <= 1:
+        raise ValueError("minimum_security_coverage must be between 0 and 1")
+    issues: list[QualityIssue] = []
+    expected_session_set = set(expected_sessions)
+    expected_security_set = set(expected_security_ids)
+    keys: set[tuple[str, date, str]] = set()
+    actual_sessions = {factor.session_date for factor in factors}
+    actual_security_ids = {factor.security_id for factor in factors}
+
+    for factor in factors:
+        key = (factor.security_id, factor.session_date, factor.provider)
+        if key in keys:
+            issues.append(
+                QualityIssue(
+                    severity="error",
+                    code="DUPLICATE_ADJUSTMENT_FACTOR",
+                    message="同一证券、交易日和数据源出现重复复权因子。",
+                    symbol=factor.symbol,
+                    session_date=factor.session_date,
+                )
+            )
+        keys.add(key)
+        if factor.factor <= 0:
+            issues.append(
+                QualityIssue(
+                    severity="error",
+                    code="NON_POSITIVE_ADJUSTMENT_FACTOR",
+                    message="复权因子必须为正数。",
+                    symbol=factor.symbol,
+                    session_date=factor.session_date,
+                )
+            )
+
+    for missing_session in sorted(expected_session_set - actual_sessions):
+        issues.append(
+            QualityIssue(
+                severity="error",
+                code="MISSING_SESSION",
+                message="请求范围内缺少预期复权因子交易日。",
+                session_date=missing_session,
+            )
+        )
+    missing_security_ids = sorted(expected_security_set - actual_security_ids)
+    if missing_security_ids:
+        if missing_security_severity == "error":
+            for missing_security_id in missing_security_ids:
+                issues.append(
+                    QualityIssue(
+                        severity="error",
+                        code="MISSING_SECURITY",
+                        message="预期证券没有返回复权因子。",
+                        details={"security_id": missing_security_id},
+                    )
+                )
+        else:
+            issues.append(
+                QualityIssue(
+                    severity="warning",
+                    code="MISSING_SECURITY",
+                    message="部分证券未返回复权因子。",
+                    details={
+                        "missing_count": str(len(missing_security_ids)),
+                        "expected_count": str(len(expected_security_set)),
+                        "actual_count": str(len(actual_security_ids)),
+                    },
+                )
+            )
+    if minimum_security_coverage is not None and expected_security_set:
+        coverage = Decimal(len(actual_security_ids)) / Decimal(len(expected_security_set))
+        if coverage < minimum_security_coverage:
+            issues.append(
+                QualityIssue(
+                    severity="error",
+                    code="LOW_SECURITY_COVERAGE",
+                    message="复权因子证券覆盖率低于质量门阈值。",
+                    details={
+                        "coverage": str(coverage),
+                        "minimum_coverage": str(minimum_security_coverage),
+                        "expected_count": str(len(expected_security_set)),
+                        "actual_count": str(len(actual_security_ids)),
+                    },
+                )
+            )
+    return QualityReport(snapshot_id=snapshot_id, checked_rows=len(factors), issues=tuple(issues))
 
 
 def compare_bars(

@@ -257,7 +257,7 @@ PYTHONPATH=src uv run python scripts/sync_tushare_daily.py \
   --universe-snapshot-id <approved_universe_snapshot_id>
 ```
 
-非交易日安全跳过；已批准的同一交易日/股票池组合不会重复请求，覆盖率不足的快照不会发布。
+非交易日安全跳过；已批准的同一交易日/股票池组合不会重复请求，覆盖率不足的日线或复权因子快照不会发布。日线批准后，命令会继续请求同一交易日的 Tushare `adj_factor`，并把复权因子快照绑定到该日线快照；输出中的 `adjustment_factor_results` 单独列出因子结果。
 
 ```bash
 cd backend
@@ -296,7 +296,7 @@ PYTHONPATH=src uv run python scripts/backfill_selection_history.py \
 
 ### 9. 特征和离线基线
 
-`features/engine.py` 只接受严格早于选股日、且 `available_at <= as_of` 的批准行情。特征快照和特征版本均不可覆盖。训练入口只接受 `selection-feature-dataset-v1`：
+`features/engine.py` 只接受严格早于选股日、且 `available_at <= as_of` 的批准行情。需要复权价格时，调用方必须显式传入覆盖全部输入交易日的已批准 `AdjustmentFactor`，并提供因子快照 ID；引擎按最新因子缩放历史价格，不修改原始未复权日线，也不改变成交量和成交额。特征快照和特征版本均不可覆盖。训练入口只接受 `selection-feature-dataset-v1`：
 
 ```bash
 PYTHONPATH=src uv run python scripts/train_selection_baseline.py \

@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from tempfile import TemporaryDirectory
 
-from stratgauge.domain.models import DailyBar
+from stratgauge.domain.models import AdjustmentFactor, DailyBar
 from stratgauge.features.contract import default_feature_set
 from stratgauge.features.engine import FeatureComputationError, compute_daily_features
 from stratgauge.features.store import FeatureSnapshotStore
@@ -48,6 +48,45 @@ class FeatureEngineTests(unittest.TestCase):
         self.assertGreater(first.values["return_1"], Decimal("0"))
         self.assertEqual(first.values["return_20"], Decimal("2"))
         self.assertEqual(first.values["relative_strength_20"], Decimal("0"))
+
+    def test_forward_adjustment_is_applied_and_traced_in_feature_inputs(self) -> None:
+        candidate = _bars("security-candidate", "000001.SZ", Decimal("10"))
+        benchmark = _bars(
+            "security-benchmark",
+            "000300.SH",
+            Decimal("100"),
+            step=Decimal("10"),
+        )
+        candidate_factors = _factors("security-candidate", "000001.SZ")
+        benchmark_factors = _factors("security-benchmark", "000300.SH")
+
+        snapshot = compute_daily_features(
+            candidate,
+            selection_date=SELECTION_DATE,
+            as_of=AS_OF,
+            source_snapshot_ids=("snapshot-candidate",),
+            benchmark_bars=benchmark,
+            benchmark_source_snapshot_ids=("snapshot-benchmark",),
+            adjustment_factors=candidate_factors,
+            adjustment_factor_source_snapshot_ids=("factor-candidate",),
+            benchmark_adjustment_factors=benchmark_factors,
+            benchmark_adjustment_factor_source_snapshot_ids=("factor-benchmark",),
+        )
+
+        self.assertEqual(snapshot.values["close"], Decimal("30"))
+        self.assertEqual(snapshot.values["return_20"], Decimal("5"))
+        self.assertIn("factor-candidate", snapshot.source_snapshot_ids)
+        self.assertIn("factor-benchmark", snapshot.source_snapshot_ids)
+
+    def test_adjustment_factor_without_lineage_is_rejected(self) -> None:
+        with self.assertRaisesRegex(FeatureComputationError, "source snapshot ID"):
+            compute_daily_features(
+                _bars("security-candidate", "000001.SZ", Decimal("10")),
+                selection_date=SELECTION_DATE,
+                as_of=AS_OF,
+                source_snapshot_ids=("snapshot-candidate",),
+                adjustment_factors=_factors("security-candidate", "000001.SZ"),
+            )
 
     def test_feature_snapshot_store_is_idempotent(self) -> None:
         snapshot = compute_daily_features(
@@ -132,6 +171,23 @@ def _bars(
             date(2026, 1, 1) + timedelta(days=index),
             start_close + step * Decimal(index),
             available_at,
+        )
+        for index in range(21)
+    )
+
+
+def _factors(security_id: str, symbol: str) -> tuple[AdjustmentFactor, ...]:
+    return tuple(
+        AdjustmentFactor(
+            security_id=security_id,
+            symbol=symbol,
+            session_date=date(2026, 1, 1) + timedelta(days=index),
+            provider="fixture",
+            provider_symbol=symbol,
+            factor=Decimal("1") + Decimal(index) / Decimal("20"),
+            event_time=datetime(2026, 1, 1 + index, 15, tzinfo=UTC),
+            available_at=datetime(2026, 1, 31, 16, tzinfo=UTC),
+            ingested_at=datetime(2026, 1, 31, 16, tzinfo=UTC),
         )
         for index in range(21)
     )

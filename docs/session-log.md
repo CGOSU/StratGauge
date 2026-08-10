@@ -296,3 +296,10 @@
 - 完成内容：`sync_tushare_calendar.py` 改为可重复执行；检测 manifest/文本篡改、缺失、重复和乱序时阻止消费。
 - 验证：新增缓存缺口、幂等和篡改拒绝测试；后端 `PYTHONPATH=src uv run python -m unittest discover -s tests -q`（180 项通过，1 项环境相关跳过）；Ruff/MyPy 通过。
 - 遗留问题：Tushare `trade_cal` 配额恢复前仍不能完成真实初始填充；复权因子、全量历史补齐和条件胜率查询尚未实现；本轮代码和文档改动尚未提交。
+
+### 2026-08-10 复权因子与研究特征输入
+
+- 完成内容：新增 `AdjustmentFactor` 契约、Tushare `adj_factor` 适配、同日已批准日线绑定、因子快照存储/质量门/幂等同步；全市场日线 CLI 在日线批准后继续同步复权因子。
+- 完成内容：新增研究专用前复权变换；`compute_daily_features` 可显式接收因子和因子快照血缘，原始未复权行情、成交量和成交额不修改。
+- 验证：新增因子适配、覆盖率、同日快照绑定、幂等、因子存储和前复权特征测试；后端 `PYTHONPATH=src uv run python -m unittest discover -s tests -q`（187 项通过，1 项环境相关跳过）；Ruff/MyPy 通过。
+- 遗留问题：`trade_cal` 配额恢复前仍不能完成真实初始填充；历史批量因子补齐、自动成熟和条件胜率查询尚未实现；本轮代码和文档改动尚未提交。
