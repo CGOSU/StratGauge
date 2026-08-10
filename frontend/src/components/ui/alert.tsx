@@ -2,11 +2,11 @@ import * as React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
-const alertVariants = cva('relative w-full rounded-lg border p-4', {
+const alertVariants = cva('alert-surface relative w-full', {
   variants: {
     variant: {
-      default: 'bg-background text-foreground',
-      destructive: 'border-destructive/50 text-destructive [&>svg]:text-destructive',
+      default: 'alert-surface--default',
+      destructive: 'alert-surface--destructive',
     },
   },
   defaultVariants: { variant: 'default' },
@@ -20,7 +20,7 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(({ className, variant
 Alert.displayName = 'Alert'
 
 const AlertDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
-  ({ className, ...props }, ref) => <div ref={ref} className={cn('text-sm [&_p]:leading-relaxed', className)} {...props} />,
+  ({ className, ...props }, ref) => <div ref={ref} className={cn('alert-description text-sm [&_p]:leading-relaxed', className)} {...props} />,
 )
 AlertDescription.displayName = 'AlertDescription'
 
