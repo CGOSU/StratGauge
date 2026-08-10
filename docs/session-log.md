@@ -322,3 +322,9 @@
 - 完成内容：新增批量因子同步报告和 `backfill_tushare_adjustment_factors.py`；显式读取交易日历范围，只处理已有已批准全市场日线快照；缺少日线时不请求供应商并报告阻断，因子质量拒绝、供应商失败和已批准/跳过状态均逐日记录。
 - 验证：后端 193 项测试通过（1 项环境相关跳过）；Ruff、MyPy、前端 typecheck/build/lint 和 `git diff --check` 通过；CLI `--help` 检查通过。
 - 遗留问题：真实 `trade_cal` 和批量 Tushare 因子运行仍受当前 Token 配额限制；LightGBM、概率校准和推荐工作台仍未实现。
+
+### 2026-08-10 LightGBM 候选模型
+
+- 完成内容：新增 `ml` 可选依赖、`lightgbm_training.py` 和 `train_selection_lightgbm.py`；固定确定性 LightGBM 配置，复用特征 JSONL 和时间切分，输出模型文本、未校准分区指标、预测明细及不可覆盖 manifest；默认路径不加载 LightGBM，不影响原始策略流程。
+- 验证：默认后端 195 项测试通过（1 项环境相关跳过）；Ruff、MyPy、CLI 帮助检查通过；显式 `uv run --extra ml` 安装 LightGBM 4.7.0 后完成真实小样本训练与工件写入；前端 typecheck/build/lint 和 `git diff --check` 通过。
+- 遗留问题：完整走步成交/收益指标、概率校准、LightGBM 模型注册/影子评分、批次自动接入和 Web 展示仍未实现。

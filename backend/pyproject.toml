@@ -16,6 +16,9 @@ live-data = [
     "akshare>=1.18.83",
     "baostock>=0.9.3",
 ]
+ml = [
+    "lightgbm>=4.6.0",
+]
 
 [dependency-groups]
 dev = [

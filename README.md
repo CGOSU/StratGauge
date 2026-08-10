@@ -343,6 +343,21 @@ PYTHONPATH=src uv run python scripts/train_selection_baseline.py \
 
 当前基线是常数概率模型，只用于流程对照，不代表预测收益或交易建议。事后抓取的历史行情若 `available_at` 晚于历史 `as_of`，会被特征引擎拒绝。
 
+LightGBM 是可选依赖，不影响默认离线测试；安装后可用相同时间边界训练固定配置的未校准候选模型：
+
+```bash
+uv sync --extra ml
+PYTHONPATH=src uv run python scripts/train_selection_lightgbm.py \
+  --input data/selection-features/features.jsonl \
+  --output-dir data/models/lightgbm-v1 \
+  --train-end 2026-06-30 \
+  --validation-end 2026-09-30 \
+  --feature-set-version-id <feature_set_version_id> \
+  --tracking-policy-id <tracking_policy_id>
+```
+
+LightGBM 输出模型文本、分区指标、预测明细和不可覆盖 manifest；`calibrated=false`，当前不接入 Web、影子评分或自动晋升。
+
 显式配置走步折和最终测试起点后，运行基础走步验证：
 
 ```bash
