@@ -4,8 +4,10 @@ from decimal import Decimal
 from tempfile import TemporaryDirectory
 
 from stratgauge.data_pipeline.adjustment_factor_sync import (
+    AdjustmentFactorBackfillStatus,
     AdjustmentFactorSyncError,
     sync_adjustment_factor_session,
+    sync_adjustment_factor_sessions,
 )
 from stratgauge.data_pipeline.market_daily_sync import sync_market_session
 from stratgauge.data_pipeline.store import SnapshotStatus, SnapshotStore
@@ -27,6 +29,89 @@ def security(security_id: str, local_code: str, exchange: Exchange) -> Security:
 
 
 class AdjustmentFactorSyncTests(unittest.TestCase):
+    def test_batch_backfill_skips_sessions_without_approved_daily_snapshots(self) -> None:
+        security_row = security("security-1", "000001", Exchange.SZ)
+        universe = build_universe_snapshot(
+            as_of=datetime(2026, 1, 4, 17, tzinfo=UTC),
+            source="fixture",
+            source_snapshot_ids=("reference-1",),
+            securities=(security_row,),
+        )
+        factor_calls = 0
+
+        def fetch_factors(_: object) -> list[dict[str, str]]:
+            nonlocal factor_calls
+            factor_calls += 1
+            return [{"trade_date": "20260105", "ts_code": "000001.SZ", "adj_factor": "2"}]
+
+        adapter = TushareAdapter(
+            market_fetcher=lambda request: [_daily_row("000001.SZ", request.session_date)],
+            adjustment_factor_fetcher=fetch_factors,
+            clock=lambda: FETCHED_AT,
+        )
+        with TemporaryDirectory() as directory:
+            store = SnapshotStore(directory)
+            sync_market_session(
+                adapter=adapter,
+                session_date=date(2026, 1, 5),
+                universe=universe,
+                store=store,
+            )
+
+            report = sync_adjustment_factor_sessions(
+                adapter=adapter,
+                session_dates=(date(2026, 1, 5), date(2026, 1, 6)),
+                universe=universe,
+                store=store,
+            )
+
+            self.assertFalse(report.ready)
+            self.assertEqual(factor_calls, 1)
+            self.assertEqual(report.missing_daily_sessions, (date(2026, 1, 6),))
+            self.assertEqual(
+                tuple(item.status for item in report.results),
+                (
+                    AdjustmentFactorBackfillStatus.APPROVED,
+                    AdjustmentFactorBackfillStatus.MISSING_DAILY_SNAPSHOT,
+                ),
+            )
+
+    def test_batch_backfill_reports_rejected_factor_snapshot(self) -> None:
+        security_row = security("security-1", "000001", Exchange.SZ)
+        universe = build_universe_snapshot(
+            as_of=datetime(2026, 1, 4, 17, tzinfo=UTC),
+            source="fixture",
+            source_snapshot_ids=("reference-1",),
+            securities=(security_row,),
+        )
+        adapter = TushareAdapter(
+            market_fetcher=lambda request: [_daily_row("000001.SZ", request.session_date)],
+            adjustment_factor_fetcher=lambda _: [],
+            clock=lambda: FETCHED_AT,
+        )
+        with TemporaryDirectory() as directory:
+            store = SnapshotStore(directory)
+            sync_market_session(
+                adapter=adapter,
+                session_date=date(2026, 1, 5),
+                universe=universe,
+                store=store,
+            )
+
+            report = sync_adjustment_factor_sessions(
+                adapter=adapter,
+                session_dates=(date(2026, 1, 5),),
+                universe=universe,
+                store=store,
+            )
+
+            self.assertFalse(report.ready)
+            self.assertEqual(
+                report.results[0].status,
+                AdjustmentFactorBackfillStatus.REJECTED,
+            )
+            self.assertEqual(len(report.rejected_snapshot_ids), 1)
+
     def test_factors_require_same_day_approved_market_snapshot_and_are_idempotent(self) -> None:
         securities = (
             security("security-1", "000001", Exchange.SZ),
@@ -154,9 +239,9 @@ class AdjustmentFactorSyncTests(unittest.TestCase):
                 )
 
 
-def _daily_row(symbol: str) -> dict[str, str]:
+def _daily_row(symbol: str, session_date: date = date(2026, 1, 5)) -> dict[str, str]:
     return {
-        "trade_date": "20260105",
+        "trade_date": session_date.strftime("%Y%m%d"),
         "ts_code": symbol,
         "pre_close": "10.00",
         "open": "10.10",

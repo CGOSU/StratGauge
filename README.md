@@ -280,6 +280,17 @@ PYTHONPATH=src uv run python scripts/sync_tushare_daily.py \
 
 非交易日安全跳过；已批准的同一交易日/股票池组合不会重复请求，覆盖率不足的日线或复权因子快照不会发布。日线批准后，命令会继续请求同一交易日的 Tushare `adj_factor`，并把复权因子快照绑定到该日线快照；输出中的 `adjustment_factor_results` 单独列出因子结果。
 
+若历史日线已经批准、但因子尚未补齐，可只运行因子补齐 CLI。它不会重新请求日线；缺少已批准日线的日期会报告为阻断并返回非零退出码：
+
+```bash
+cd backend
+PYTHONPATH=src uv run python scripts/backfill_tushare_adjustment_factors.py \
+  --start-date 2026-01-02 \
+  --end-date 2026-01-10 \
+  --calendar-file data/calendars/a-share-sessions.txt \
+  --universe-snapshot-id <approved_universe_snapshot_id>
+```
+
 ```bash
 cd backend
 PYTHONPATH=src uv run python scripts/export_tdx_dataset.py \

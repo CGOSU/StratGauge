@@ -2,19 +2,58 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from stratgauge.data_pipeline.quality import check_adjustment_factors, quality_run_id
 from stratgauge.data_pipeline.store import SnapshotManifest, SnapshotStatus, SnapshotStore
 from stratgauge.data_pipeline.universe import UniverseSnapshot
-from stratgauge.data_sources.base import AdjustmentFactorDataAdapter, AdjustmentFactorRequest
+from stratgauge.data_sources.base import (
+    AdapterError,
+    AdjustmentFactorDataAdapter,
+    AdjustmentFactorRequest,
+)
 
 
 class AdjustmentFactorSyncError(RuntimeError):
     """Adjustment factors cannot be safely bound to market data."""
+
+
+class AdjustmentFactorBackfillStatus(StrEnum):
+    APPROVED = "approved"
+    MISSING_DAILY_SNAPSHOT = "missing_daily_snapshot"
+    REJECTED = "rejected"
+    FETCH_FAILED = "fetch_failed"
+
+
+class AdjustmentFactorBackfillSessionResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    session_date: date
+    status: AdjustmentFactorBackfillStatus
+    source_daily_snapshot_id: str | None = None
+    snapshot_id: str | None = None
+    skipped: bool = False
+    error: str | None = None
+
+
+class AdjustmentFactorBackfillReport(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider: str
+    universe_snapshot_id: str
+    session_dates: tuple[date, ...]
+    results: tuple[AdjustmentFactorBackfillSessionResult, ...]
+    approved_snapshot_ids: tuple[str, ...] = ()
+    rejected_snapshot_ids: tuple[str, ...] = ()
+    missing_daily_sessions: tuple[date, ...] = ()
+    fetch_failed_sessions: tuple[date, ...] = ()
+    blockers: tuple[str, ...] = ()
+    ready: bool = False
 
 
 class AdjustmentFactorSessionSyncResult(BaseModel):
@@ -32,6 +71,101 @@ class AdjustmentFactorSessionSyncResult(BaseModel):
     actual_securities: int = Field(ge=0)
     coverage: Decimal = Field(ge=0, le=1)
     skipped: bool = False
+
+
+def sync_adjustment_factor_sessions(
+    *,
+    adapter: AdjustmentFactorDataAdapter,
+    session_dates: Sequence[date],
+    universe: UniverseSnapshot,
+    store: SnapshotStore,
+    minimum_security_coverage: Decimal = Decimal("0.90"),
+) -> AdjustmentFactorBackfillReport:
+    """Backfill factors only for sessions with approved daily snapshots."""
+
+    ordered_sessions = tuple(session_dates)
+    if not ordered_sessions:
+        raise AdjustmentFactorSyncError("session_dates must not be empty")
+    if len(set(ordered_sessions)) != len(ordered_sessions):
+        raise AdjustmentFactorSyncError("session_dates must not contain duplicates")
+    if tuple(sorted(ordered_sessions)) != ordered_sessions:
+        raise AdjustmentFactorSyncError("session_dates must be sorted in ascending order")
+
+    results: list[AdjustmentFactorBackfillSessionResult] = []
+    approved_snapshot_ids: list[str] = []
+    rejected_snapshot_ids: list[str] = []
+    missing_daily_sessions: list[date] = []
+    fetch_failed_sessions: list[date] = []
+    blockers: list[str] = []
+    for session_date in ordered_sessions:
+        daily_manifest = store.find_approved_market_snapshot(
+            provider=adapter.provider,
+            session_date=session_date,
+            universe_snapshot_id=universe.universe_snapshot_id,
+        )
+        if daily_manifest is None:
+            missing_daily_sessions.append(session_date)
+            blockers.append(f"missing approved market snapshot: {session_date}")
+            results.append(
+                AdjustmentFactorBackfillSessionResult(
+                    session_date=session_date,
+                    status=AdjustmentFactorBackfillStatus.MISSING_DAILY_SNAPSHOT,
+                )
+            )
+            continue
+        try:
+            synced = sync_adjustment_factor_session(
+                adapter=adapter,
+                session_date=session_date,
+                universe=universe,
+                source_daily_snapshot_id=daily_manifest.snapshot_id,
+                store=store,
+                minimum_security_coverage=minimum_security_coverage,
+            )
+        except AdapterError as exc:
+            fetch_failed_sessions.append(session_date)
+            blockers.append(f"factor fetch failed: {session_date}")
+            results.append(
+                AdjustmentFactorBackfillSessionResult(
+                    session_date=session_date,
+                    status=AdjustmentFactorBackfillStatus.FETCH_FAILED,
+                    source_daily_snapshot_id=daily_manifest.snapshot_id,
+                    error=str(exc),
+                )
+            )
+            continue
+        status = (
+            AdjustmentFactorBackfillStatus.APPROVED
+            if synced.status is SnapshotStatus.APPROVED
+            else AdjustmentFactorBackfillStatus.REJECTED
+        )
+        if status is AdjustmentFactorBackfillStatus.APPROVED:
+            approved_snapshot_ids.append(synced.snapshot_id)
+        else:
+            rejected_snapshot_ids.append(synced.snapshot_id)
+            blockers.append(f"rejected adjustment-factor snapshot: {session_date}")
+        results.append(
+            AdjustmentFactorBackfillSessionResult(
+                session_date=session_date,
+                status=status,
+                source_daily_snapshot_id=synced.source_daily_snapshot_id,
+                snapshot_id=synced.snapshot_id,
+                skipped=synced.skipped,
+            )
+        )
+
+    return AdjustmentFactorBackfillReport(
+        provider=adapter.provider,
+        universe_snapshot_id=universe.universe_snapshot_id,
+        session_dates=ordered_sessions,
+        results=tuple(results),
+        approved_snapshot_ids=tuple(approved_snapshot_ids),
+        rejected_snapshot_ids=tuple(rejected_snapshot_ids),
+        missing_daily_sessions=tuple(missing_daily_sessions),
+        fetch_failed_sessions=tuple(fetch_failed_sessions),
+        blockers=tuple(blockers),
+        ready=not blockers,
+    )
 
 
 def sync_adjustment_factor_session(

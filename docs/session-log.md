@@ -316,3 +316,9 @@
 - 完成内容：新增 `selection_analysis.py` 和 `GET /v1/selection-batches/{batch_id}/candidates/{candidate_id}/analysis`；按同公式、早于当前选股日且在批次导出时间前已知的结果构建历史队列；支持追踪政策筛选。统计默认至少 100 个完成样本才输出胜率，入场价分析只返回历史实际入场价的描述统计；研究页候选卡片增加按需分析面板。
 - 验证：`cd backend && uv run ruff format --check . && uv run ruff check . && uv run mypy src tests scripts`；`PYTHONPATH=src uv run python -m unittest discover -s tests -q`（190 项通过，1 项环境相关跳过）；`cd frontend && corepack pnpm typecheck && corepack pnpm build && corepack pnpm lint`；`git diff --check`，均通过。
 - 遗留问题：`trade_cal` 真实填充仍受 Tushare 当前 Token 频率限制；历史批量因子补齐、LightGBM、概率校准和推荐工作台仍未实现。
+
+### 2026-08-10 历史批量复权因子补齐
+
+- 完成内容：新增批量因子同步报告和 `backfill_tushare_adjustment_factors.py`；显式读取交易日历范围，只处理已有已批准全市场日线快照；缺少日线时不请求供应商并报告阻断，因子质量拒绝、供应商失败和已批准/跳过状态均逐日记录。
+- 验证：后端 193 项测试通过（1 项环境相关跳过）；Ruff、MyPy、前端 typecheck/build/lint 和 `git diff --check` 通过；CLI `--help` 检查通过。
+- 遗留问题：真实 `trade_cal` 和批量 Tushare 因子运行仍受当前 Token 配额限制；LightGBM、概率校准和推荐工作台仍未实现。
