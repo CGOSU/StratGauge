@@ -459,6 +459,14 @@ PYTHONPATH=src uv run python scripts/score_selection_shadow.py \
 
 输出同时保留 `uncalibrated_model_score` 和可选 `calibrated_model_score`，并明确 `used_for_decision=false`；未提供校准器时 `calibrated=false`，任何分数都不能称为胜率。
 
+研究页按需读取候选模型证据：
+
+```text
+GET /v1/selection-batches/{batch_id}/candidates/{candidate_id}/model-scores
+```
+
+响应包含模型版本、生命周期、原始/校准分数、样本量、适用日期和逐模型失败原因；`authoritative=false` 是固定契约，不提供自动交易或自动晋升入口。
+
 ### 10. Tushare 参考数据、时间点股票池和策略生命周期
 
 首次同步股票主数据和交易日历：

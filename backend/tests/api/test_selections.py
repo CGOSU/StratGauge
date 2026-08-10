@@ -24,7 +24,9 @@ class SelectionApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = TemporaryDirectory()
         self.store = SelectionImportStore(self.directory.name)
-        self.client = TestClient(create_app(selection_store=self.store))
+        self.client = TestClient(
+            create_app(selection_store=self.store, model_root=self.directory.name)
+        )
 
     def tearDown(self) -> None:
         self.directory.cleanup()
@@ -158,6 +160,29 @@ class SelectionApiTests(unittest.TestCase):
         self.assertFalse(analysis["conditional_stats"]["evidence_sufficient"])
         self.assertIsNone(analysis["conditional_stats"]["win_rate"])
         self.assertEqual(analysis["entry_price_stats"]["sample_count"], 0)
+
+    def test_candidate_model_scores_are_empty_without_shadow_runs(self) -> None:
+        imported = self.client.post(
+            "/v1/selection-batches",
+            json={
+                "content_base64": base64.b64encode(CONTENT).decode(),
+                "selection_date": "2026-01-05",
+                "exported_at": "2026-01-05T15:05:00+08:00",
+                "formula_name": "趋势选股",
+            },
+        )
+        self.assertEqual(imported.status_code, 201)
+        batch = imported.json()
+        batch_id = batch["batch"]["batch_id"]
+        candidate_id = batch["candidates"][0]["candidate"]["candidate_id"]
+
+        response = self.client.get(
+            f"/v1/selection-batches/{batch_id}/candidates/{candidate_id}/model-scores"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["scores"], [])
+        self.assertEqual(response.json()["failures"], [])
 
     def test_import_list_view_and_label_candidate(self) -> None:
         imported = self.client.post(

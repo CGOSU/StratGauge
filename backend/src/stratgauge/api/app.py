@@ -17,6 +17,11 @@ from stratgauge.api.analysis import (
     AnalysisService,
     InMemoryAnalysisRepository,
 )
+from stratgauge.api.model_scores import (
+    CandidateModelScoresView,
+    ModelScoreApiError,
+    ModelScoreService,
+)
 from stratgauge.api.portfolio import (
     ManualFillRequest,
     ManualOrderRequest,
@@ -65,6 +70,8 @@ from stratgauge.domain.selections import (
     SelectionLifecycleStatus,
     SelectionMaturityTask,
 )
+from stratgauge.ml.registry import ModelRegistryStore
+from stratgauge.ml.shadow import ShadowScoreStore
 
 
 def create_app(
@@ -78,11 +85,18 @@ def create_app(
     portfolio_root: str | Path = Path("data/portfolio"),
     universe_store: UniverseSnapshotStore | None = None,
     universe_root: str | Path = Path("data"),
+    model_root: str | Path = Path("data"),
 ) -> FastAPI:
     service = AnalysisService(InMemoryAnalysisRepository(records or {}))
-    selections = SelectionService(selection_store or SelectionImportStore(selection_root))
+    selection_store_instance = selection_store or SelectionImportStore(selection_root)
+    selections = SelectionService(selection_store_instance)
     portfolio = PortfolioService(portfolio_store or ManualPortfolioStore(portfolio_root))
     universe = UniverseSearchService(universe_store or UniverseSnapshotStore(universe_root))
+    model_scores = ModelScoreService(
+        selection_store_instance,
+        model_registry=ModelRegistryStore(model_root),
+        score_store=ShadowScoreStore(model_root),
+    )
     create_market_adapter = market_adapter_factory or _create_market_adapter
     app = FastAPI(title="StratGauge API", version="0.1.0")
 
@@ -95,6 +109,13 @@ def create_app(
 
     @app.exception_handler(SelectionApiError)
     async def handle_selection_error(_: Any, error: SelectionApiError) -> JSONResponse:
+        return JSONResponse(
+            status_code=error.status_code,
+            content={"error": {"code": error.code, "message": error.message, "details": {}}},
+        )
+
+    @app.exception_handler(ModelScoreApiError)
+    async def handle_model_score_error(_: Any, error: ModelScoreApiError) -> JSONResponse:
         return JSONResponse(
             status_code=error.status_code,
             content={"error": {"code": error.code, "message": error.message, "details": {}}},
@@ -349,6 +370,16 @@ def create_app(
             candidate_id,
             tracking_policy_id=tracking_policy_id,
         )
+
+    @app.get(
+        "/v1/selection-batches/{batch_id}/candidates/{candidate_id}/model-scores",
+        response_model=CandidateModelScoresView,
+    )
+    def get_candidate_model_scores(
+        batch_id: str,
+        candidate_id: str,
+    ) -> CandidateModelScoresView:
+        return model_scores.get_candidate_scores(batch_id, candidate_id)
 
     @app.post(
         "/v1/selection-batches/{batch_id}/mature",

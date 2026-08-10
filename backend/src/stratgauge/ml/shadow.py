@@ -64,6 +64,9 @@ class ShadowScore(DomainModel):
     uncalibrated_model_score: Decimal = Field(ge=0, le=1)
     calibrated_model_id: str | None = None
     calibrated_model_score: Decimal | None = Field(default=None, ge=0, le=1)
+    calibration_sample_count: int | None = Field(default=None, ge=0)
+    calibration_date_start: date | None = None
+    calibration_date_end: date | None = None
     calibrated: bool = False
     used_for_decision: Literal[False] = False
 
@@ -112,6 +115,12 @@ class ShadowScoreStore:
             return ShadowScore.model_validate_json(path.read_text(encoding="utf-8"))
         except (OSError, TypeError, ValueError) as exc:
             raise ShadowScoreError(f"shadow score is invalid: {score_id}") from exc
+
+    def list_scores(self, *, candidate_id: str | None = None) -> tuple[ShadowScore, ...]:
+        scores = tuple(self.load_score(path.stem) for path in self.score_dir.glob("*.json"))
+        if candidate_id is not None:
+            scores = tuple(score for score in scores if score.candidate_id == candidate_id)
+        return tuple(sorted(scores, key=lambda score: (score.scored_at, score.score_id)))
 
     def write_report(self, report: ShadowScoringReport) -> ShadowScoringReport:
         path = self.report_dir / f"{_safe_identifier(report.report_id)}.json"
@@ -280,6 +289,15 @@ def _score_one(
             None if calibration_model is None else calibration_model.calibration_id
         ),
         calibrated_model_score=calibrated_score,
+        calibration_sample_count=(
+            None if calibration_model is None else calibration_model.calibration_row_count
+        ),
+        calibration_date_start=(
+            None if calibration_model is None else calibration_model.calibration_date_start
+        ),
+        calibration_date_end=(
+            None if calibration_model is None else calibration_model.calibration_date_end
+        ),
         calibrated=calibration_model is not None,
     )
 

@@ -346,3 +346,9 @@
 - 完成内容：模型注册扩展支持 baseline/LightGBM 元数据和运行时工件；影子评分支持 LightGBM 单候选概率、可选同源 Isotonic 校准分数、工件哈希和校准器一致性校验；新增 `score_selection_shadow.py --calibration`。
 - 验证：后端 200 项测试通过（1 项环境相关跳过）；Ruff、MyPy、注册/影子 CLI 帮助检查、前端 typecheck/build/lint 和 `git diff --check` 通过。
 - 遗留问题：模型批次自动接入、Web 评分和完整模型运营仍未实现。
+
+### 2026-08-10 模型证据 API 与前端展示
+
+- 完成内容：新增只读模型证据服务和 `GET /v1/selection-batches/{batch_id}/candidates/{candidate_id}/model-scores`；候选页按需加载模型影子证据，展示模型版本、生命周期、原始/校准分数、样本量、适用日期和失败原因，固定标记不具权威性且不用于决策。
+- 验证：后端 202 项测试通过（1 项环境相关跳过）；Ruff、MyPy、API 回归、前端 typecheck/build/lint 和 `git diff --check` 通过。
+- 遗留问题：模型批次自动接入、完整推荐工作台和阶段 0 `trade_cal` 真实配额验证仍未完成。

@@ -129,6 +129,36 @@ type CandidateAnalysis = {
   entry_price_stats: EntryPriceStats
 }
 
+type ModelScore = {
+  model_version_id: string
+  model_type: string
+  lifecycle: string
+  tracking_policy_id: string
+  scored_at: string
+  uncalibrated_model_score: string
+  calibrated_model_id: string | null
+  calibrated_model_score: string | null
+  calibrated: boolean
+  sample_count: number | null
+  calibration_sample_count: number | null
+  applicable_date_start: string | null
+  applicable_date_end: string | null
+  authoritative: false
+}
+
+type ModelScoreFailure = {
+  model_version_id: string
+  reason: string
+}
+
+type CandidateModelScores = {
+  batch_id: string
+  candidate_id: string
+  symbol: string
+  scores: ModelScore[]
+  failures: ModelScoreFailure[]
+}
+
 type BatchStats = {
   batch_id: string
   candidate_count: number
@@ -307,6 +337,46 @@ function CandidateAnalysisPanel({ analysis }: { analysis: CandidateAnalysis }) {
   )
 }
 
+function CandidateModelScorePanel({ data }: { data: CandidateModelScores }) {
+  return (
+    <section className="candidate-model-scores" aria-label={`${data.symbol} 模型影子证据`}>
+      <div className="candidate-analysis-heading">
+        <strong>模型影子证据</strong>
+        <span>只读 · 不用于决策</span>
+      </div>
+      {data.scores.length === 0 && data.failures.length === 0 && (
+        <p className="empty-copy">暂无影子评分。</p>
+      )}
+      {data.scores.map((score) => (
+        <div className="candidate-model-score" key={`${score.model_version_id}:${score.scored_at}`}>
+          <div>
+            <span>{score.model_version_id} · {score.model_type}</span>
+            <strong>{score.calibrated ? '已校准分数' : '未校准分数'}：{formatModelScore(score.calibrated_model_score ?? score.uncalibrated_model_score)}</strong>
+          </div>
+          <div>
+            <span>样本量</span>
+            <strong>{score.sample_count ?? '—'}</strong>
+          </div>
+          <div>
+            <span>适用日期</span>
+            <strong>
+              {score.applicable_date_start && score.applicable_date_end
+                ? `${score.applicable_date_start} – ${score.applicable_date_end}`
+                : '—'}
+            </strong>
+          </div>
+          <p>政策 {score.tracking_policy_id} · 评分时间 {formatManagementDate(score.scored_at)} · authoritative=false</p>
+        </div>
+      ))}
+      {data.failures.map((failure) => (
+        <p className="candidate-model-score-failure" key={failure.model_version_id}>
+          {failure.model_version_id}：{failure.reason}
+        </p>
+      ))}
+    </section>
+  )
+}
+
 function App() {
   const [workspace, setWorkspace] = useState<Workspace>('research')
   const [healthState, setHealthState] = useState<HealthState>('checking')
@@ -329,6 +399,8 @@ function App() {
   const [selectedStats, setSelectedStats] = useState<BatchStats | null>(null)
   const [candidateAnalyses, setCandidateAnalyses] = useState<Record<string, CandidateAnalysis>>({})
   const [analysisLoadingId, setAnalysisLoadingId] = useState<string | null>(null)
+  const [candidateModelScores, setCandidateModelScores] = useState<Record<string, CandidateModelScores>>({})
+  const [modelScoreLoadingId, setModelScoreLoadingId] = useState<string | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [selectionDate, setSelectionDate] = useState('')
   const [exportedAt, setExportedAt] = useState('')
@@ -407,6 +479,8 @@ function App() {
       setSelectedStats(null)
       setCandidateAnalyses({})
       setAnalysisLoadingId(null)
+      setCandidateModelScores({})
+      setModelScoreLoadingId(null)
       setMaturityTasks([])
       setLoadingMaturityTasks(false)
       return
@@ -416,6 +490,8 @@ function App() {
     setSelectedStats(null)
     setCandidateAnalyses({})
     setAnalysisLoadingId(null)
+    setCandidateModelScores({})
+    setModelScoreLoadingId(null)
     setMaturityTasks([])
     setLoadingBatch(true)
     setLoadingMaturityTasks(true)
@@ -641,6 +717,25 @@ function App() {
       setError(reason instanceof Error ? reason.message : '加载历史条件分析失败。')
     } finally {
       setAnalysisLoadingId(null)
+    }
+  }
+
+  async function loadCandidateModelScores(candidateId: string) {
+    if (!selectedBatchId || modelScoreLoadingId !== null) {
+      return
+    }
+    const scoreKey = `${selectedBatchId}:${candidateId}`
+    setModelScoreLoadingId(scoreKey)
+    setError(null)
+    try {
+      const scores = await requestJson<CandidateModelScores>(
+        `${apiBase}/v1/selection-batches/${encodeURIComponent(selectedBatchId)}/candidates/${encodeURIComponent(candidateId)}/model-scores`,
+      )
+      setCandidateModelScores((current) => ({ ...current, [candidateId]: scores }))
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '加载模型影子证据失败。')
+    } finally {
+      setModelScoreLoadingId(null)
     }
   }
 
@@ -1246,15 +1341,30 @@ function App() {
                         size="sm"
                         variant="outline"
                         className="secondary-button"
-                        disabled={analysisLoadingId !== null}
+                        disabled={analysisLoadingId !== null || modelScoreLoadingId !== null}
                         data-saving={analysisLoadingId === `${selectedBatchId}:${candidate.candidate_id}`}
                         aria-expanded={Boolean(candidateAnalyses[candidate.candidate_id])}
                         onClick={() => void loadCandidateAnalysis(candidate.candidate_id)}
                       >
                         {analysisLoadingId === `${selectedBatchId}:${candidate.candidate_id}` ? '分析中…' : '查看历史条件分析'}
                       </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="secondary-button"
+                        disabled={analysisLoadingId !== null || modelScoreLoadingId !== null}
+                        data-saving={modelScoreLoadingId === `${selectedBatchId}:${candidate.candidate_id}`}
+                        aria-expanded={Boolean(candidateModelScores[candidate.candidate_id])}
+                        onClick={() => void loadCandidateModelScores(candidate.candidate_id)}
+                      >
+                        {modelScoreLoadingId === `${selectedBatchId}:${candidate.candidate_id}` ? '加载中…' : '查看模型影子证据'}
+                      </Button>
                       {candidateAnalyses[candidate.candidate_id] && (
                         <CandidateAnalysisPanel analysis={candidateAnalyses[candidate.candidate_id]} />
+                      )}
+                      {candidateModelScores[candidate.candidate_id] && (
+                        <CandidateModelScorePanel data={candidateModelScores[candidate.candidate_id]} />
                       )}
                     </div>
                     <Input
@@ -2461,6 +2571,11 @@ function formatPrice(value: string | null): string {
   }
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric.toFixed(2) : value
+}
+
+function formatModelScore(value: string): string {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric.toFixed(4) : '—'
 }
 
 function formatPercent(value: string | null): string {

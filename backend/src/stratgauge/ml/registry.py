@@ -297,6 +297,15 @@ class ModelRegistryStore:
         except OSError as exc:
             raise ModelRegistryError("model runtime artifact is missing") from exc
 
+    def read_training_manifest(self, model_version_id: str) -> bytes:
+        """Read a registered training manifest after registry verification."""
+
+        self.load(model_version_id)
+        try:
+            return self._training_manifest_path(model_version_id).read_bytes()
+        except OSError as exc:
+            raise ModelRegistryError("model training manifest is missing") from exc
+
     def read_evaluation_report(self, model_version_id: str) -> bytes:
         """Read a registered evaluation report only after registry verification."""
 
