@@ -44,6 +44,7 @@ class SelectionDatasetTests(unittest.TestCase):
             rows = build_selection_dataset(store, imported.batch.batch_id)
 
             self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].schema_version, "selection-dataset-v1")
             self.assertEqual(rows[0].manual_decision, ManualSelectionDecision.WATCH)
             self.assertIsNone(rows[0].outcome_status)
             self.assertEqual(rows[0].source_snapshot_ids, ())

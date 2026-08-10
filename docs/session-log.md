@@ -132,3 +132,8 @@
 - API/CLI：新增 `POST/GET /v1/selection-batches/{batch_id}/maturity-tasks`、`POST /v1/maturity-tasks/{task_id}/run` 和 `run_selection_maturity_tasks.py`；CLI 只执行排队任务，适合由 Windows Task Scheduler 显式调用，不注册服务内后台定时器。
 - 前端：成熟区改为创建幂等任务并立即执行，显示任务状态、尝试次数、写入/拒绝数量、事件和重试提示，支持手动刷新及排队任务再次执行。
 - 验证：后端 100 项测试通过（1 项环境相关跳过）；Ruff、MyPy 通过；前端 `corepack pnpm typecheck`、`build`、`lint` 通过。
+
+### 2026-08-10 JSONL schema 版本
+
+- 完成内容：每条 `SelectionDatasetRow` 增加 `schema_version=selection-dataset-v1`，保留待定、未入场和未解决样本，便于后续训练脚本拒绝未知列版本。
+- 验证：后端 100 项测试通过（1 项环境相关跳过）；Ruff、MyPy 通过。

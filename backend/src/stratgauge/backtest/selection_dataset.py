@@ -17,10 +17,11 @@ from stratgauge.domain.selections import (
 
 
 class SelectionDatasetRow(BaseModel):
-    """One candidate/outcome observation suitable for later time-split training."""
+    """One versioned candidate/outcome observation for later time-split training."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    schema_version: str = "selection-dataset-v1"
     candidate_id: str
     batch_id: str
     symbol: str
