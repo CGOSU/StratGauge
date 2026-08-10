@@ -1,7 +1,8 @@
 import base64
 import json
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from tempfile import TemporaryDirectory
 
 from fastapi.testclient import TestClient
@@ -10,6 +11,11 @@ from stratgauge.api.app import create_app
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.base import DailyBarRequest
+from stratgauge.domain.selections import (
+    ManualSelectionDecision,
+    SelectionOutcome,
+    SelectionOutcomeStatus,
+)
 
 CONTENT = "代码,名称,市场,评分\n000001,平安银行,SZ,85\n".encode()
 
@@ -17,9 +23,8 @@ CONTENT = "代码,名称,市场,评分\n000001,平安银行,SZ,85\n".encode()
 class SelectionApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = TemporaryDirectory()
-        self.client = TestClient(
-            create_app(selection_store=SelectionImportStore(self.directory.name))
-        )
+        self.store = SelectionImportStore(self.directory.name)
+        self.client = TestClient(create_app(selection_store=self.store))
 
     def tearDown(self) -> None:
         self.directory.cleanup()
@@ -169,6 +174,84 @@ class SelectionApiTests(unittest.TestCase):
         self.assertEqual(stats.status_code, 200)
         self.assertEqual(stats.json()["pending"], 1)
         self.assertEqual(stats.json()["summary"]["total"], 0)
+
+    def test_management_stats_filter_by_batch_label_and_tracking_policy(self) -> None:
+        formula = self.client.post(
+            "/v1/formulas",
+            json={"name": "统计公式", "version": "v1"},
+        ).json()["formula"]
+        imported = self.client.post(
+            "/v1/selection-batches",
+            json={
+                "content_base64": base64.b64encode(CONTENT).decode(),
+                "selection_date": "2026-01-05",
+                "exported_at": "2026-01-05T15:05:00+08:00",
+                "formula_id": formula["formula_id"],
+            },
+        ).json()
+        batch = imported["batch"]
+        candidate_id = imported["candidates"][0]["candidate"]["candidate_id"]
+        labeled = self.client.post(
+            f"/v1/selection-batches/{batch['batch_id']}/labels",
+            json={
+                "candidate_id": candidate_id,
+                "decision": ManualSelectionDecision.WATCH,
+                "labeled_at": "2026-01-05T15:10:00+08:00",
+            },
+        )
+        self.assertEqual(labeled.status_code, 200)
+        self.store.write_outcome(
+            SelectionOutcome(
+                candidate_id=candidate_id,
+                batch_id=batch["batch_id"],
+                selection_date=date(2026, 1, 5),
+                status=SelectionOutcomeStatus.WIN,
+                evaluated_at=datetime(2026, 1, 12, 17, tzinfo=UTC),
+                horizon_sessions=5,
+                entry_session=date(2026, 1, 6),
+                exit_session=date(2026, 1, 12),
+                entry_price=Decimal("10"),
+                exit_price=Decimal("11"),
+                gross_return=Decimal("0.1"),
+                net_return=Decimal("0.09"),
+                reason="fixed_horizon",
+                tracking_policy_id="policy-v1",
+                position_notional=Decimal("10000"),
+            )
+        )
+
+        response = self.client.get(
+            "/v1/data-management/stats",
+            params={
+                "formula_version": "v1",
+                "source": "tongdaxin",
+                "selection_date_from": "2026-01-01",
+                "selection_date_to": "2026-01-31",
+                "manual_decision": "watch",
+                "tracking_policy_id": "policy-v1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        stats = response.json()
+        self.assertEqual(stats["batch_count"], 1)
+        self.assertEqual(stats["candidate_count"], 1)
+        self.assertEqual(stats["pending"], 0)
+        self.assertEqual(stats["sample_count"], 1)
+        self.assertEqual(stats["tracking_policy_ids"], ["policy-v1"])
+        self.assertEqual(stats["summary"]["wins"], 1)
+        self.assertEqual(stats["summary"]["average_net_return"], "0.09")
+
+    def test_management_stats_rejects_reversed_date_filter(self) -> None:
+        response = self.client.get(
+            "/v1/data-management/stats",
+            params={
+                "selection_date_from": "2026-02-01",
+                "selection_date_to": "2026-01-01",
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["error"]["code"], "INVALID_SELECTION_STATS_FILTER")
 
     def test_manual_batch_persists_canonical_raw_evidence_and_is_idempotent(self) -> None:
         formula = self.client.post(

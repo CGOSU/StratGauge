@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import FastAPI
@@ -29,6 +29,7 @@ from stratgauge.api.selections import (
     SelectionManagedBatchDetailView,
     SelectionManagedBatchView,
     SelectionManagedFormulaView,
+    SelectionManagementStatsView,
     SelectionMatureRequest,
     SelectionMatureView,
     SelectionService,
@@ -41,6 +42,7 @@ from stratgauge.data_sources.baostock import BaoStockAdapter
 from stratgauge.data_sources.base import MarketDataAdapter
 from stratgauge.data_sources.waizao import WaizaoAdapter
 from stratgauge.domain.selections import (
+    ManualSelectionDecision,
     SelectionBatch,
     SelectionFormula,
     SelectionLifecycleStatus,
@@ -170,6 +172,29 @@ def create_app(
             task_id,
             adapter=create_market_adapter(task.provider),
             market_store=SnapshotStore(market_root),
+        )
+
+    @app.get(
+        "/v1/data-management/stats",
+        response_model=SelectionManagementStatsView,
+    )
+    def summarize_managed_batches(
+        formula_version: str | None = None,
+        source: Literal["tongdaxin", "manual"] | None = None,
+        selection_date_from: date | None = None,
+        selection_date_to: date | None = None,
+        manual_decision: ManualSelectionDecision | None = None,
+        tracking_policy_id: str | None = None,
+        lifecycle: Literal["all", "active", "archived"] = "all",
+    ) -> SelectionManagementStatsView:
+        return selections.summarize_managed_batches(
+            formula_version=formula_version,
+            source=source,
+            selection_date_from=selection_date_from,
+            selection_date_to=selection_date_to,
+            manual_decision=manual_decision,
+            tracking_policy_id=tracking_policy_id,
+            lifecycle=lifecycle,
         )
 
     @app.get(

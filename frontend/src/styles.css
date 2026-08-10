@@ -195,6 +195,47 @@
   justify-content: flex-end;
 }
 
+.management-stats-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.management-stats-panel .section-heading {
+  margin-bottom: 0;
+}
+
+.management-stats-filters {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.management-stats-summary {
+  background: hsl(210 40% 98%);
+  border: 1px solid hsl(214 32% 91%);
+  border-radius: 0.65rem;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  padding: 12px;
+}
+
+.management-stats-summary div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.management-stats-summary span {
+  color: hsl(215 16% 42%);
+  font-size: 0.75rem;
+}
+
+.management-stats-summary strong {
+  color: hsl(222 47% 11%);
+  overflow-wrap: anywhere;
+}
+
 .management-filter {
   display: flex;
   flex-wrap: wrap;
@@ -929,6 +970,14 @@
     justify-content: flex-start;
   }
 
+  .management-stats-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .management-stats-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .manual-metadata-fields {
     grid-template-columns: 1fr;
   }
@@ -987,8 +1036,13 @@
     padding: 18px;
   }
 
-  .stats-strip {
+  .stats-strip,
+  .management-stats-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .management-stats-filters {
+    grid-template-columns: 1fr;
   }
 
   .candidate-row,

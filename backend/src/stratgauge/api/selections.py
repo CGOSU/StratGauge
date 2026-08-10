@@ -241,6 +241,17 @@ class SelectionStatsView(BaseModel):
     summary: SelectionOutcomeStats
 
 
+class SelectionManagementStatsView(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    batch_count: int = Field(ge=0)
+    candidate_count: int = Field(ge=0)
+    pending: int = Field(ge=0)
+    sample_count: int = Field(ge=0)
+    tracking_policy_ids: tuple[str, ...] = ()
+    summary: SelectionOutcomeStats
+
+
 class SelectionService:
     """Application service backed by immutable local selection storage."""
 
@@ -647,6 +658,83 @@ class SelectionService:
                 raise SelectionApiError(
                     "SELECTION_BATCH_NOT_FOUND", "选股批次不存在。", 404
                 ) from exc
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+
+    def summarize_managed_batches(
+        self,
+        *,
+        formula_version: str | None = None,
+        source: Literal["tongdaxin", "manual"] | None = None,
+        selection_date_from: date | None = None,
+        selection_date_to: date | None = None,
+        manual_decision: ManualSelectionDecision | None = None,
+        tracking_policy_id: str | None = None,
+        lifecycle: Literal["all", "active", "archived"] = "all",
+    ) -> SelectionManagementStatsView:
+        if selection_date_from and selection_date_to and selection_date_from > selection_date_to:
+            raise SelectionApiError(
+                "INVALID_SELECTION_STATS_FILTER",
+                "选股日期起始值不能晚于结束值。",
+                422,
+            )
+        formula_version = formula_version.strip() if formula_version else None
+        tracking_policy_id = tracking_policy_id.strip() if tracking_policy_id else None
+        try:
+            outcomes: list[SelectionOutcome] = []
+            tracking_policy_ids: set[str] = set()
+            batch_count = 0
+            candidate_count = 0
+            pending = 0
+            for manifest in self._store.list_manifests(include_archived=True):
+                imported = self._store.load_import(manifest.batch_id)
+                active = self._store.is_entity_active("batch", imported.batch.batch_id)
+                if lifecycle == "active" and not active:
+                    continue
+                if lifecycle == "archived" and active:
+                    continue
+                batch = imported.batch
+                if formula_version is not None and batch.formula_version != formula_version:
+                    continue
+                if source is not None and batch.source != source:
+                    continue
+                if selection_date_from and batch.selection_date < selection_date_from:
+                    continue
+                if selection_date_to and batch.selection_date > selection_date_to:
+                    continue
+                batch_count += 1
+                for candidate in imported.candidates:
+                    labels = self._store.list_labels(candidate.candidate_id)
+                    label = labels[-1] if labels else None
+                    if manual_decision is not None and (
+                        label is None or label.decision != manual_decision
+                    ):
+                        continue
+                    candidate_count += 1
+                    candidate_outcomes = latest_selection_outcomes(
+                        self._store.list_outcomes(candidate.candidate_id)
+                    )
+                    tracking_policy_ids.update(
+                        outcome.tracking_policy_id for outcome in candidate_outcomes
+                    )
+                    if tracking_policy_id is not None:
+                        candidate_outcomes = tuple(
+                            outcome
+                            for outcome in candidate_outcomes
+                            if outcome.tracking_policy_id == tracking_policy_id
+                        )
+                    if not candidate_outcomes:
+                        pending += 1
+                    outcomes.extend(candidate_outcomes)
+            summary = summarize_selection_outcomes(outcomes)
+            return SelectionManagementStatsView(
+                batch_count=batch_count,
+                candidate_count=candidate_count,
+                pending=pending,
+                sample_count=summary.total,
+                tracking_policy_ids=tuple(sorted(tracking_policy_ids)),
+                summary=summary,
+            )
+        except SelectionStoreError as exc:
             raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
 
     def label_candidate(self, batch_id: str, request: SelectionLabelRequest) -> SelectionBatchView:

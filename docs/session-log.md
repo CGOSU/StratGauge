@@ -142,3 +142,8 @@
 
 - 完成内容：新增 `split_tdx_dataset.py` 和 `selection_split.py`，按 `selection_date` 与显式 train/validation 边界生成不随机、不覆盖的三份 JSONL，并保存源文件 SHA-256、schema 版本和各分区行数 manifest。
 - 验证：后端 103 项测试通过（1 项环境相关跳过）；Ruff、MyPy 通过。
+
+### 2026-08-10 管理页统计筛选
+
+- 完成内容：新增 `GET /v1/data-management/stats`，支持公式版本、来源、选股日期范围、最新人工决策、结果政策和生命周期筛选；数据管理页增加原生日期/选择控件和样本、待定、胜率、平均净收益概览。
+- 验证：后端 105 项测试通过（1 项环境相关跳过）；Ruff、MyPy 通过；前端 `corepack pnpm typecheck`、`build`、`lint` 通过。
