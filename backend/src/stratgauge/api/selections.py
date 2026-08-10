@@ -5,13 +5,21 @@ from __future__ import annotations
 import base64
 import binascii
 from datetime import UTC, date, datetime
+from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from stratgauge.backtest.selection_outcomes import latest_selection_outcomes
+from stratgauge.backtest.selection_job import run_selection_outcome_job
+from stratgauge.backtest.selection_outcomes import (
+    SelectionTrackingPolicy,
+    latest_selection_outcomes,
+)
 from stratgauge.backtest.selection_stats import SelectionOutcomeStats, summarize_selection_outcomes
 from stratgauge.data_pipeline.selection_store import SelectionImportStore, SelectionStoreError
+from stratgauge.data_pipeline.store import SnapshotStore
 from stratgauge.data_pipeline.tdx_import import TdxImportError, import_tdx_export
+from stratgauge.data_sources.base import MarketDataAdapter
 from stratgauge.domain.selections import (
     ManualSelectionDecision,
     ManualSelectionLabel,
@@ -64,6 +72,40 @@ class SelectionLabelRequest(BaseModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("labeled_at must include a timezone")
         return value
+
+
+class SelectionMatureRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["akshare", "baostock", "waizao"]
+    evaluated_at: datetime
+    horizon_sessions: int = Field(gt=0)
+    position_notional: Decimal = Field(gt=0)
+
+    @field_validator("evaluated_at")
+    @classmethod
+    def require_aware_evaluation_time(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("evaluated_at must include a timezone")
+        return value
+
+    @field_validator("position_notional", mode="before")
+    @classmethod
+    def require_finite_notional(cls, value: Decimal | str | int | float) -> Decimal:
+        result = Decimal(str(value))
+        if not result.is_finite():
+            raise ValueError("position_notional must be finite")
+        return result
+
+
+class SelectionMatureView(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    batch_id: str
+    provider: str
+    outcomes_written: int = Field(ge=0)
+    rejected_candidates: tuple[tuple[str, str], ...]
+    market_snapshot_ids: tuple[str, ...]
 
 
 class SelectionCandidateView(BaseModel):
@@ -139,6 +181,43 @@ class SelectionService:
             raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
         except ValueError as exc:
             raise SelectionApiError("INVALID_SELECTION_METADATA", str(exc), 422) from exc
+
+    def mature_batch(
+        self,
+        batch_id: str,
+        request: SelectionMatureRequest,
+        *,
+        adapter: MarketDataAdapter,
+        market_store: SnapshotStore,
+    ) -> SelectionMatureView:
+        try:
+            imported = self._store.load_import(batch_id)
+            result = run_selection_outcome_job(
+                imported,
+                adapter=adapter,
+                selection_store=self._store,
+                market_store=market_store,
+                evaluated_at=request.evaluated_at,
+                policy=SelectionTrackingPolicy(
+                    horizon_sessions=request.horizon_sessions,
+                    position_notional=request.position_notional,
+                ),
+            )
+            return SelectionMatureView(
+                batch_id=batch_id,
+                provider=request.provider,
+                outcomes_written=len(result.outcomes),
+                rejected_candidates=result.rejected_candidates,
+                market_snapshot_ids=result.market_snapshot_ids,
+            )
+        except SelectionStoreError as exc:
+            if "does not exist" in str(exc):
+                raise SelectionApiError(
+                    "SELECTION_BATCH_NOT_FOUND", "选股批次不存在。", 404
+                ) from exc
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+        except (OSError, ValueError) as exc:
+            raise SelectionApiError("SELECTION_MATURE_FAILED", str(exc), 422) from exc
 
     def summarize_batch(self, batch_id: str) -> SelectionStatsView:
         try:

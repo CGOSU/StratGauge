@@ -1,11 +1,13 @@
 import base64
 import unittest
+from datetime import UTC, datetime
 from tempfile import TemporaryDirectory
 
 from fastapi.testclient import TestClient
 
 from stratgauge.api.app import create_app
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
+from stratgauge.data_sources.akshare import AKShareAdapter
 
 CONTENT = "代码,名称,市场,评分\n000001,平安银行,SZ,85\n".encode()
 
@@ -62,6 +64,64 @@ class SelectionApiTests(unittest.TestCase):
         self.assertEqual(stats.json()["pending"], 1)
         self.assertEqual(stats.json()["summary"]["total"], 0)
 
+    def test_mature_endpoint_runs_injected_provider_and_refreshes_results(self) -> None:
+        with TemporaryDirectory() as market_directory:
+            evaluated_at = datetime(2026, 1, 7, 9, tzinfo=UTC)
+            adapter = AKShareAdapter(
+                fetcher=lambda _: [
+                    {
+                        "日期": "2026-01-06",
+                        "开盘": "10.00",
+                        "最高": "10.20",
+                        "最低": "9.80",
+                        "收盘": "10.10",
+                        "成交量": "1000",
+                        "成交额": "10000",
+                    },
+                    {
+                        "日期": "2026-01-07",
+                        "开盘": "10.20",
+                        "最高": "11.00",
+                        "最低": "10.00",
+                        "收盘": "11.00",
+                        "成交量": "1000",
+                        "成交额": "11000",
+                    },
+                ],
+                clock=lambda: evaluated_at,
+            )
+            client = TestClient(
+                create_app(
+                    selection_store=SelectionImportStore(self.directory.name),
+                    market_root=market_directory,
+                    market_adapter_factory=lambda _: adapter,
+                )
+            )
+            imported = client.post(
+                "/v1/selection-batches",
+                json={
+                    "content_base64": base64.b64encode(CONTENT).decode(),
+                    "selection_date": "2026-01-05",
+                    "exported_at": "2026-01-05T15:05:00+08:00",
+                    "formula_name": "公式 A",
+                },
+            ).json()
+
+            response = client.post(
+                f"/v1/selection-batches/{imported['batch']['batch_id']}/mature",
+                json={
+                    "provider": "akshare",
+                    "evaluated_at": "2026-01-07T17:00:00+08:00",
+                    "horizon_sessions": 1,
+                    "position_notional": "10000",
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["outcomes_written"], 1)
+            stats = client.get(f"/v1/selection-batches/{imported['batch']['batch_id']}/stats")
+            self.assertEqual(stats.json()["summary"]["completed"], 1)
+
     def test_invalid_file_returns_structured_error(self) -> None:
         response = self.client.post(
             "/v1/selection-batches",
@@ -103,6 +163,19 @@ class SelectionApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
         self.assertEqual(response.json()["error"]["code"], "SELECTION_LABEL_NOT_ALLOWED")
+
+    def test_mature_requires_aware_evaluation_time(self) -> None:
+        response = self.client.post(
+            "/v1/selection-batches/batch-1/mature",
+            json={
+                "provider": "baostock",
+                "evaluated_at": "2026-01-10T17:00:00",
+                "horizon_sessions": 5,
+                "position_notional": "10000",
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
 
     def test_naive_label_timestamp_is_rejected_by_request_model(self) -> None:
         response = self.client.post(

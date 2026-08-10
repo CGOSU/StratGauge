@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -21,10 +21,17 @@ from stratgauge.api.selections import (
     SelectionBatchView,
     SelectionImportRequest,
     SelectionLabelRequest,
+    SelectionMatureRequest,
+    SelectionMatureView,
     SelectionService,
     SelectionStatsView,
 )
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
+from stratgauge.data_pipeline.store import SnapshotStore
+from stratgauge.data_sources.akshare import AKShareAdapter
+from stratgauge.data_sources.baostock import BaoStockAdapter
+from stratgauge.data_sources.base import MarketDataAdapter
+from stratgauge.data_sources.waizao import WaizaoAdapter
 from stratgauge.domain.selections import SelectionBatch
 
 
@@ -33,9 +40,12 @@ def create_app(
     *,
     selection_store: SelectionImportStore | None = None,
     selection_root: str | Path = Path("data/selection"),
+    market_root: str | Path = Path("data/selection-market"),
+    market_adapter_factory: Callable[[str], MarketDataAdapter] | None = None,
 ) -> FastAPI:
     service = AnalysisService(InMemoryAnalysisRepository(records or {}))
     selections = SelectionService(selection_store or SelectionImportStore(selection_root))
+    create_market_adapter = market_adapter_factory or _create_market_adapter
     app = FastAPI(title="StratGauge API", version="0.1.0")
 
     @app.exception_handler(AnalysisError)
@@ -76,6 +86,21 @@ def create_app(
     def summarize_selection_batch(batch_id: str) -> SelectionStatsView:
         return selections.summarize_batch(batch_id)
 
+    @app.post(
+        "/v1/selection-batches/{batch_id}/mature",
+        response_model=SelectionMatureView,
+    )
+    def mature_selection_batch(
+        batch_id: str,
+        request: SelectionMatureRequest,
+    ) -> SelectionMatureView:
+        return selections.mature_batch(
+            batch_id,
+            request,
+            adapter=create_market_adapter(request.provider),
+            market_store=SnapshotStore(market_root),
+        )
+
     @app.post("/v1/selection-batches/{batch_id}/labels", response_model=SelectionBatchView)
     def label_selection_candidate(
         batch_id: str,
@@ -84,6 +109,15 @@ def create_app(
         return selections.label_candidate(batch_id, request)
 
     return app
+
+
+def _create_market_adapter(provider: str) -> MarketDataAdapter:
+    adapters: dict[str, type[MarketDataAdapter]] = {
+        "akshare": AKShareAdapter,
+        "baostock": BaoStockAdapter,
+        "waizao": WaizaoAdapter,
+    }
+    return adapters[provider]()
 
 
 app = create_app()

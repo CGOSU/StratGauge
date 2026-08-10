@@ -72,6 +72,14 @@ type BatchStats = {
   summary: StatsSummary
 }
 
+type MatureResult = {
+  batch_id: string
+  provider: string
+  outcomes_written: number
+  rejected_candidates: [string, string][]
+  market_snapshot_ids: string[]
+}
+
 type ApiErrorPayload = {
   error?: { message?: string }
 }
@@ -130,8 +138,15 @@ function App() {
   const [exportedAt, setExportedAt] = useState('')
   const [formulaName, setFormulaName] = useState('')
   const [formulaVersion, setFormulaVersion] = useState('')
+  const [provider, setProvider] = useState<'akshare' | 'baostock' | 'waizao'>('baostock')
+  const [evaluatedAt, setEvaluatedAt] = useState('')
+  const [horizonSessions, setHorizonSessions] = useState('5')
+  const [positionNotional, setPositionNotional] = useState('10000')
+  const [matureResult, setMatureResult] = useState<MatureResult | null>(null)
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
+  const [matureBusy, setMatureBusy] = useState(false)
+  const [batchReloadToken, setBatchReloadToken] = useState(0)
   const [loadingBatches, setLoadingBatches] = useState(true)
   const [loadingBatch, setLoadingBatch] = useState(false)
   const [labelingId, setLabelingId] = useState<string | null>(null)
@@ -204,7 +219,7 @@ function App() {
       })
 
     return () => controller.abort()
-  }, [selectedBatchId])
+  }, [selectedBatchId, batchReloadToken])
 
   async function loadBatches(preferredBatchId?: string) {
     setLoadingBatches(true)
@@ -253,6 +268,37 @@ function App() {
       setError(reason instanceof Error ? reason.message : '导入失败。')
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function matureSelection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedBatchId || !evaluatedAt || !horizonSessions || !positionNotional) {
+      return
+    }
+    setMatureBusy(true)
+    setMatureResult(null)
+    setError(null)
+    try {
+      const result = await requestJson<MatureResult>(
+        `${apiBase}/v1/selection-batches/${encodeURIComponent(selectedBatchId)}/mature`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider,
+            evaluated_at: toShanghaiDateTime(evaluatedAt),
+            horizon_sessions: Number(horizonSessions),
+            position_notional: positionNotional,
+          }),
+        },
+      )
+      setMatureResult(result)
+      setBatchReloadToken((current) => current + 1)
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '成熟结果失败。')
+    } finally {
+      setMatureBusy(false)
     }
   }
 
@@ -333,10 +379,10 @@ function App() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.tsv,.txt,text/csv,text/plain"
+                accept=".ebk,.EBK,.csv,.tsv,.txt,text/csv,text/plain"
                 onChange={(event) => setFile(event.target.files?.[0] ?? null)}
               />
-              <small>{file ? file.name : '支持 UTF-8 / GB18030 的 CSV、TSV、TXT'}</small>
+              <small>{file ? file.name : '支持 .EBK 或 UTF-8 / GB18030 的 CSV、TSV、TXT'}</small>
             </label>
             <label className="field">
               <span>选股日期</span>
@@ -523,6 +569,64 @@ function App() {
             })}
           </div>
         )}
+      </section>
+
+      <section className="mature-panel panel" aria-labelledby="mature-title">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">04 · 成熟</p>
+            <h2 id="mature-title">跟踪客观结果</h2>
+          </div>
+          {matureResult && (
+            <span className="section-meta" role="status">
+              已写入 {matureResult.outcomes_written} 条，拒绝 {matureResult.rejected_candidates.length} 条
+            </span>
+          )}
+        </div>
+        <form className="mature-form" onSubmit={matureSelection}>
+          <label className="field">
+            <span>行情源</span>
+            <select value={provider} onChange={(event) => setProvider(event.target.value as typeof provider)}>
+              <option value="akshare">AKShare（主源）</option>
+              <option value="baostock">BaoStock（备用）</option>
+              <option value="waizao">歪枣网（临时恢复源）</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>评估时间（北京时间）</span>
+            <input
+              type="datetime-local"
+              value={evaluatedAt}
+              onChange={(event) => setEvaluatedAt(event.target.value)}
+              required
+            />
+          </label>
+          <label className="field">
+            <span>持有交易日</span>
+            <input
+              type="number"
+              min="1"
+              value={horizonSessions}
+              onChange={(event) => setHorizonSessions(event.target.value)}
+              required
+            />
+          </label>
+          <label className="field">
+            <span>单笔名义金额</span>
+            <input
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={positionNotional}
+              onChange={(event) => setPositionNotional(event.target.value)}
+              required
+            />
+          </label>
+          <button className="primary-button" type="submit" disabled={matureBusy || !selectedBatchId}>
+            {matureBusy ? '跟踪中…' : selectedBatchId ? '执行结果成熟' : '先选择批次'}
+          </button>
+        </form>
+        <p className="form-hint">只读取 A 股日线并保存质量合格的行情快照，不会连接券商或自动下单。</p>
       </section>
 
       <section className="principles" aria-labelledby="principles-title">

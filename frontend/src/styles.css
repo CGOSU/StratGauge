@@ -27,7 +27,8 @@ input[type="file"] {
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible {
   outline: 3px solid #77d6c3;
   outline-offset: 3px;
 }
@@ -209,9 +210,20 @@ h2 {
   overflow-wrap: anywhere;
 }
 
-.import-form {
+.import-form,
+.mature-form {
   display: grid;
   gap: 14px;
+}
+
+.mature-panel {
+  margin-top: 20px;
+}
+
+.form-hint {
+  color: #aab6c8;
+  font-size: 0.82rem;
+  margin: 14px 0 0;
 }
 
 .field {
@@ -230,7 +242,8 @@ h2 {
   overflow-wrap: anywhere;
 }
 
-.field input {
+.field input,
+.field select {
   background: #0d1117;
   border: 1px solid #344359;
   border-radius: 9px;
@@ -516,6 +529,10 @@ button:disabled {
   .candidate-actions {
     grid-column: 1 / -1;
   }
+
+  .mature-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -547,5 +564,9 @@ button:disabled {
 
   .candidate-actions {
     grid-column: auto;
+  }
+
+  .mature-form {
+    grid-template-columns: 1fr;
   }
 }
