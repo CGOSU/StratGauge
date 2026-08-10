@@ -44,7 +44,7 @@ class SelectionDatasetTests(unittest.TestCase):
             rows = build_selection_dataset(store, imported.batch.batch_id)
 
             self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0].schema_version, "selection-dataset-v1")
+            self.assertEqual(rows[0].schema_version, "selection-dataset-v2")
             self.assertEqual(rows[0].manual_decision, ManualSelectionDecision.WATCH)
             self.assertIsNone(rows[0].outcome_status)
             self.assertEqual(rows[0].source_snapshot_ids, ())
@@ -74,6 +74,7 @@ class SelectionDatasetTests(unittest.TestCase):
                 gross_return=Decimal("0.1"),
                 net_return=Decimal("0.09"),
                 reason="fixed_horizon",
+                outcome_policy_id="outcome-fixed-10-net-positive-v1",
                 source_snapshot_ids=("snapshot-1",),
             )
             store.write_outcome(outcome)
@@ -82,6 +83,7 @@ class SelectionDatasetTests(unittest.TestCase):
 
             self.assertEqual(rows[0].outcome_status, SelectionOutcomeStatus.WIN)
             self.assertEqual(rows[0].net_return, "0.09")
+            self.assertEqual(rows[0].outcome_policy_id, "outcome-fixed-10-net-positive-v1")
             self.assertEqual(rows[0].source_snapshot_ids, ("snapshot-1",))
 
     def test_dataset_writer_does_not_overwrite(self) -> None:

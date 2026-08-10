@@ -1,5 +1,5 @@
 import unittest
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from stratgauge.backtest.models import BacktestPolicy
@@ -8,6 +8,7 @@ from stratgauge.backtest.selection_outcomes import (
     evaluate_selection_batch,
     evaluate_selection_outcome,
     latest_selection_outcomes,
+    selection_outcome_policy_id,
 )
 from stratgauge.backtest.selection_stats import summarize_selection_outcomes
 from stratgauge.domain.models import DailyBar, Exchange
@@ -75,6 +76,69 @@ def make_outcome(status: SelectionOutcomeStatus, net_return: Decimal | None) -> 
 
 
 class SelectionOutcomeTests(unittest.TestCase):
+    def test_default_policy_uses_ten_sessions_and_records_its_policy_id(self) -> None:
+        entry_session = date(2026, 1, 6)
+        bars = [make_bar(entry_session, open=Decimal("10.00"))]
+        bars.extend(
+            make_bar(
+                entry_session + timedelta(days=index),
+                close=Decimal("10.20"),
+            )
+            for index in range(1, 11)
+        )
+        policy = SelectionTrackingPolicy(position_notional=Decimal("10000"))
+
+        result = evaluate_selection_outcome(
+            candidate(),
+            selection_date=date(2026, 1, 5),
+            bars=bars,
+            evaluated_at=datetime(2026, 1, 20, 17, tzinfo=UTC),
+            policy=policy,
+        )
+
+        self.assertEqual(policy.horizon_sessions, 10)
+        self.assertEqual(
+            result.outcome_policy_id,
+            "outcome-fixed-10-net-positive-v1",
+        )
+        self.assertEqual(result.exit_session, date(2026, 1, 16))
+        self.assertEqual(result.status, SelectionOutcomeStatus.WIN)
+
+    def test_custom_horizon_gets_a_distinct_outcome_policy_id(self) -> None:
+        policy = SelectionTrackingPolicy(horizon_sessions=1)
+
+        self.assertNotEqual(
+            selection_outcome_policy_id(policy),
+            "outcome-fixed-10-net-positive-v1",
+        )
+
+    def test_net_return_thresholds_produce_win_flat_or_loss(self) -> None:
+        policy = SelectionTrackingPolicy(
+            horizon_sessions=1,
+            cost_policy=BacktestPolicy(
+                commission_rate=Decimal("0"),
+                minimum_commission=Decimal("0"),
+                stamp_duty=Decimal("0"),
+            ),
+        )
+        for close, expected in (
+            (Decimal("10.10"), SelectionOutcomeStatus.WIN),
+            (Decimal("10.00"), SelectionOutcomeStatus.FLAT),
+            (Decimal("9.90"), SelectionOutcomeStatus.LOSS),
+        ):
+            with self.subTest(close=close):
+                result = evaluate_selection_outcome(
+                    candidate(),
+                    selection_date=date(2026, 1, 5),
+                    bars=[
+                        make_bar(date(2026, 1, 6), open=Decimal("10.00")),
+                        make_bar(date(2026, 1, 7), close=close),
+                    ],
+                    evaluated_at=datetime(2026, 1, 7, 17, tzinfo=UTC),
+                    policy=policy,
+                )
+                self.assertEqual(result.status, expected)
+
     def test_fixed_horizon_outcome_uses_next_session_entry_and_net_return(self) -> None:
         result = evaluate_selection_outcome(
             candidate(),
@@ -169,6 +233,23 @@ class SelectionOutcomeTests(unittest.TestCase):
 
         self.assertEqual(len(outcomes), 1)
         self.assertEqual(outcomes[0].entry_session, date(2026, 1, 6))
+
+    def test_main_board_costs_round_quantity_down_to_one_hundred_share_lots(self) -> None:
+        result = evaluate_selection_outcome(
+            candidate(),
+            selection_date=date(2026, 1, 5),
+            bars=[
+                make_bar(date(2026, 1, 6), open=Decimal("10.03")),
+                make_bar(date(2026, 1, 7), close=Decimal("10.50")),
+            ],
+            evaluated_at=datetime(2026, 1, 7, 17, tzinfo=UTC),
+            policy=SelectionTrackingPolicy(
+                horizon_sessions=1,
+                position_notional=Decimal("10000"),
+            ),
+        )
+
+        self.assertEqual(result.net_return, Decimal("0.04522820427606070676858313947"))
 
     def test_minimum_commission_without_notional_is_rejected_for_completed_outcome(self) -> None:
         with self.assertRaisesRegex(ValueError, "position_notional"):

@@ -153,7 +153,7 @@ class SelectionMatureRequest(BaseModel):
 
     provider: Literal["tushare", "akshare", "baostock", "waizao"]
     evaluated_at: datetime
-    horizon_sessions: int = Field(gt=0)
+    horizon_sessions: int = Field(default=10, gt=0)
     position_notional: Decimal = Field(gt=0)
     max_retries: int = Field(default=2, ge=0, le=5)
     timeout_seconds: int = Field(default=900, gt=0, le=86400)

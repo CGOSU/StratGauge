@@ -3,25 +3,23 @@
 from __future__ import annotations
 
 import hashlib
-import importlib
 import json
-import os
 from collections.abc import Callable, Iterable, Mapping
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
 from stratgauge.data_pipeline.store import SnapshotStatus
-from stratgauge.data_sources.base import (
-    AdapterError,
-    RetryableAdapterError,
-    is_retryable_adapter_exception,
-)
+from stratgauge.data_sources.base import AdapterError
+from stratgauge.data_sources.tushare_api import query_tushare
 from stratgauge.domain.models import Exchange, Security, canonical_symbol
 
 ReferenceQuery = Callable[[str, Mapping[str, str]], Iterable[Mapping[str, Any]]]
+
+TUSHARE_MAIN_BOARD_MARKET = "主板"
+TUSHARE_MAIN_BOARD_EXCHANGES = frozenset({"SSE", "SZSE", "SH", "SZ"})
 
 
 class TushareReferenceSnapshot(BaseModel):
@@ -107,22 +105,22 @@ class TushareReferenceStore:
 
 
 class TushareReferenceClient:
-    """Fetch Tushare reference rows while keeping the SDK behind a narrow boundary."""
+    """Fetch Tushare reference rows through a narrow provider boundary."""
 
     def __init__(self, query: ReferenceQuery | None = None) -> None:
         self._query = query or self._query_from_tushare
 
     def stock_basic(self, *, list_status: str = "L") -> tuple[Mapping[str, Any], ...]:
-        return tuple(
-            self._query(
-                "stock_basic",
-                {
-                    "exchange": "",
-                    "list_status": list_status,
-                    "fields": "ts_code,symbol,name,exchange,list_status,list_date,delist_date",
-                },
-            )
+        rows = self._query(
+            "stock_basic",
+            {
+                "exchange": "",
+                "list_status": list_status,
+                "market": TUSHARE_MAIN_BOARD_MARKET,
+                "fields": ("ts_code,symbol,name,market,exchange,list_status,list_date,delist_date"),
+            },
         )
+        return tuple(row for row in rows if _is_main_board_row(row))
 
     def trade_calendar(
         self,
@@ -193,23 +191,13 @@ class TushareReferenceClient:
     def _query_from_tushare(
         endpoint: str, params: Mapping[str, str]
     ) -> Iterable[Mapping[str, Any]]:
-        try:
-            tushare = importlib.import_module("tushare")
-        except ImportError as exc:
-            raise AdapterError(
-                "Tushare is not installed; install the optional data-source dependency"
-            ) from exc
-        token = os.environ.get("TUSHARE_TOKEN", "").strip()
-        if not token:
-            raise AdapterError("TUSHARE_TOKEN is not set")
-        try:
-            client = tushare.pro_api(token)
-            frame = client.query(endpoint, **dict(params))
-            return cast(Iterable[Mapping[str, Any]], frame.to_dict(orient="records"))
-        except Exception as exc:
-            if is_retryable_adapter_exception(exc):
-                raise RetryableAdapterError("Tushare reference request failed") from exc
-            raise AdapterError("Tushare reference request failed") from exc
+        return query_tushare(endpoint, params)
+
+
+def _is_main_board_row(row: Mapping[str, Any]) -> bool:
+    market = str(row.get("market", "")).strip()
+    exchange = str(row.get("exchange", "")).strip().upper()
+    return market == TUSHARE_MAIN_BOARD_MARKET and exchange in TUSHARE_MAIN_BOARD_EXCHANGES
 
 
 def _parse_optional_date(value: Any) -> date | None:

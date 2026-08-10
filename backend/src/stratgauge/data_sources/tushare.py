@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import importlib
-import os
 from collections.abc import Iterable, Mapping
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any
 
 from stratgauge.data_sources.base import (
     AdapterError,
@@ -20,13 +18,14 @@ from stratgauge.data_sources.base import (
     normalize_daily_rows,
     now_utc,
 )
+from stratgauge.data_sources.tushare_api import query_tushare
 
 
 class TushareAdapter(MarketDataAdapter):
     """Fetch Tushare Pro ``daily`` data using an environment token."""
 
     provider = "tushare"
-    adapter_version = "0.1"
+    adapter_version = "0.2"
 
     def __init__(
         self,
@@ -70,29 +69,14 @@ class TushareAdapter(MarketDataAdapter):
 
     @staticmethod
     def _fetch_from_tushare(request: DailyBarRequest) -> Iterable[Mapping[str, Any]]:
-        try:
-            tushare = importlib.import_module("tushare")
-        except ImportError as exc:
-            raise AdapterError(
-                "Tushare is not installed; install the optional data-source dependency"
-            ) from exc
-        token = os.environ.get("TUSHARE_TOKEN", "").strip()
-        if not token:
-            raise AdapterError("TUSHARE_TOKEN is not set")
-        try:
-            client = tushare.pro_api(token)
-            frame = client.daily(
-                ts_code=request.security.symbol,
-                start_date=request.start_date.strftime("%Y%m%d"),
-                end_date=request.end_date.strftime("%Y%m%d"),
-            )
-            return cast(Iterable[Mapping[str, Any]], frame.to_dict(orient="records"))
-        except AdapterError:
-            raise
-        except Exception as exc:
-            if is_retryable_adapter_exception(exc):
-                raise RetryableAdapterError("Tushare request failed") from exc
-            raise AdapterError("Tushare request failed") from exc
+        return query_tushare(
+            "daily",
+            {
+                "ts_code": request.security.symbol,
+                "start_date": request.start_date.strftime("%Y%m%d"),
+                "end_date": request.end_date.strftime("%Y%m%d"),
+            },
+        )
 
 
 def _to_contract_row(row: Mapping[str, Any]) -> dict[str, Any]:

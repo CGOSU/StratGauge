@@ -22,6 +22,9 @@ class ManualSelectionDecision(StrEnum):
     INVALID = "invalid"
 
 
+DEFAULT_OUTCOME_POLICY_ID = "outcome-fixed-10-net-positive-v1"
+
+
 class SelectionOutcomeStatus(StrEnum):
     """Objective status produced after enough future bars are available."""
 
@@ -400,12 +403,20 @@ class SelectionOutcome(DomainModel):
     net_return: Decimal | None = None
     reason: str
     tracking_policy_id: str = "legacy-unknown"
+    outcome_policy_id: str = "legacy-unknown"
     cost_schedule_id: str = "unspecified"
     position_notional: Decimal | None = Field(default=None, gt=0)
     source_snapshot_ids: tuple[str, ...] = ()
     maturity_task_id: str | None = None
 
-    @field_validator("candidate_id", "batch_id", "reason", "tracking_policy_id", "cost_schedule_id")
+    @field_validator(
+        "candidate_id",
+        "batch_id",
+        "reason",
+        "tracking_policy_id",
+        "outcome_policy_id",
+        "cost_schedule_id",
+    )
     @classmethod
     def validate_outcome_text(cls, value: str) -> str:
         if not value.strip():

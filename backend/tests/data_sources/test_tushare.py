@@ -19,6 +19,7 @@ class TushareReferenceTests(unittest.TestCase):
                         "ts_code": "000001.SZ",
                         "symbol": "000001",
                         "name": "平安银行",
+                        "market": "主板",
                         "exchange": "SZSE",
                         "list_status": "L",
                         "list_date": "19910403",
@@ -28,9 +29,40 @@ class TushareReferenceTests(unittest.TestCase):
                         "ts_code": "600000.SH",
                         "symbol": "600000",
                         "name": "浦发银行",
+                        "market": "主板",
                         "exchange": "SSE",
                         "list_status": "L",
                         "list_date": "19991110",
+                        "delist_date": "",
+                    },
+                    {
+                        "ts_code": "300001.SZ",
+                        "symbol": "300001",
+                        "name": "特锐德",
+                        "market": "创业板",
+                        "exchange": "SZSE",
+                        "list_status": "L",
+                        "list_date": "20100601",
+                        "delist_date": "",
+                    },
+                    {
+                        "ts_code": "688001.SH",
+                        "symbol": "688001",
+                        "name": "华兴源创",
+                        "market": "科创板",
+                        "exchange": "SSE",
+                        "list_status": "L",
+                        "list_date": "20190722",
+                        "delist_date": "",
+                    },
+                    {
+                        "ts_code": "830001.BJ",
+                        "symbol": "830001",
+                        "name": "北京证券",
+                        "market": "北交所",
+                        "exchange": "BSE",
+                        "list_status": "L",
+                        "list_date": "20200101",
                         "delist_date": "",
                     },
                 ]
@@ -40,7 +72,9 @@ class TushareReferenceTests(unittest.TestCase):
             ]
 
         client = TushareReferenceClient(query=query)
-        securities = client.securities(client.stock_basic())
+        rows = client.stock_basic()
+        securities = client.securities(rows)
+        self.assertEqual(tuple(row["ts_code"] for row in rows), ("000001.SZ", "600000.SH"))
         self.assertEqual(tuple(item.symbol for item in securities), ("000001.SZ", "600000.SH"))
         self.assertEqual(securities[0].exchange, Exchange.SZ)
         self.assertEqual(
@@ -63,6 +97,8 @@ class TushareReferenceTests(unittest.TestCase):
                     {
                         "ts_code": "000001.SZ",
                         "name": "平安银行",
+                        "market": "主板",
+                        "exchange": "SZSE",
                         "list_status": "L",
                     }
                 ]

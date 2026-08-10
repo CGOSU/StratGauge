@@ -16,7 +16,7 @@ from stratgauge.domain.selections import (
     SelectionOutcomeStatus,
 )
 
-DATASET_SCHEMA_VERSION = "selection-dataset-v1"
+DATASET_SCHEMA_VERSION = "selection-dataset-v2"
 
 
 class SelectionDatasetRow(BaseModel):
@@ -36,6 +36,7 @@ class SelectionDatasetRow(BaseModel):
     manual_decision: ManualSelectionDecision | None
     manual_labeled_at: str | None
     tracking_policy_id: str | None
+    outcome_policy_id: str | None = None
     cost_schedule_id: str | None
     horizon_sessions: int | None
     position_notional: str | None
@@ -74,6 +75,7 @@ def build_selection_dataset(
                         latest_label.labeled_at.isoformat() if latest_label else None
                     ),
                     tracking_policy_id=(outcome.tracking_policy_id if outcome else None),
+                    outcome_policy_id=(outcome.outcome_policy_id if outcome else None),
                     cost_schedule_id=(outcome.cost_schedule_id if outcome else None),
                     horizon_sessions=(outcome.horizon_sessions if outcome else None),
                     position_notional=(

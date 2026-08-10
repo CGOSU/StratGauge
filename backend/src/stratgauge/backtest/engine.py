@@ -11,6 +11,7 @@ from stratgauge.backtest.models import (
     AmbiguousBarrierPolicy,
     BacktestPolicy,
     BacktestResult,
+    EntryFillEvidence,
     Trade,
     UnfilledIntent,
 )
@@ -81,6 +82,7 @@ def run_backtest(
         feature_set_version_ids=tuple(sorted({signal.feature_set_version for signal in signals})),
         strategy_version_ids=tuple(sorted({signal.strategy_version_id for signal in signals})),
         cost_schedule_id=policy.cost_schedule_id,
+        entry_policy_id=policy.entry_policy.policy_id,
         trades=tuple(trades),
         unfilled=tuple(unfilled),
         unresolved_signal_ids=tuple(unresolved),
@@ -101,16 +103,22 @@ def _find_entry(
             continue
         if not bar.tradable or bar.suspended:
             continue
-        if bar.high < signal.entry_lower or bar.low > signal.entry_upper:
+        if (
+            policy.entry_policy.fill_evidence is EntryFillEvidence.DAILY_RANGE_TOUCH
+            and bar.open > signal.entry_upper
+            and bar.low > signal.entry_upper
+        ):
             continue
-        if bar.open > signal.entry_upper:
-            if bar.open > signal.entry_upper * (Decimal("1") + policy.chase_limit):
-                return None
+        if policy.entry_policy.fill_evidence is EntryFillEvidence.OPEN_ONLY:
+            if bar.open > signal.entry_upper:
+                continue
             raw_price = bar.open
-        elif bar.open < signal.entry_lower:
-            raw_price = signal.entry_lower
+        elif bar.open > signal.entry_upper:
+            if bar.open > signal.entry_upper * (Decimal("1") + policy.entry_policy.chase_limit):
+                continue
+            raw_price = bar.open
         else:
-            raw_price = max(signal.entry_lower, min(signal.entry_upper, bar.open))
+            raw_price = bar.open
         return _EntryFill(bar=bar, price=raw_price * (Decimal("1") + policy.slippage))
     return None
 
@@ -128,7 +136,7 @@ def _entry_failure_reason(
         for bar in bars:
             if (
                 signal.earliest_execution <= bar.session_date <= signal.latest_execution
-                and bar.open > signal.entry_upper * (Decimal("1") + policy.chase_limit)
+                and bar.open > signal.entry_upper * (Decimal("1") + policy.entry_policy.chase_limit)
             ):
                 return "gap_beyond_chase_limit"
     return "entry_zone_not_reached"
@@ -218,4 +226,5 @@ def _make_trade(
         source_snapshot_id=signal.source_snapshot_id,
         strategy_version_id=signal.strategy_version_id,
         cost_schedule_id=policy.cost_schedule_id,
+        entry_policy_id=policy.entry_policy.policy_id,
     )

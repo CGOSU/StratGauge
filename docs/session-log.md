@@ -240,3 +240,39 @@
 - 完成内容：将主要操作色从绿色改为 A 股涨势红；盈利/候选徽章同步使用涨势红，风险错误仍使用独立 danger 语义，信息与焦点保持蓝色。
 - 完成内容：继续使用原生 `date`/`datetime-local` 控件，统一 44px 高度、浅色配色、日历图标 hover 和焦点状态；Radix Select 的触发器、弹层、选项、滚动按钮和分隔线改为语义组件样式。
 - 验证：前端 `corepack pnpm typecheck`、`corepack pnpm build`、`corepack pnpm lint` 通过；使用 `http://localhost:5175/` 实际展开下拉弹层并生成桌面截图，确认红色主按钮、日期图标和选项高亮显示正常；390px 视口 `scrollWidth=390`，无横向溢出；`git diff --check` 通过。
+
+### 2026-08-10 Tushare 主源和参考数据验证
+
+- 完成内容：发现 Tushare SDK 默认旧 HTTP 端点在当前代理下返回 502 且静默为空；新增官方 HTTPS Data API 客户端，保留 HTTP/API 错误和可重试语义，移除不再使用的 Tushare SDK 可选依赖；交易日历同步失败时改为结构化错误输出。
+- P1-08：`000001.SZ` 的 2024-01-02—2024-01-05 Tushare `daily` 返回 4 行并通过质量门，快照为 `snapshot-ef353d8c0f609437e9e3`。
+- P1-09：同一区间 Tushare 与 BaoStock 均返回 4 行，OHLCV/成交额交叉校验通过。
+- REF-01：确认研究范围只需要沪深主板；`stock_basic` 现在请求 `market=主板` 并本地限制 SSE/SZSE，排除北交所、创业板和科创板。此前宽范围验证快照已清理，后续已重新生成 3193 条主板快照；`trade_cal` 因当前 Token 频率限制未完成，目标日历文件未创建。
+- 验证：后端 `PYTHONPATH=src uv run python -m unittest discover -s tests -v`（163 项通过，1 项环境相关跳过）；`uv run ruff format --check .`、`uv run ruff check .`、`uv run mypy src tests scripts` 通过；Token 内容扫描命中 0 个文件。
+- 遗留问题：等待 Tushare `trade_cal` 配额窗口后重试；阶段 0 尚未最终退出。本轮代码和文档改动尚未提交。
+
+### 2026-08-10 参考数据重试
+
+- 完成内容：真实执行主板 `stock_basic` 同步，生成 3193 条记录；市场全部为 `主板`，交易所分布为 SSE 1699 条、SZSE 1494 条。参考快照为 `tushare-reference-278819ba7c8d5c92fe37`，股票池快照为 `universe-d8b8d8f30a3f50c43fd9`。
+- 验证：真实执行 `sync_tushare_calendar.py --start-date 2024-01-01 --end-date 2026-08-10 --exchange SSE` 返回 Tushare 错误 40203（当前 Token 限制 5 次/月），退出码 2，交易日文件未创建；确认没有写入半成品文件。
+- 遗留问题：`trade_cal` 配额恢复前不能生成交易日文件或标记阶段 0 完成；本轮代码和文档改动尚未提交。
+
+### 2026-08-10 趋势交易 A1 买入规则
+
+- 完成内容：新增不可变 `EntryExecutionPolicy` 和 `entry-limit-chase-v1`；收盘后信号在后续 3 个交易日有效，支持日线触达近似、开盘价成交和 1% 追价上限；执行窗口由显式交易日历生成。
+- 完成内容：回测结果和成交记录携带 `entry_policy_id`；高开超过追价上限时跳过当日而不是终止整个有效窗口；低开时按实际开盘价成交。
+- 验证：新增执行窗口和低开成交测试；回测相关 11 项测试通过，Ruff/MyPy 通过。
+- 遗留问题：A2 胜负、持有期、费用和止盈止损规则尚未冻结；本轮代码和文档改动尚未提交。
+
+### 2026-08-10 收窄股票池到沪深主板
+
+- 完成内容：根据用户确认，`stock_basic` 固定请求 `market=主板`，并再次限制交易所为 SSE/SZSE；过滤创业板、科创板和北交所。同步 manifest 记录市场范围。
+- 验证：新增参考数据测试覆盖主板保留和其他板块过滤；后端 163 项测试通过，Ruff/MyPy 通过。
+- 遗留问题：Tushare `trade_cal` 仍需等待当前 Token 的 5 次/月频率窗口后重新执行真实验证；主板 `stock_basic` 已完成真实同步，此前宽范围本地快照已清理。
+
+### 2026-08-10 趋势交易 A2 胜负和成本规则
+
+- 完成内容：默认固定结果政策为 `outcome-fixed-10-net-positive-v1`；持有 10 个可交易日后收盘退出，不启用止盈止损，净收益大于/等于/小于 0 分别为胜/平/负。
+- 完成内容：未入场和行情不足继续分别记录 `no_entry`/`unresolved`；结果保存 `outcome_policy_id`；JSONL 数据集升级为 `selection-dataset-v2`。
+- 完成内容：默认成本政策升级为 `a-share-main-board-cost-v1`，按 100 股整手向下取整，佣金 0.03%（最低 5 元）、卖出印花税 0.05%、滑点 0；不足一手拒绝完成结果。
+- 验证：后端 `PYTHONPATH=src uv run python -m unittest discover -s tests -q`（170 项通过，1 项环境相关跳过）；`uv run ruff format --check .`、`uv run ruff check .`、`uv run mypy src tests scripts` 通过。
+- 遗留问题：下一项全市场收盘后增量行情尚未实现；本轮代码和文档改动尚未提交。

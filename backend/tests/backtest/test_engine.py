@@ -5,7 +5,11 @@ from decimal import Decimal
 from pathlib import Path
 
 from stratgauge.backtest.engine import run_backtest
-from stratgauge.backtest.models import AmbiguousBarrierPolicy, BacktestPolicy
+from stratgauge.backtest.models import (
+    AmbiguousBarrierPolicy,
+    BacktestPolicy,
+    EntryExecutionPolicy,
+)
 from stratgauge.domain.models import DailyBar, Signal
 
 
@@ -68,6 +72,8 @@ class BacktestEngineTests(unittest.TestCase):
         self.assertEqual(first.source_snapshot_ids, ("snapshot-1",))
         self.assertEqual(first.feature_set_version_ids, ("features-v1",))
         self.assertEqual(first.strategy_version_ids, ("strategy-v1",))
+        self.assertEqual(first.entry_policy_id, "entry-limit-chase-v1")
+        self.assertEqual(first.trades[0].entry_policy_id, "entry-limit-chase-v1")
         self.assertEqual(first.trades[0].exit_reason, "target")
 
     def test_after_close_signal_cannot_fill_same_day(self) -> None:
@@ -109,9 +115,27 @@ class BacktestEngineTests(unittest.TestCase):
                 )
             ],
             signals=[make_signal()],
-            policy=BacktestPolicy(chase_limit=Decimal("0.01")),
+            policy=BacktestPolicy(entry_policy=EntryExecutionPolicy(chase_limit=Decimal("0.01"))),
         )
         self.assertEqual(result.unfilled[0].reason, "gap_beyond_chase_limit")
+
+    def test_gap_down_fills_at_open_below_limit_price(self) -> None:
+        result = run_backtest(
+            run_id="run-1",
+            bars=[
+                make_bar(
+                    date(2026, 1, 6),
+                    open=Decimal("9.50"),
+                    high=Decimal("9.70"),
+                    low=Decimal("9.40"),
+                    close=Decimal("9.60"),
+                ),
+                make_bar(date(2026, 1, 7), close=Decimal("9.80")),
+            ],
+            signals=[make_signal(max_holding_sessions=1)],
+            policy=BacktestPolicy(),
+        )
+        self.assertEqual(result.trades[0].entry_price, Decimal("9.50"))
 
     def test_suspended_exit_bar_cannot_fill(self) -> None:
         result = run_backtest(

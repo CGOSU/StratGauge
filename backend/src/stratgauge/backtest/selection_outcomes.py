@@ -5,13 +5,14 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Iterable, Sequence
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from stratgauge.backtest.models import BacktestPolicy
 from stratgauge.domain.models import DailyBar
 from stratgauge.domain.selections import (
+    DEFAULT_OUTCOME_POLICY_ID,
     SelectionCandidate,
     SelectionOutcome,
     SelectionOutcomeStatus,
@@ -24,7 +25,7 @@ class SelectionTrackingPolicy(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    horizon_sessions: int = Field(gt=0)
+    horizon_sessions: int = Field(default=10, gt=0)
     win_threshold: Decimal = Decimal("0")
     position_notional: Decimal | None = Field(default=None, gt=0)
     cost_policy: BacktestPolicy = Field(default_factory=BacktestPolicy)
@@ -48,6 +49,17 @@ def validate_selection_tracking_policy(policy: SelectionTrackingPolicy) -> None:
 def selection_tracking_policy_id(policy: SelectionTrackingPolicy) -> str:
     digest = hashlib.sha256(policy.model_dump_json().encode("utf-8")).hexdigest()
     return f"selection-policy-{digest[:20]}"
+
+
+def selection_outcome_policy_id(policy: SelectionTrackingPolicy) -> str:
+    """Return the immutable ID for the fixed-close outcome semantics."""
+
+    if policy.horizon_sessions == 10 and policy.win_threshold == Decimal("0"):
+        return DEFAULT_OUTCOME_POLICY_ID
+    digest = hashlib.sha256(
+        f"fixed-close|{policy.horizon_sessions}|{policy.win_threshold}".encode()
+    ).hexdigest()
+    return f"outcome-fixed-{digest[:20]}"
 
 
 def latest_selection_outcomes(
@@ -148,6 +160,7 @@ def evaluate_selection_outcome(
             horizon_sessions=policy.horizon_sessions,
             reason="entry_bar_not_tradable",
             tracking_policy_id=selection_tracking_policy_id(policy),
+            outcome_policy_id=selection_outcome_policy_id(policy),
             cost_schedule_id=policy.cost_policy.cost_schedule_id,
             position_notional=policy.position_notional,
             source_snapshot_ids=lineage,
@@ -179,6 +192,7 @@ def evaluate_selection_outcome(
             entry_price=_entry_price(entry_bar, policy.cost_policy),
             reason="insufficient_horizon_data",
             tracking_policy_id=selection_tracking_policy_id(policy),
+            outcome_policy_id=selection_outcome_policy_id(policy),
             cost_schedule_id=policy.cost_policy.cost_schedule_id,
             position_notional=policy.position_notional,
             source_snapshot_ids=lineage,
@@ -215,6 +229,7 @@ def evaluate_selection_outcome(
         net_return=net_return,
         reason="fixed_horizon",
         tracking_policy_id=selection_tracking_policy_id(policy),
+        outcome_policy_id=selection_outcome_policy_id(policy),
         cost_schedule_id=policy.cost_policy.cost_schedule_id,
         position_notional=policy.position_notional,
         source_snapshot_ids=lineage,
@@ -239,6 +254,7 @@ def _unresolved(
         horizon_sessions=policy.horizon_sessions,
         reason=reason,
         tracking_policy_id=selection_tracking_policy_id(policy),
+        outcome_policy_id=selection_outcome_policy_id(policy),
         cost_schedule_id=policy.cost_policy.cost_schedule_id,
         position_notional=policy.position_notional,
         source_snapshot_ids=source_snapshot_ids,
@@ -266,10 +282,16 @@ def _total_cost(
         exit_cost = exit_price * cost_policy.commission_rate
         return entry_cost + exit_cost + exit_price * cost_policy.stamp_duty
 
-    quantity = policy.position_notional / entry_price
+    lot_size = Decimal(cost_policy.board_lot_size)
+    quantity = (policy.position_notional / entry_price / lot_size).to_integral_value(
+        rounding=ROUND_FLOOR
+    ) * lot_size
+    if quantity <= 0:
+        raise ValueError("position_notional is insufficient for one board lot")
+    entry_value = quantity * entry_price
     exit_value = quantity * exit_price
     entry_cost = max(
-        policy.position_notional * cost_policy.commission_rate,
+        entry_value * cost_policy.commission_rate,
         cost_policy.minimum_commission,
     )
     exit_cost = max(exit_value * cost_policy.commission_rate, cost_policy.minimum_commission)

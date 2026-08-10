@@ -146,6 +146,8 @@ PYTHONPATH=src uv run python scripts/transition_strategy.py \
 
 成熟任务要求显式提供单笔名义金额；这是最低佣金换算为收益率所必需的参数，系统不会猜测。
 
+趋势交易的第一版买入执行政策为 `entry-limit-chase-v1`：收盘后信号在后续 3 个交易日有效；低开或区间内开盘按开盘价成交；高开时要求日线最低价触及买入区间上限，且追价不超过 1%；停牌和不可交易日不成交。日线触达是明确的回测近似，策略和成交记录会保存 `entry_policy_id`。
+
 ## 操作手册
 
 ### 1. 启动服务
@@ -243,7 +245,7 @@ PYTHONPATH=src uv run python scripts/run_selection_maturity_tasks.py \
 
 ### 7. 导出数据集和时间切分
 
-数据管理可以下载带 `schema_version=selection-dataset-v1` 的 JSONL。CLI 导出不会覆盖已有文件：
+数据管理可以下载带 `schema_version=selection-dataset-v2` 的 JSONL；每条成熟结果同时记录 `outcome_policy_id`。CLI 导出不会覆盖已有文件：
 
 ```bash
 cd backend
@@ -389,7 +391,7 @@ PYTHONPATH=src uv run python scripts/score_selection_shadow.py \
 首次同步股票主数据和交易日历：
 
 ```bash
-# 需要 TUSHARE_TOKEN；保存不可变 stock_basic 参考响应和时间点股票池
+# 需要 TUSHARE_TOKEN；只同步沪深主板（market=主板，SSE/SZSE），保存不可变 stock_basic 参考响应和时间点股票池
 PYTHONPATH=src uv run python scripts/sync_tushare_universe.py \
   --root data \
   --as-of 2026-01-05T16:00:00+08:00

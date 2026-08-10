@@ -30,7 +30,7 @@ class OptionalImportTests(unittest.TestCase):
         )
         adapters = tuple(
             adapter
-            for adapter in (AKShareAdapter(), BaoStockAdapter(), TushareAdapter())
+            for adapter in (AKShareAdapter(), BaoStockAdapter())
             if importlib.util.find_spec(adapter.provider) is None
         )
         if not adapters:

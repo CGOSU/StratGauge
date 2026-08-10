@@ -8,7 +8,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from stratgauge.data_pipeline.universe import UniverseSnapshotStore, build_universe_snapshot
-from stratgauge.data_sources.tushare_reference import TushareReferenceClient, TushareReferenceStore
+from stratgauge.data_sources.tushare_reference import (
+    TUSHARE_MAIN_BOARD_MARKET,
+    TushareReferenceClient,
+    TushareReferenceStore,
+)
 
 
 def main() -> int:
@@ -20,7 +24,11 @@ def main() -> int:
         reference_store = TushareReferenceStore(arguments.root)
         source = reference_store.write(
             endpoint="stock_basic",
-            request={"list_status": arguments.list_status},
+            request={
+                "list_status": arguments.list_status,
+                "market": TUSHARE_MAIN_BOARD_MARKET,
+                "exchanges": "SSE,SZSE",
+            },
             records=rows,
             created_at=arguments.as_of,
         )

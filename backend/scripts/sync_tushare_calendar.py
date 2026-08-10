@@ -3,19 +3,25 @@
 from __future__ import annotations
 
 import argparse
+import json
 from datetime import date
 from pathlib import Path
 
+from stratgauge.data_sources.base import AdapterError
 from stratgauge.data_sources.tushare_reference import TushareReferenceClient
 
 
 def main() -> int:
     arguments = _parse_arguments()
-    sessions = TushareReferenceClient().trade_calendar(
-        start_date=arguments.start_date,
-        end_date=arguments.end_date,
-        exchange=arguments.exchange,
-    )
+    try:
+        sessions = TushareReferenceClient().trade_calendar(
+            start_date=arguments.start_date,
+            end_date=arguments.end_date,
+            exchange=arguments.exchange,
+        )
+    except AdapterError as exc:
+        print(json.dumps({"message": str(exc)}, ensure_ascii=False, indent=2))
+        return 2
     if arguments.output.exists():
         raise SystemExit(f"refusing to overwrite existing calendar: {arguments.output}")
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
