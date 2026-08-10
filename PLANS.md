@@ -170,9 +170,9 @@ corepack pnpm build
 
 ### P0：收口当前改动，保证可交付
 
-- [ ] **P0-01 清理运行残留**：确认并停止旧的 Vite/后端服务；清理本轮 E2E 产生的公式、批次、标签、manifest、raw 和 lifecycle 文件；保留明确的正式样例与 live-verification 快照。
+- [x] **P0-01 清理运行残留**：确认并停止旧的 Vite/后端服务；清理本轮 E2E 产生的公式、批次、标签、manifest、raw 和 lifecycle 文件；保留明确的正式样例与 live-verification 快照。当前 5173 进程属于 `D:\Code\Rust\clash-forward-rev`，未误杀其他项目服务。
   - 验收：`backend/data/selection` 只保留经确认的样例/用户数据；端口无本项目残留服务；默认测试不读取真实数据。
-- [ ] **P0-02 提交前审查**：检查当前大 diff，确认前端依赖、shadcn/ui 文件、路径别名、`.gitignore` 和文档没有误提交；补齐 `README.md` 的管理页和 JSONL 下载说明。
+- [x] **P0-02 提交前审查**：检查当前大 diff，确认前端依赖、shadcn/ui 文件、路径别名、`.gitignore` 和文档没有误提交；补齐 `README.md` 的管理页和 JSONL 下载说明。
   - 验收：`git diff --check` 通过；全量后端和前端检查通过；用户明确授权后再提交。
 - [x] **P0-03 公式版本管理收口**：保留“编辑为新版本”语义，补一条 API/前端回归测试，验证旧公式 ID 和旧批次引用不变。
   - 验收：编辑后出现新公式，旧公式仍可查看；不能原地覆盖公式证据。
