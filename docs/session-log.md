@@ -382,3 +382,8 @@
 - API/前端：新增 `GET /v1/universe/master?effective_date=...&known_at=...`，查询严格阻止未来有效日期；持仓工作区新增按代码、名称、行业和控制人搜索证券主数据的时间点表单。
 - 验证：后端 211 项测试通过（1 项环境相关跳过）；Ruff、MyPy、CLI help、前端 typecheck/build/lint 通过。
 - 遗留问题：Tushare `trade_cal` 真实填充仍受 40203 月度频率限制；连续历史主数据需要在配额允许后按观察时间运行同步。
+
+### 2026-08-11 交易日历配额重试
+
+- 实际验证：`TUSHARE_TOKEN` 已设置，显式执行 `sync_tushare_calendar.py --start-date 2024-01-01 --end-date 2026-08-11 --exchange SSE --output data/calendars/trade-cal-SSE.txt` 仍返回 Tushare 错误 40203（月度 5 次频率限制），退出码 2，未生成目标日历文件。
+- 结论：REF-01/P1-10 继续保持阻塞；不使用自然日或其他来源伪造交易日历。
