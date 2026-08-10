@@ -7,6 +7,7 @@ from stratgauge.data_pipeline.universe import (
     UniverseSnapshotStore,
     UniverseSnapshotStoreError,
     build_universe_snapshot,
+    securities_at,
 )
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.base import DailyBarRequest
@@ -32,6 +33,33 @@ class UniverseSnapshotTests(unittest.TestCase):
                 snapshot,
             )
             self.assertIsNone(store.latest_at(datetime(2026, 1, 4, tzinfo=UTC)))
+
+    def test_securities_at_excludes_not_yet_listed_and_delisted_members(self) -> None:
+        securities = (
+            Security(
+                security_id="security-before",
+                local_code="000001",
+                symbol="000001.SZ",
+                exchange=Exchange.SZ,
+                listed_at=date(2026, 1, 5),
+            ),
+            Security(
+                security_id="security-active",
+                local_code="600000",
+                symbol="600000.SH",
+                exchange=Exchange.SH,
+                listed_at=date(2020, 1, 1),
+                delisted_at=date(2026, 1, 10),
+            ),
+        )
+
+        before = securities_at(securities, as_of=date(2026, 1, 4))
+        on_listing = securities_at(securities, as_of=date(2026, 1, 5))
+        after_delisting = securities_at(securities, as_of=date(2026, 1, 10))
+
+        self.assertEqual(tuple(item.symbol for item in before), ("600000.SH",))
+        self.assertEqual(tuple(item.symbol for item in on_listing), ("000001.SZ", "600000.SH"))
+        self.assertEqual(tuple(item.symbol for item in after_delisting), ("000001.SZ",))
 
     def test_unapproved_source_snapshot_is_rejected(self) -> None:
         with TemporaryDirectory() as directory:

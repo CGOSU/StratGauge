@@ -8,6 +8,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+from stratgauge.domain.models import ModelLifecycle
 from stratgauge.ml.calibration import CalibratedModel
 from stratgauge.ml.registry import ModelRegistryStore
 from stratgauge.ml.shadow import (
@@ -35,6 +36,7 @@ def main() -> int:
             scored_at=arguments.scored_at,
             source_input_sha256=hashlib.sha256(content).hexdigest(),
             calibration_model=calibration_model,
+            required_lifecycle=ModelLifecycle(arguments.lifecycle),
         )
         _write_report(arguments.output, report.model_dump_json(indent=2) + "\n")
     except (OSError, ShadowScoreError, ValueError) as exc:
@@ -51,6 +53,12 @@ def _parse_arguments() -> argparse.Namespace:
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--scored-at", type=_parse_aware_datetime, required=True)
     parser.add_argument("--calibration", type=Path)
+    parser.add_argument(
+        "--lifecycle",
+        choices=(ModelLifecycle.SHADOW.value, ModelLifecycle.ACTIVE.value),
+        default=ModelLifecycle.SHADOW.value,
+        help="shadow for isolated evaluation or active for an explicitly approved workbench run",
+    )
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
     if not arguments.input.is_file():

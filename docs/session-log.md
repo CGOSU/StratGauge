@@ -357,3 +357,9 @@
 
 - 完成内容：`backfill_selection_history.py` 在未显式提供 `--sessions-file` 时改用 `TradeCalendarCache`，默认持久化到 `data/calendars/trade-cal-{exchange}.txt` 及 manifest；覆盖范围内重复运行不再请求 Tushare，范围缺口才增量请求并保存参考快照。
 - 验证：交易日历缓存测试、Ruff、MyPy 和 `git diff --check` 通过。
+
+### 2026-08-10 P4 历史股票池、推荐工作台与模型漂移
+
+- 完成内容：股票元数据新增上市日期，Tushare 股票池 CLI 支持 L/D/P 历史状态按 `--as-of` 过滤；新增特征漂移 PSI/均值变化报告、不可变存储和 `report_selection_drift.py`；新增推荐证据聚合 API/前端、active 模型显式评分入口和手工持仓订单/成交/复盘只读台账。
+- 验证：后端 210 项测试通过（1 项环境相关跳过）；Ruff、MyPy、前端 typecheck/build/lint 通过。
+- 遗留问题：完整历史成分连续档案、退市生命周期主数据、证券用户覆写/更丰富复盘录入仍未完成；Tushare `trade_cal` 真实配额验证仍被 40203 阻塞。

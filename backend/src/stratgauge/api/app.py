@@ -29,6 +29,10 @@ from stratgauge.api.portfolio import (
     PortfolioReviewRequest,
     PortfolioService,
 )
+from stratgauge.api.recommendations import (
+    RecommendationApiError,
+    RecommendationWorkbenchService,
+)
 from stratgauge.api.selections import (
     ManualSelectionRequest,
     SelectionApiError,
@@ -52,6 +56,7 @@ from stratgauge.api.universe import (
     UniverseSearchResponse,
     UniverseSearchService,
 )
+from stratgauge.backtest.recommendations import RecommendationWorkbench
 from stratgauge.backtest.selection_analysis import SelectionCandidateAnalysis
 from stratgauge.data_pipeline.portfolio_store import ManualPortfolioStore
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
@@ -92,10 +97,16 @@ def create_app(
     selections = SelectionService(selection_store_instance)
     portfolio = PortfolioService(portfolio_store or ManualPortfolioStore(portfolio_root))
     universe = UniverseSearchService(universe_store or UniverseSnapshotStore(universe_root))
+    score_store = ShadowScoreStore(model_root)
     model_scores = ModelScoreService(
         selection_store_instance,
         model_registry=ModelRegistryStore(model_root),
-        score_store=ShadowScoreStore(model_root),
+        score_store=score_store,
+    )
+    recommendations = RecommendationWorkbenchService(
+        selection_store_instance,
+        score_store=score_store,
+        market_store=SnapshotStore(market_root),
     )
     create_market_adapter = market_adapter_factory or _create_market_adapter
     app = FastAPI(title="StratGauge API", version="0.1.0")
@@ -116,6 +127,13 @@ def create_app(
 
     @app.exception_handler(ModelScoreApiError)
     async def handle_model_score_error(_: Any, error: ModelScoreApiError) -> JSONResponse:
+        return JSONResponse(
+            status_code=error.status_code,
+            content={"error": {"code": error.code, "message": error.message, "details": {}}},
+        )
+
+    @app.exception_handler(RecommendationApiError)
+    async def handle_recommendation_error(_: Any, error: RecommendationApiError) -> JSONResponse:
         return JSONResponse(
             status_code=error.status_code,
             content={"error": {"code": error.code, "message": error.message, "details": {}}},
@@ -154,6 +172,18 @@ def create_app(
     @app.get("/v1/positions", response_model=list[PortfolioPosition])
     def list_positions() -> list[PortfolioPosition]:
         return list(portfolio.positions())
+
+    @app.get("/v1/manual-orders", response_model=list[ManualOrder])
+    def list_manual_orders() -> list[ManualOrder]:
+        return list(portfolio.orders())
+
+    @app.get("/v1/manual-fills", response_model=list[ManualFill])
+    def list_manual_fills() -> list[ManualFill]:
+        return list(portfolio.fills())
+
+    @app.get("/v1/portfolio-reviews", response_model=list[PortfolioReview])
+    def list_portfolio_reviews() -> list[PortfolioReview]:
+        return list(portfolio.reviews())
 
     @app.post("/v1/manual-orders", response_model=ManualOrder, status_code=201)
     def create_manual_order(request: ManualOrderRequest) -> ManualOrder:
@@ -380,6 +410,13 @@ def create_app(
         candidate_id: str,
     ) -> CandidateModelScoresView:
         return model_scores.get_candidate_scores(batch_id, candidate_id)
+
+    @app.get(
+        "/v1/selection-batches/{batch_id}/recommendation-workbench",
+        response_model=RecommendationWorkbench,
+    )
+    def get_recommendation_workbench(batch_id: str) -> RecommendationWorkbench:
+        return recommendations.get(batch_id)
 
     @app.post(
         "/v1/selection-batches/{batch_id}/mature",

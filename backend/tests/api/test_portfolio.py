@@ -39,6 +39,8 @@ class PortfolioApiTests(unittest.TestCase):
             positions = client.get("/v1/positions")
             self.assertEqual(positions.status_code, 200)
             self.assertEqual(positions.json()[0]["quantity"], "100")
+            self.assertEqual(len(client.get("/v1/manual-orders").json()), 1)
+            self.assertEqual(len(client.get("/v1/manual-fills").json()), 1)
             review = client.post(
                 "/v1/portfolio-reviews",
                 json={
@@ -49,6 +51,7 @@ class PortfolioApiTests(unittest.TestCase):
                 },
             )
             self.assertEqual(review.status_code, 201)
+            self.assertEqual(len(client.get("/v1/portfolio-reviews").json()), 1)
 
     def test_fill_rejection_is_structured(self) -> None:
         with TemporaryDirectory() as directory:

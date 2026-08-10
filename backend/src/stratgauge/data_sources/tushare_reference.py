@@ -175,6 +175,7 @@ class TushareReferenceClient:
             if exchange is None:
                 raise AdapterError(f"Tushare returned unsupported exchange: {exchange_code!r}")
             symbol = canonical_symbol(local_code, exchange)
+            listed_at = _parse_optional_date(row.get("list_date"))
             delisted_at = _parse_optional_date(row.get("delist_date"))
             securities.append(
                 Security(
@@ -183,6 +184,7 @@ class TushareReferenceClient:
                     symbol=symbol,
                     exchange=exchange,
                     name=str(row.get("name", "")).strip() or None,
+                    listed_at=listed_at,
                     listed=str(row.get("list_status", "L")).strip() == "L",
                     delisted_at=delisted_at,
                 )

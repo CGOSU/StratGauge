@@ -184,6 +184,30 @@ class SelectionApiTests(unittest.TestCase):
         self.assertEqual(response.json()["scores"], [])
         self.assertEqual(response.json()["failures"], [])
 
+    def test_recommendation_workbench_is_read_only_and_blocks_missing_evidence(self) -> None:
+        imported = self.client.post(
+            "/v1/selection-batches",
+            json={
+                "content_base64": base64.b64encode(CONTENT).decode(),
+                "selection_date": "2026-01-05",
+                "exported_at": "2026-01-05T15:05:00+08:00",
+                "formula_name": "趋势选股",
+            },
+        )
+        self.assertEqual(imported.status_code, 201)
+        batch = imported.json()
+        batch_id = batch["batch"]["batch_id"]
+
+        response = self.client.get(f"/v1/selection-batches/{batch_id}/recommendation-workbench")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["automatic_action"])
+        self.assertEqual(response.json()["candidates"][0]["state"], "blocked")
+        self.assertIn(
+            "quality:not_assessed",
+            response.json()["candidates"][0]["blocking_reasons"],
+        )
+
     def test_import_list_view_and_label_candidate(self) -> None:
         imported = self.client.post(
             "/v1/selection-batches",

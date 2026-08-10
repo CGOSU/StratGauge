@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -54,6 +54,23 @@ class UniverseSnapshot(DomainModel):
         if len(symbols) != len(set(symbols)):
             raise ValueError("universe cannot contain duplicate symbols")
         return self
+
+
+def securities_at(
+    securities: Sequence[Security],
+    *,
+    as_of: date,
+) -> tuple[Security, ...]:
+    """Filter reference securities to membership visible on one calendar date."""
+
+    effective: list[Security] = []
+    for security in securities:
+        if security.listed_at is not None and security.listed_at > as_of:
+            continue
+        if security.delisted_at is not None and security.delisted_at <= as_of:
+            continue
+        effective.append(security.model_copy(update={"listed": True}))
+    return tuple(sorted(effective, key=lambda security: security.symbol))
 
 
 def build_universe_snapshot(

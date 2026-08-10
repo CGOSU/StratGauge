@@ -156,3 +156,21 @@ class PortfolioService:
             return self._store.positions()
         except PortfolioStoreError as exc:
             raise PortfolioApiError("PORTFOLIO_READ_FAILED", str(exc), 409) from exc
+
+    def orders(self) -> tuple[ManualOrder, ...]:
+        try:
+            return self._store.list_orders()
+        except PortfolioStoreError as exc:
+            raise PortfolioApiError("PORTFOLIO_READ_FAILED", str(exc), 409) from exc
+
+    def fills(self) -> tuple[ManualFill, ...]:
+        try:
+            return self._store.list_fills()
+        except PortfolioStoreError as exc:
+            raise PortfolioApiError("PORTFOLIO_READ_FAILED", str(exc), 409) from exc
+
+    def reviews(self) -> tuple[PortfolioReview, ...]:
+        try:
+            return self._store.list_reviews()
+        except PortfolioStoreError as exc:
+            raise PortfolioApiError("PORTFOLIO_READ_FAILED", str(exc), 409) from exc

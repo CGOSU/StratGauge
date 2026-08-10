@@ -7,25 +7,36 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from stratgauge.data_pipeline.universe import UniverseSnapshotStore, build_universe_snapshot
+from stratgauge.data_pipeline.universe import (
+    UniverseSnapshotStore,
+    build_universe_snapshot,
+    securities_at,
+)
 from stratgauge.data_sources.tushare_reference import (
     TUSHARE_MAIN_BOARD_MARKET,
     TushareReferenceClient,
     TushareReferenceStore,
 )
+from stratgauge.domain.models import Security
 
 
 def main() -> int:
     arguments = _parse_arguments()
     try:
         client = TushareReferenceClient()
-        rows = client.stock_basic(list_status=arguments.list_status)
-        securities = client.securities(rows)
+        statuses = ("L", "D", "P") if arguments.historical else (arguments.list_status,)
+        rows_by_status = {status: client.stock_basic(list_status=status) for status in statuses}
+        rows = tuple(row for status in statuses for row in rows_by_status[status])
+        securities = _merge_securities(
+            tuple(client.securities(rows_by_status[status]) for status in statuses)
+        )
+        if arguments.historical:
+            securities = securities_at(securities, as_of=arguments.as_of.date())
         reference_store = TushareReferenceStore(arguments.root)
         source = reference_store.write(
             endpoint="stock_basic",
             request={
-                "list_status": arguments.list_status,
+                "list_status": ",".join(statuses),
                 "market": TUSHARE_MAIN_BOARD_MARKET,
                 "exchanges": "SSE,SZSE",
             },
@@ -51,7 +62,30 @@ def _parse_arguments() -> argparse.Namespace:
     parser.add_argument("--root", type=Path, default=Path("data"))
     parser.add_argument("--as-of", type=_parse_aware_datetime, required=True)
     parser.add_argument("--list-status", choices=("L", "D", "P", "G"), default="L")
+    parser.add_argument(
+        "--historical",
+        action="store_true",
+        help="fetch L/D/P records and keep securities effective at --as-of",
+    )
     return parser.parse_args()
+
+
+def _merge_securities(groups: tuple[tuple[Security, ...], ...]) -> tuple[Security, ...]:
+    merged: dict[str, Security] = {}
+    for group in groups:
+        for security in group:
+            existing = merged.get(security.symbol)
+            if existing is None:
+                merged[security.symbol] = security
+                continue
+            if existing.model_copy(update={"listed": True}) != security.model_copy(
+                update={"listed": True}
+            ):
+                raise ValueError(f"stock_basic returned conflicting metadata: {security.symbol}")
+            merged[security.symbol] = existing.model_copy(
+                update={"listed": existing.listed or security.listed}
+            )
+    return tuple(sorted(merged.values(), key=lambda security: security.symbol))
 
 
 def _parse_aware_datetime(value: str) -> datetime:

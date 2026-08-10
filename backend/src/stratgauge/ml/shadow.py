@@ -9,7 +9,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import Field, field_validator
 
@@ -52,7 +52,7 @@ class ShadowScore(DomainModel):
     score_id: str
     score_version: Literal["selection-shadow-score-v1"] = "selection-shadow-score-v1"
     model_version_id: str
-    model_lifecycle: Literal["shadow"] = "shadow"
+    model_lifecycle: Literal["shadow", "active"] = "shadow"
     candidate_id: str
     symbol: str
     selection_date: date
@@ -80,10 +80,11 @@ class ShadowScoreFailure(DomainModel):
 
 
 class ShadowScoringReport(DomainModel):
-    """Content-addressed accounting for one independent shadow scoring run."""
+    """Content-addressed accounting for one independent model scoring run."""
 
     report_id: str
     report_version: Literal["selection-shadow-report-v1"] = "selection-shadow-report-v1"
+    model_lifecycle: Literal["shadow", "active"] = "shadow"
     model_version_id: str
     tracking_policy_id: str
     scored_at: datetime
@@ -171,6 +172,7 @@ def score_shadow_batch(
     scored_at: datetime,
     source_input_sha256: str,
     calibration_model: CalibratedModel | None = None,
+    required_lifecycle: ModelLifecycle = ModelLifecycle.SHADOW,
 ) -> ShadowScoringReport:
     """Score feature snapshots independently and record candidate-level failures."""
 
@@ -185,8 +187,10 @@ def score_shadow_batch(
         registered, model = registry.load_model(model_version_id)
     except ModelRegistryError as exc:
         raise ShadowScoreError(str(exc)) from exc
-    if registered.lifecycle is not ModelLifecycle.SHADOW:
-        raise ShadowScoreError("shadow scoring requires a model in shadow lifecycle")
+    if registered.lifecycle is not required_lifecycle:
+        raise ShadowScoreError(
+            f"model scoring requires a model in {required_lifecycle.value} lifecycle"
+        )
     if calibration_model is not None:
         _validate_calibration(registered, model, calibration_model)
     runtime_model = (
@@ -223,6 +227,7 @@ def score_shadow_batch(
         "calibration_model_id": (
             None if calibration_model is None else calibration_model.calibration_id
         ),
+        "model_lifecycle": required_lifecycle.value,
         "model_version_id": model_version_id,
         "report_version": SHADOW_REPORT_VERSION,
         "score_ids": score_ids,
@@ -234,6 +239,7 @@ def score_shadow_batch(
     report = ShadowScoringReport(
         report_id=report_id,
         model_version_id=model_version_id,
+        model_lifecycle=_lifecycle_value(required_lifecycle),
         tracking_policy_id=registered.tracking_policy_id,
         scored_at=scored_at,
         source_input_sha256=source_input_sha256,
@@ -268,6 +274,7 @@ def _score_one(
         "candidate_id": row.candidate_id,
         "feature_set_version_id": feature_snapshot.feature_set_version_id,
         "feature_snapshot_id": feature_snapshot.feature_snapshot_id,
+        "model_lifecycle": registered.lifecycle.value,
         "model_score": str(score_value),
         "model_version_id": registered.model_version_id,
         "scored_at": scored_at.isoformat(),
@@ -276,6 +283,7 @@ def _score_one(
     return ShadowScore(
         score_id=f"shadow-score-{_sha256(_canonical_json(identity))[:20]}",
         model_version_id=registered.model_version_id,
+        model_lifecycle=_lifecycle_value(registered.lifecycle),
         candidate_id=row.candidate_id,
         symbol=feature_snapshot.symbol,
         selection_date=feature_snapshot.selection_date,
@@ -300,6 +308,10 @@ def _score_one(
         ),
         calibrated=calibration_model is not None,
     )
+
+
+def _lifecycle_value(value: ModelLifecycle) -> Literal["shadow", "active"]:
+    return cast(Literal["shadow", "active"], value.value)
 
 
 def _raw_score(

@@ -77,6 +77,7 @@ class TushareReferenceTests(unittest.TestCase):
         self.assertEqual(tuple(row["ts_code"] for row in rows), ("000001.SZ", "600000.SH"))
         self.assertEqual(tuple(item.symbol for item in securities), ("000001.SZ", "600000.SH"))
         self.assertEqual(securities[0].exchange, Exchange.SZ)
+        self.assertEqual(securities[0].listed_at, date(1991, 4, 3))
         self.assertEqual(
             client.trade_calendar(start_date=date(2026, 1, 1), end_date=date(2026, 1, 5)),
             (date(2026, 1, 5),),

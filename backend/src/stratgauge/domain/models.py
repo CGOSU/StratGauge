@@ -102,6 +102,7 @@ class Security(DomainModel):
     symbol: str
     exchange: Exchange
     name: str | None = None
+    listed_at: date | None = None
     listed: bool = True
     delisted_at: date | None = None
 
@@ -122,8 +123,16 @@ class Security(DomainModel):
     def validate_identity(self) -> Security:
         if self.symbol != canonical_symbol(self.local_code, self.exchange):
             raise ValueError("symbol must match local_code and exchange")
+        if self.listed_at is not None and self.listed_at < date.min:
+            raise ValueError("listed_at is invalid")
         if self.delisted_at is not None and self.delisted_at < date.min:
             raise ValueError("delisted_at is invalid")
+        if (
+            self.listed_at is not None
+            and self.delisted_at is not None
+            and self.delisted_at < self.listed_at
+        ):
+            raise ValueError("delisted_at must not precede listed_at")
         return self
 
 

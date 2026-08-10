@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
-import { Archive, Database, Download, LayoutDashboard, Pencil, Plus, RotateCcw } from 'lucide-react'
+import { Archive, Database, Download, LayoutDashboard, Pencil, Plus, RotateCcw, WalletCards } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 type HealthState = 'checking' | 'online' | 'offline'
 type Decision = 'buy_candidate' | 'watch' | 'pass' | 'invalid'
 type OutcomeStatus = 'win' | 'loss' | 'flat' | 'no_entry' | 'unresolved'
-type Workspace = 'research' | 'management'
+type Workspace = 'research' | 'management' | 'portfolio'
 type LifecycleStatus = 'active' | 'archived'
 type ManagementFilter = 'all' | LifecycleStatus
 type BatchSource = 'tongdaxin' | 'manual'
@@ -157,6 +157,72 @@ type CandidateModelScores = {
   symbol: string
   scores: ModelScore[]
   failures: ModelScoreFailure[]
+}
+
+type WorkbenchModelScore = {
+  score_id: string
+  model_version_id: string
+  model_lifecycle: 'shadow' | 'active'
+  uncalibrated_model_score: string
+  calibrated_model_score: string | null
+  calibrated: boolean
+  used_for_decision: false
+}
+
+type RecommendationCandidate = Candidate & {
+  quality_state: string
+  historical_stats: StatsSummary | null
+  model_score: WorkbenchModelScore | null
+  manual_decision: Decision | null
+  state: 'reviewable' | 'blocked'
+  blocking_reasons: string[]
+  authoritative: false
+}
+
+type RecommendationWorkbench = {
+  batch: Batch
+  generated_at: string
+  candidates: RecommendationCandidate[]
+  automatic_action: false
+}
+
+type PortfolioSecurity = {
+  symbol: string
+  name: string | null
+}
+
+type PortfolioPosition = {
+  security: PortfolioSecurity
+  quantity: string
+  average_cost: string
+  invested_notional: string
+  last_fill_at: string | null
+}
+
+type ManualOrder = {
+  order_id: string
+  security: PortfolioSecurity
+  side: 'buy' | 'sell'
+  ordered_at: string
+  quantity: string
+  limit_price: string | null
+  recommendation_id: string | null
+}
+
+type ManualFill = {
+  fill_id: string
+  order_id: string
+  filled_at: string
+  quantity: string
+  price: string
+}
+
+type PortfolioReview = {
+  review_id: string
+  symbol: string
+  reviewed_at: string
+  note: string
+  recommendation_id: string | null
 }
 
 type BatchStats = {
@@ -377,6 +443,167 @@ function CandidateModelScorePanel({ data }: { data: CandidateModelScores }) {
   )
 }
 
+function RecommendationWorkbenchPanel({ data }: { data: RecommendationWorkbench }) {
+  return (
+    <section className="recommendation-workbench" aria-label="每日推荐工作台">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">推荐证据</p>
+          <h3>每日推荐工作台</h3>
+        </div>
+        <Badge variant="outline">仅人工确认</Badge>
+      </div>
+      <p className="workbench-disclaimer">
+        这是质量、历史统计和模型影子证据的只读汇总，不生成推荐价、订单或自动交易动作。
+      </p>
+      <div className="recommendation-list">
+        {data.candidates.map((candidate) => (
+          <article className="recommendation-item" key={candidate.candidate_id}>
+            <div className="recommendation-item-heading">
+              <strong>{candidate.symbol}</strong>
+              <Badge variant={candidate.state === 'reviewable' ? 'secondary' : 'outline'}>
+                {candidate.state === 'reviewable' ? '可人工复核' : '证据阻断'}
+              </Badge>
+            </div>
+            <div className="recommendation-evidence-grid">
+              <div>
+                <span>质量状态</span>
+                <strong>{candidate.quality_state}</strong>
+              </div>
+              <div>
+                <span>历史完成样本</span>
+                <strong>{candidate.historical_stats?.completed ?? '—'}</strong>
+              </div>
+              <div>
+                <span>历史胜率</span>
+                <strong>
+                  {candidate.historical_stats ? formatWinRate(candidate.historical_stats) : '—'}
+                </strong>
+              </div>
+              <div>
+                <span>模型影子分数</span>
+                <strong>
+                  {candidate.model_score
+                    ? formatModelScore(candidate.model_score.calibrated_model_score ?? candidate.model_score.uncalibrated_model_score)
+                    : '—'}
+                </strong>
+              </div>
+            </div>
+            <p className="workbench-evidence-note">
+              {candidate.model_score
+                ? `${candidate.model_score.calibrated ? '已校准' : '未校准'} · ${candidate.model_score.model_version_id} · authoritative=false`
+                : '暂无模型影子评分'}
+            </p>
+            {candidate.blocking_reasons.length > 0 && (
+              <p className="workbench-blocking-reasons">
+                阻断：{candidate.blocking_reasons.join('、')}
+              </p>
+            )}
+            <p className="workbench-evidence-note">
+              人工状态：{candidate.manual_decision ? decisionLabel(candidate.manual_decision) : '未确认'}
+            </p>
+          </article>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function PortfolioWorkspace({ apiBase }: { apiBase: string }) {
+  const [positions, setPositions] = useState<PortfolioPosition[]>([])
+  const [orders, setOrders] = useState<ManualOrder[]>([])
+  const [fills, setFills] = useState<ManualFill[]>([])
+  const [reviews, setReviews] = useState<PortfolioReview[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void Promise.all([
+      requestJson<PortfolioPosition[]>(`${apiBase}/v1/positions`, { signal: controller.signal }),
+      requestJson<ManualOrder[]>(`${apiBase}/v1/manual-orders`, { signal: controller.signal }),
+      requestJson<ManualFill[]>(`${apiBase}/v1/manual-fills`, { signal: controller.signal }),
+      requestJson<PortfolioReview[]>(`${apiBase}/v1/portfolio-reviews`, { signal: controller.signal }),
+    ])
+      .then(([nextPositions, nextOrders, nextFills, nextReviews]) => {
+        setPositions(nextPositions)
+        setOrders(nextOrders)
+        setFills(nextFills)
+        setReviews(nextReviews)
+      })
+      .catch((reason: unknown) => {
+        if (reason instanceof DOMException && reason.name === 'AbortError') {
+          return
+        }
+        setError(reason instanceof Error ? reason.message : '加载持仓台账失败。')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
+      })
+    return () => controller.abort()
+  }, [apiBase])
+
+  return (
+    <section className="portfolio-workspace" aria-label="手工持仓台账工作区">
+      <div className="workspace-intro">
+        <div>
+          <p className="eyebrow">手工台账 · 不连接券商</p>
+          <h2>持仓与复盘</h2>
+          <p>持仓由成交记录推导；订单、成交和复盘记录与模型证据分离。</p>
+        </div>
+        <Badge variant="secondary">只读汇总</Badge>
+      </div>
+      {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+      {loading ? <Skeleton /> : (
+        <>
+          <div className="portfolio-position-grid">
+            {positions.length === 0 ? <p className="empty-copy">暂无持仓。</p> : positions.map((position) => (
+              <Card className="portfolio-position-card" key={position.security.symbol}>
+                <strong>{position.security.symbol}</strong>
+                <span>{position.security.name ?? '未提供名称'}</span>
+                <div><span>数量</span><strong>{position.quantity}</strong></div>
+                <div><span>平均成本</span><strong>{formatPrice(position.average_cost)}</strong></div>
+                <div><span>投入金额</span><strong>{formatPrice(position.invested_notional)}</strong></div>
+              </Card>
+            ))}
+          </div>
+          <div className="portfolio-ledger-grid">
+            <Card className="panel">
+              <div className="section-heading"><h3>订单</h3><Badge variant="outline">{orders.length}</Badge></div>
+              {orders.length === 0 ? <p className="empty-copy">暂无订单。</p> : orders.map((order) => (
+                <div className="portfolio-ledger-row" key={order.order_id}>
+                  <strong>{order.security.symbol} · {order.side === 'buy' ? '买入' : '卖出'}</strong>
+                  <span>{order.quantity} 股 · {formatManagementDate(order.ordered_at)}</span>
+                </div>
+              ))}
+            </Card>
+            <Card className="panel">
+              <div className="section-heading"><h3>成交</h3><Badge variant="outline">{fills.length}</Badge></div>
+              {fills.length === 0 ? <p className="empty-copy">暂无成交。</p> : fills.map((fill) => (
+                <div className="portfolio-ledger-row" key={fill.fill_id}>
+                  <strong>{fill.fill_id}</strong>
+                  <span>{fill.quantity} 股 · {formatPrice(fill.price)} · {formatManagementDate(fill.filled_at)}</span>
+                </div>
+              ))}
+            </Card>
+          </div>
+          <Card className="panel">
+            <div className="section-heading"><h3>复盘记录</h3><Badge variant="outline">{reviews.length}</Badge></div>
+            {reviews.length === 0 ? <p className="empty-copy">暂无复盘记录。</p> : reviews.map((review) => (
+              <div className="portfolio-ledger-row" key={review.review_id}>
+                <strong>{review.symbol}</strong>
+                <span>{review.note} · {formatManagementDate(review.reviewed_at)}</span>
+              </div>
+            ))}
+          </Card>
+        </>
+      )}
+    </section>
+  )
+}
+
 function App() {
   const [workspace, setWorkspace] = useState<Workspace>('research')
   const [healthState, setHealthState] = useState<HealthState>('checking')
@@ -401,6 +628,8 @@ function App() {
   const [analysisLoadingId, setAnalysisLoadingId] = useState<string | null>(null)
   const [candidateModelScores, setCandidateModelScores] = useState<Record<string, CandidateModelScores>>({})
   const [modelScoreLoadingId, setModelScoreLoadingId] = useState<string | null>(null)
+  const [recommendationWorkbench, setRecommendationWorkbench] = useState<RecommendationWorkbench | null>(null)
+  const [recommendationLoading, setRecommendationLoading] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [selectionDate, setSelectionDate] = useState('')
   const [exportedAt, setExportedAt] = useState('')
@@ -481,6 +710,8 @@ function App() {
       setAnalysisLoadingId(null)
       setCandidateModelScores({})
       setModelScoreLoadingId(null)
+      setRecommendationWorkbench(null)
+      setRecommendationLoading(false)
       setMaturityTasks([])
       setLoadingMaturityTasks(false)
       return
@@ -492,6 +723,8 @@ function App() {
     setAnalysisLoadingId(null)
     setCandidateModelScores({})
     setModelScoreLoadingId(null)
+    setRecommendationWorkbench(null)
+    setRecommendationLoading(false)
     setMaturityTasks([])
     setLoadingBatch(true)
     setLoadingMaturityTasks(true)
@@ -739,6 +972,24 @@ function App() {
     }
   }
 
+  async function loadRecommendationWorkbench() {
+    if (!selectedBatchId || recommendationLoading) {
+      return
+    }
+    setRecommendationLoading(true)
+    setError(null)
+    try {
+      const workbench = await requestJson<RecommendationWorkbench>(
+        `${apiBase}/v1/selection-batches/${encodeURIComponent(selectedBatchId)}/recommendation-workbench`,
+      )
+      setRecommendationWorkbench(workbench)
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '加载推荐工作台失败。')
+    } finally {
+      setRecommendationLoading(false)
+    }
+  }
+
   async function labelCandidate(candidateId: string, decision: Decision) {
     if (!selectedBatchId) {
       return
@@ -906,6 +1157,14 @@ function App() {
             <Database className="h-4 w-4" />
             数据管理
           </Button>
+          <Button
+            type="button"
+            variant={workspace === 'portfolio' ? 'default' : 'outline'}
+            onClick={() => setWorkspace('portfolio')}
+          >
+            <WalletCards className="h-4 w-4" />
+            持仓台账
+          </Button>
         </nav>
       </header>
 
@@ -914,6 +1173,8 @@ function App() {
           apiBase={apiBase}
           onFormulaCreated={() => void loadFormulas()}
         />
+      ) : workspace === 'portfolio' ? (
+        <PortfolioWorkspace apiBase={apiBase} />
       ) : (
         <>
           <Card className="status-card" aria-labelledby="status-title">
@@ -1270,12 +1531,27 @@ function App() {
             <p className="eyebrow">03 · 标注</p>
             <h2 id="candidate-title">候选股票</h2>
           </div>
-          {selectedBatch && (
-            <span className="section-meta">
-              {selectedBatch.batch.formula_name} · {selectedBatch.batch.selection_date}
-            </span>
-          )}
+          <div className="section-heading-actions">
+            {selectedBatch && (
+              <span className="section-meta">
+                {selectedBatch.batch.formula_name} · {selectedBatch.batch.selection_date}
+              </span>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="secondary-button"
+              disabled={!selectedBatchId || recommendationLoading}
+              data-saving={recommendationLoading}
+              aria-expanded={Boolean(recommendationWorkbench)}
+              onClick={() => void loadRecommendationWorkbench()}
+            >
+              {recommendationLoading ? '加载中…' : '打开推荐工作台'}
+            </Button>
+          </div>
         </div>
+        {recommendationWorkbench && <RecommendationWorkbenchPanel data={recommendationWorkbench} />}
         {selectedStats && !loadingBatch && (
           <div className="stats-strip" aria-label="批次统计">
             <div>
