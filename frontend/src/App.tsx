@@ -246,11 +246,6 @@ function App() {
   const [healthState, setHealthState] = useState<HealthState>('checking')
   const [formulas, setFormulas] = useState<Formula[]>([])
   const [selectedFormulaId, setSelectedFormulaId] = useState('')
-  const [newFormulaName, setNewFormulaName] = useState('')
-  const [newFormulaVersion, setNewFormulaVersion] = useState('')
-  const [newFormulaDescription, setNewFormulaDescription] = useState('')
-  const [formulaDialogOpen, setFormulaDialogOpen] = useState(false)
-  const [formulaBusy, setFormulaBusy] = useState(false)
   const [manualDialogOpen, setManualDialogOpen] = useState(false)
   const [manualFormulaId, setManualFormulaId] = useState('')
   const [manualSelectionDate, setManualSelectionDate] = useState('')
@@ -399,35 +394,6 @@ function App() {
       )
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : '加载选股公式失败。')
-    }
-  }
-
-  async function createFormula(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!newFormulaName.trim()) {
-      return
-    }
-    setFormulaBusy(true)
-    setError(null)
-    try {
-      const result = await requestJson<{ formula: Formula }>(`${apiBase}/v1/formulas`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newFormulaName.trim(),
-          version: newFormulaVersion.trim() || null,
-          description: newFormulaDescription.trim() || null,
-        }),
-      })
-      await loadFormulas(result.formula.formula_id)
-      setNewFormulaName('')
-      setNewFormulaVersion('')
-      setNewFormulaDescription('')
-      setFormulaDialogOpen(false)
-    } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : '新建选股公式失败。')
-    } finally {
-      setFormulaBusy(false)
     }
   }
 
@@ -758,7 +724,10 @@ function App() {
       </header>
 
       {workspace === 'management' ? (
-        <DataManagementWorkspace apiBase={apiBase} />
+        <DataManagementWorkspace
+          apiBase={apiBase}
+          onFormulaCreated={() => void loadFormulas()}
+        />
       ) : (
         <>
           <Card className="status-card" aria-labelledby="status-title">
@@ -1044,7 +1013,7 @@ function App() {
               <div className="formula-picker">
                 <Select value={selectedFormulaId} onValueChange={setSelectedFormulaId}>
                   <SelectTrigger id="formula-select">
-                    <SelectValue placeholder={formulas.length ? '选择已创建公式' : '请先新建公式'} />
+                    <SelectValue placeholder={formulas.length ? '选择已创建公式' : '请到数据管理新建公式'} />
                   </SelectTrigger>
                   <SelectContent>
                     {formulas.map((formula) => (
@@ -1054,55 +1023,8 @@ function App() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Dialog open={formulaDialogOpen} onOpenChange={setFormulaDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button type="button" variant="outline" size="icon" aria-label="新建选股公式">
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>新建选股公式</DialogTitle>
-                      <DialogDescription>只保存公式名称和版本留痕，公式仍由通达信执行。</DialogDescription>
-                    </DialogHeader>
-                    <form className="dialog-form" onSubmit={createFormula}>
-                      <div className="field">
-                        <Label htmlFor="new-formula-name">公式名称</Label>
-                        <Input
-                          id="new-formula-name"
-                          value={newFormulaName}
-                          onChange={(event) => setNewFormulaName(event.target.value)}
-                          placeholder="输入公式名称"
-                          required
-                        />
-                      </div>
-                      <div className="field">
-                        <Label htmlFor="new-formula-version">公式版本（可选）</Label>
-                        <Input
-                          id="new-formula-version"
-                          value={newFormulaVersion}
-                          onChange={(event) => setNewFormulaVersion(event.target.value)}
-                          placeholder="输入版本（可选）"
-                        />
-                      </div>
-                      <div className="field">
-                        <Label htmlFor="new-formula-description">说明（可选）</Label>
-                        <Input
-                          id="new-formula-description"
-                          value={newFormulaDescription}
-                          onChange={(event) => setNewFormulaDescription(event.target.value)}
-                          placeholder="输入公式说明（可选）"
-                        />
-                      </div>
-                      <DialogFooter>
-                        <Button type="submit" disabled={formulaBusy}>
-                          {formulaBusy ? '创建中…' : '创建并选择'}
-                        </Button>
-                      </DialogFooter>
-                    </form>
-                  </DialogContent>
-                </Dialog>
               </div>
+              {!formulas.length && <small>请先在“数据管理”中创建公式。</small>}
               {selectedFormulaId && (
                 <small>
                   {formulas.find((formula) => formula.formula_id === selectedFormulaId)?.description ?? '已选择公式版本'}
@@ -1499,7 +1421,13 @@ function App() {
   )
 }
 
-function DataManagementWorkspace({ apiBase }: { apiBase: string }) {
+function DataManagementWorkspace({
+  apiBase,
+  onFormulaCreated,
+}: {
+  apiBase: string
+  onFormulaCreated: () => void
+}) {
   const [formulas, setFormulas] = useState<ManagedFormula[]>([])
   const [batches, setBatches] = useState<ManagedBatch[]>([])
   const [filter, setFilter] = useState<ManagementFilter>('all')
@@ -1517,6 +1445,11 @@ function DataManagementWorkspace({ apiBase }: { apiBase: string }) {
   const [detailLoading, setDetailLoading] = useState(false)
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [editingFormula, setEditingFormula] = useState<ManagedFormula | null>(null)
+  const [formulaDialogOpen, setFormulaDialogOpen] = useState(false)
+  const [formulaBusy, setFormulaBusy] = useState(false)
+  const [newFormulaName, setNewFormulaName] = useState('')
+  const [newFormulaVersion, setNewFormulaVersion] = useState('')
+  const [newFormulaDescription, setNewFormulaDescription] = useState('')
   const [editFormulaName, setEditFormulaName] = useState('')
   const [editFormulaVersion, setEditFormulaVersion] = useState('')
   const [editFormulaDescription, setEditFormulaDescription] = useState('')
@@ -1690,6 +1623,36 @@ function DataManagementWorkspace({ apiBase }: { apiBase: string }) {
       setError(reason instanceof Error ? reason.message : '保存公式新版本失败。')
     } finally {
       setEditFormulaBusy(false)
+    }
+  }
+
+  async function createManagedFormula(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!newFormulaName.trim()) {
+      return
+    }
+    setFormulaBusy(true)
+    setError(null)
+    try {
+      await requestJson<{ formula: Formula }>(`${apiBase}/v1/formulas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newFormulaName.trim(),
+          version: newFormulaVersion.trim() || null,
+          description: newFormulaDescription.trim() || null,
+        }),
+      })
+      await loadManagement()
+      onFormulaCreated()
+      setNewFormulaName('')
+      setNewFormulaVersion('')
+      setNewFormulaDescription('')
+      setFormulaDialogOpen(false)
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '新建选股公式失败。')
+    } finally {
+      setFormulaBusy(false)
     }
   }
 
@@ -1911,7 +1874,64 @@ function DataManagementWorkspace({ apiBase }: { apiBase: string }) {
                   <p className="eyebrow">公式目录</p>
                   <h2>手动创建的公式</h2>
                 </div>
-                <Badge variant="outline">{visibleFormulas.length} 项</Badge>
+                <div className="management-badge-group">
+                  <Badge variant="outline">{visibleFormulas.length} 项</Badge>
+                  <Dialog
+                    open={formulaDialogOpen}
+                    onOpenChange={(open) => {
+                      if (!open && formulaBusy) {
+                        return
+                      }
+                      setFormulaDialogOpen(open)
+                    }}
+                  >
+                    <DialogTrigger asChild>
+                      <Button type="button" size="sm" variant="outline">
+                        <Plus className="h-4 w-4" />
+                        新建公式
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>新建选股公式</DialogTitle>
+                        <DialogDescription>只保存公式名称和版本留痕，公式仍由通达信执行。</DialogDescription>
+                      </DialogHeader>
+                      <form className="dialog-form" onSubmit={createManagedFormula}>
+                        <div className="field">
+                          <Label htmlFor="management-new-formula-name">公式名称</Label>
+                          <Input
+                            id="management-new-formula-name"
+                            value={newFormulaName}
+                            onChange={(event) => setNewFormulaName(event.target.value)}
+                            required
+                          />
+                        </div>
+                        <div className="field">
+                          <Label htmlFor="management-new-formula-version">公式版本（可选）</Label>
+                          <Input
+                            id="management-new-formula-version"
+                            value={newFormulaVersion}
+                            onChange={(event) => setNewFormulaVersion(event.target.value)}
+                            placeholder="例如 v1"
+                          />
+                        </div>
+                        <div className="field">
+                          <Label htmlFor="management-new-formula-description">说明（可选）</Label>
+                          <Input
+                            id="management-new-formula-description"
+                            value={newFormulaDescription}
+                            onChange={(event) => setNewFormulaDescription(event.target.value)}
+                          />
+                        </div>
+                        <DialogFooter>
+                          <Button type="submit" disabled={formulaBusy || !newFormulaName.trim()}>
+                            {formulaBusy ? '创建中…' : '创建公式'}
+                          </Button>
+                        </DialogFooter>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </div>
               {visibleFormulas.length === 0 ? (
                 <p className="empty-copy">当前筛选下没有公式。</p>
