@@ -407,10 +407,11 @@ PYTHONPATH=src uv run python scripts/score_selection_shadow.py \
 PYTHONPATH=src uv run python scripts/sync_tushare_universe.py \
   --root data \
   --as-of 2026-01-05T16:00:00+08:00
-# 保存显式交易日文件；不会用自然日填充
+# 增量维护交易日缓存；不会用自然日填充，已覆盖区间不会重复调用 trade_cal
 PYTHONPATH=src uv run python scripts/sync_tushare_calendar.py \
   --start-date 2025-01-01 \
   --end-date 2026-01-05 \
+  --root data \
   --output data/calendars/a-share-sessions.txt
 ```
 

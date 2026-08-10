@@ -122,6 +122,25 @@ class TushareReferenceClient:
         )
         return tuple(row for row in rows if _is_main_board_row(row))
 
+    def trade_calendar_records(
+        self,
+        *,
+        start_date: date,
+        end_date: date,
+        exchange: str = "SSE",
+    ) -> tuple[Mapping[str, Any], ...]:
+        return tuple(
+            self._query(
+                "trade_cal",
+                {
+                    "exchange": exchange,
+                    "start_date": start_date.strftime("%Y%m%d"),
+                    "end_date": end_date.strftime("%Y%m%d"),
+                    "is_open": "1",
+                },
+            )
+        )
+
     def trade_calendar(
         self,
         *,
@@ -129,27 +148,13 @@ class TushareReferenceClient:
         end_date: date,
         exchange: str = "SSE",
     ) -> tuple[date, ...]:
-        rows = self._query(
-            "trade_cal",
-            {
-                "exchange": exchange,
-                "start_date": start_date.strftime("%Y%m%d"),
-                "end_date": end_date.strftime("%Y%m%d"),
-                "is_open": "1",
-            },
+        return parse_trade_calendar_rows(
+            self.trade_calendar_records(
+                start_date=start_date,
+                end_date=end_date,
+                exchange=exchange,
+            )
         )
-        sessions: list[date] = []
-        for row in rows:
-            if str(row.get("is_open", "1")).strip() not in {"1", "True", "true"}:
-                continue
-            value = row.get("cal_date")
-            if value in (None, ""):
-                raise AdapterError("Tushare trade_cal row is missing cal_date")
-            parsed = _parse_optional_date(value)
-            if parsed is None:
-                raise AdapterError(f"Tushare returned invalid calendar date: {value!r}")
-            sessions.append(parsed)
-        return tuple(sorted(set(sessions)))
 
     @staticmethod
     def securities(rows: Iterable[Mapping[str, Any]]) -> tuple[Security, ...]:
@@ -192,6 +197,21 @@ class TushareReferenceClient:
         endpoint: str, params: Mapping[str, str]
     ) -> Iterable[Mapping[str, Any]]:
         return query_tushare(endpoint, params)
+
+
+def parse_trade_calendar_rows(rows: Iterable[Mapping[str, Any]]) -> tuple[date, ...]:
+    sessions: list[date] = []
+    for row in rows:
+        if str(row.get("is_open", "1")).strip() not in {"1", "True", "true"}:
+            continue
+        value = row.get("cal_date")
+        if value in (None, ""):
+            raise AdapterError("Tushare trade_cal row is missing cal_date")
+        parsed = _parse_optional_date(value)
+        if parsed is None:
+            raise AdapterError(f"Tushare returned invalid calendar date: {value!r}")
+        sessions.append(parsed)
+    return tuple(sorted(set(sessions)))
 
 
 def _is_main_board_row(row: Mapping[str, Any]) -> bool:

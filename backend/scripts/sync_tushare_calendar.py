@@ -4,33 +4,32 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
+from stratgauge.data_pipeline.calendar_cache import CalendarCacheError, TradeCalendarCache
 from stratgauge.data_sources.base import AdapterError
-from stratgauge.data_sources.tushare_reference import TushareReferenceClient
+from stratgauge.data_sources.tushare_reference import (
+    TushareReferenceClient,
+    TushareReferenceStore,
+)
 
 
 def main() -> int:
     arguments = _parse_arguments()
     try:
-        sessions = TushareReferenceClient().trade_calendar(
+        result = TradeCalendarCache(arguments.output).ensure(
             start_date=arguments.start_date,
             end_date=arguments.end_date,
             exchange=arguments.exchange,
+            client=TushareReferenceClient(),
+            reference_store=TushareReferenceStore(arguments.root),
+            now=datetime.now(UTC),
         )
-    except AdapterError as exc:
-        print(json.dumps({"message": str(exc)}, ensure_ascii=False, indent=2))
+    except (AdapterError, CalendarCacheError, OSError, ValueError) as exc:
+        print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
         return 2
-    if arguments.output.exists():
-        raise SystemExit(f"refusing to overwrite existing calendar: {arguments.output}")
-    arguments.output.parent.mkdir(parents=True, exist_ok=True)
-    arguments.output.write_text(
-        "".join(f"{session.isoformat()}\n" for session in sessions),
-        encoding="utf-8",
-        newline="\n",
-    )
-    print(f"wrote {len(sessions)} sessions to {arguments.output}")
+    print(result.model_dump_json(indent=2))
     return 0
 
 
@@ -39,6 +38,7 @@ def _parse_arguments() -> argparse.Namespace:
     parser.add_argument("--start-date", type=_parse_date, required=True)
     parser.add_argument("--end-date", type=_parse_date, required=True)
     parser.add_argument("--exchange", default="SSE")
+    parser.add_argument("--root", type=Path, default=Path("data"))
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
     if arguments.end_date < arguments.start_date:
