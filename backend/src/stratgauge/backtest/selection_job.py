@@ -12,7 +12,7 @@ from stratgauge.backtest.selection_outcomes import (
 )
 from stratgauge.data_pipeline.ingest import ingest
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
-from stratgauge.data_pipeline.store import SnapshotStore
+from stratgauge.data_pipeline.store import SnapshotStatus, SnapshotStore
 from stratgauge.data_sources.base import (
     AdapterError,
     DailyBarRequest,
@@ -129,6 +129,83 @@ def run_selection_outcome_job(
         rejected_candidates=tuple(rejected),
         market_snapshot_ids=tuple(market_snapshot_ids),
         retryable_rejections=tuple(retryable_rejections),
+    )
+
+
+def run_selection_outcome_snapshot_job(
+    imported: TdxSelectionImport,
+    *,
+    market_store: SnapshotStore,
+    market_snapshot_ids: tuple[str, ...],
+    evaluated_at: datetime,
+    policy: SelectionTrackingPolicy,
+    selection_store: SelectionImportStore,
+    maturity_task_id: str | None = None,
+    provider: str | None = None,
+    universe_snapshot_id: str | None = None,
+) -> SelectionOutcomeJobResult:
+    """Replay approved full-market snapshots without contacting a provider."""
+
+    if evaluated_at.tzinfo is None or evaluated_at.utcoffset() is None:
+        raise ValueError("evaluated_at must include a timezone")
+    validate_selection_tracking_policy(policy)
+    if not market_snapshot_ids:
+        raise ValueError("snapshot-backed maturity requires market snapshots")
+    manifests = tuple(
+        market_store.load_manifest(snapshot_id) for snapshot_id in market_snapshot_ids
+    )
+    if len({manifest.start_date for manifest in manifests}) != len(manifests):
+        raise ValueError("market snapshots must contain unique sessions")
+    for manifest in manifests:
+        if (
+            manifest.status is not SnapshotStatus.APPROVED
+            or manifest.request_kind != "market_daily"
+            or manifest.start_date != manifest.end_date
+            or manifest.created_at > evaluated_at
+            or (provider is not None and manifest.provider != provider)
+            or (
+                universe_snapshot_id is not None
+                and manifest.universe_snapshot_id != universe_snapshot_id
+            )
+        ):
+            raise ValueError(
+                "snapshot-backed maturity requires approved available market snapshots"
+            )
+    ordered_manifests = tuple(
+        sorted(manifests, key=lambda item: (item.start_date, item.snapshot_id))
+    )
+    bars = tuple(
+        bar
+        for manifest in ordered_manifests
+        for bar in market_store.load_bars(manifest.snapshot_id)
+    )
+    source_snapshot_ids = tuple(manifest.snapshot_id for manifest in ordered_manifests)
+    outcomes: list[SelectionOutcome] = []
+    rejected: list[tuple[str, str]] = []
+    for candidate in imported.candidates:
+        if maturity_task_id is not None:
+            existing = selection_store.find_outcome_for_task(
+                maturity_task_id,
+                candidate.candidate_id,
+            )
+            if existing is not None:
+                outcomes.append(existing)
+                continue
+        outcome = evaluate_selection_outcome(
+            candidate,
+            selection_date=imported.batch.selection_date,
+            bars=bars,
+            evaluated_at=evaluated_at,
+            policy=policy,
+            source_snapshot_ids=source_snapshot_ids,
+        )
+        if maturity_task_id is not None:
+            outcome = outcome.model_copy(update={"maturity_task_id": maturity_task_id})
+        outcomes.append(selection_store.write_outcome(outcome))
+    return SelectionOutcomeJobResult(
+        outcomes=tuple(outcomes),
+        rejected_candidates=tuple(rejected),
+        market_snapshot_ids=source_snapshot_ids,
     )
 
 

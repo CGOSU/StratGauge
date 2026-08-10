@@ -109,6 +109,9 @@ class SelectionMaturityTask(DomainModel):
     task_id: str
     batch_id: str
     provider: Literal["tushare", "akshare", "baostock", "waizao"]
+    market_data_mode: Literal["provider", "approved_snapshots"] = "provider"
+    universe_snapshot_id: str | None = None
+    input_market_snapshot_ids: tuple[str, ...] = ()
     evaluated_at: datetime
     target_evaluation_date: date
     tracking_policy_id: str
@@ -127,7 +130,13 @@ class SelectionMaturityTask(DomainModel):
     updated_at: datetime
     events: tuple[SelectionMaturityTaskEvent, ...] = ()
 
-    @field_validator("task_id", "batch_id", "provider", "tracking_policy_id")
+    @field_validator(
+        "task_id",
+        "batch_id",
+        "provider",
+        "market_data_mode",
+        "tracking_policy_id",
+    )
     @classmethod
     def validate_task_text(cls, value: str) -> str:
         normalized = value.strip()
@@ -167,7 +176,7 @@ class SelectionMaturityTask(DomainModel):
     ) -> tuple[tuple[str, str], ...]:
         return tuple((candidate_id.strip(), reason.strip()) for candidate_id, reason in value)
 
-    @field_validator("market_snapshot_ids")
+    @field_validator("input_market_snapshot_ids", "market_snapshot_ids")
     @classmethod
     def normalize_task_snapshots(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if any(not snapshot_id.strip() for snapshot_id in value):
@@ -180,6 +189,13 @@ class SelectionMaturityTask(DomainModel):
             raise ValueError("target_evaluation_date must match evaluated_at")
         if self.updated_at < self.created_at:
             raise ValueError("updated_at cannot precede created_at")
+        if self.market_data_mode == "approved_snapshots":
+            if not self.universe_snapshot_id:
+                raise ValueError("snapshot-backed maturity task requires a universe snapshot")
+            if not self.input_market_snapshot_ids:
+                raise ValueError("snapshot-backed maturity task requires market snapshots")
+        elif self.universe_snapshot_id is not None or self.input_market_snapshot_ids:
+            raise ValueError("provider maturity task cannot carry market snapshot inputs")
         return self
 
 

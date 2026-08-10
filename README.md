@@ -230,7 +230,20 @@ PYTHONPATH=src uv run python scripts/run_selection_maturity_tasks.py \
   --limit 10
 ```
 
-该命令只执行排队任务，执行结束即退出；服务内没有后台定时器、线程、Redis/Celery，也不会连接券商或下单。
+该命令只执行排队任务，执行结束即退出；服务内没有后台定时器、线程、Redis/Celery，也不会连接券商或下单。对已经完成收盘行情同步的全市场快照，可先用显式交易日历自动排队成熟任务：
+
+```bash
+cd backend
+PYTHONPATH=src uv run python scripts/queue_selection_maturity_tasks.py \
+  --root data/selection \
+  --market-root data/selection-market \
+  --calendar-file data/calendars/a-share-sessions.txt \
+  --provider tushare \
+  --horizon-sessions 10 \
+  --position-notional 10000
+```
+
+队列只使用 `approved` 的全市场快照；任务保存固定股票池和输入快照 ID，运行时重放本地快照，不重新请求供应商。扫描必须使用显式交易日历，不能用自然日补齐缺口。
 
 ### 6. 查看统计和管理证据
 

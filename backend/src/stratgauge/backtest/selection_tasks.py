@@ -7,7 +7,11 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from stratgauge.backtest.selection_job import SelectionOutcomeJobResult, run_selection_outcome_job
+from stratgauge.backtest.selection_job import (
+    SelectionOutcomeJobResult,
+    run_selection_outcome_job,
+    run_selection_outcome_snapshot_job,
+)
 from stratgauge.backtest.selection_outcomes import (
     SelectionTrackingPolicy,
     selection_tracking_policy_id,
@@ -38,6 +42,9 @@ def build_maturity_task(
     provider: Literal["tushare", "akshare", "baostock", "waizao"],
     evaluated_at: datetime,
     policy: SelectionTrackingPolicy,
+    market_data_mode: Literal["provider", "approved_snapshots"] = "provider",
+    universe_snapshot_id: str | None = None,
+    input_market_snapshot_ids: tuple[str, ...] = (),
     max_retries: int = 2,
     timeout_seconds: float = 900,
     created_at: datetime,
@@ -53,6 +60,19 @@ def build_maturity_task(
         raise SelectionMaturityTaskError("provider must not be empty")
     if policy.position_notional is None:
         raise SelectionMaturityTaskError("position_notional is required")
+    if market_data_mode == "approved_snapshots":
+        if not universe_snapshot_id:
+            raise SelectionMaturityTaskError(
+                "snapshot-backed maturity tasks require a universe snapshot"
+            )
+        if not input_market_snapshot_ids:
+            raise SelectionMaturityTaskError(
+                "snapshot-backed maturity tasks require market snapshots"
+            )
+    elif universe_snapshot_id is not None or input_market_snapshot_ids:
+        raise SelectionMaturityTaskError(
+            "provider maturity tasks cannot carry market snapshot inputs"
+        )
     if not 0 <= max_retries <= 5:
         raise SelectionMaturityTaskError("max_retries must be between 0 and 5")
     if not 0 < timeout_seconds <= 86400:
@@ -62,11 +82,17 @@ def build_maturity_task(
         provider=provider,
         evaluated_at=evaluated_at,
         tracking_policy_id=selection_tracking_policy_id(policy),
+        market_data_mode=market_data_mode,
+        universe_snapshot_id=universe_snapshot_id,
+        input_market_snapshot_ids=input_market_snapshot_ids,
     )
     return SelectionMaturityTask(
         task_id=task_id,
         batch_id=imported.batch.batch_id,
         provider=provider,
+        market_data_mode=market_data_mode,
+        universe_snapshot_id=universe_snapshot_id,
+        input_market_snapshot_ids=input_market_snapshot_ids,
         evaluated_at=evaluated_at,
         target_evaluation_date=evaluated_at.date(),
         tracking_policy_id=selection_tracking_policy_id(policy),
@@ -85,17 +111,29 @@ def maturity_task_id(
     provider: str,
     evaluated_at: datetime,
     tracking_policy_id: str,
+    market_data_mode: Literal["provider", "approved_snapshots"] = "provider",
+    universe_snapshot_id: str | None = None,
+    input_market_snapshot_ids: tuple[str, ...] = (),
 ) -> str:
     """Return the content identity required for task creation idempotency."""
 
     _require_aware(evaluated_at, "evaluated_at")
+    identity_payload: dict[str, object] = {
+        "batch_id": batch_id,
+        "evaluated_at": evaluated_at.astimezone(UTC).isoformat(),
+        "provider": provider.strip().lower(),
+        "tracking_policy_id": tracking_policy_id,
+    }
+    if market_data_mode == "approved_snapshots":
+        identity_payload.update(
+            {
+                "input_market_snapshot_ids": input_market_snapshot_ids,
+                "market_data_mode": market_data_mode,
+                "universe_snapshot_id": universe_snapshot_id,
+            }
+        )
     identity = json.dumps(
-        {
-            "batch_id": batch_id,
-            "evaluated_at": evaluated_at.astimezone(UTC).isoformat(),
-            "provider": provider.strip().lower(),
-            "tracking_policy_id": tracking_policy_id,
-        },
+        identity_payload,
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
@@ -177,18 +215,32 @@ def run_maturity_task(
     )
 
     try:
-        result = run_selection_outcome_job(
-            imported,
-            adapter=adapter,
-            selection_store=selection_store,
-            market_store=market_store,
-            evaluated_at=running.evaluated_at,
-            policy=SelectionTrackingPolicy(
-                horizon_sessions=running.horizon_sessions,
-                position_notional=running.position_notional,
-            ),
-            maturity_task_id=running.task_id,
+        policy = SelectionTrackingPolicy(
+            horizon_sessions=running.horizon_sessions,
+            position_notional=running.position_notional,
         )
+        if running.market_data_mode == "approved_snapshots":
+            result = run_selection_outcome_snapshot_job(
+                imported,
+                market_store=market_store,
+                market_snapshot_ids=running.input_market_snapshot_ids,
+                evaluated_at=running.evaluated_at,
+                policy=policy,
+                selection_store=selection_store,
+                maturity_task_id=running.task_id,
+                provider=running.provider,
+                universe_snapshot_id=running.universe_snapshot_id,
+            )
+        else:
+            result = run_selection_outcome_job(
+                imported,
+                adapter=adapter,
+                selection_store=selection_store,
+                market_store=market_store,
+                evaluated_at=running.evaluated_at,
+                policy=policy,
+                maturity_task_id=running.task_id,
+            )
     except Exception as exc:
         return _finish_exception(running, selection_store, exc, now)
 

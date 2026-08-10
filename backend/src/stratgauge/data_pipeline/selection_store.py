@@ -541,6 +541,9 @@ def _same_maturity_task_configuration(
         first.task_id == second.task_id
         and first.batch_id == second.batch_id
         and first.provider == second.provider
+        and first.market_data_mode == second.market_data_mode
+        and first.universe_snapshot_id == second.universe_snapshot_id
+        and first.input_market_snapshot_ids == second.input_market_snapshot_ids
         and first.evaluated_at == second.evaluated_at
         and first.target_evaluation_date == second.target_evaluation_date
         and first.tracking_policy_id == second.tracking_policy_id
