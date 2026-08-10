@@ -99,6 +99,13 @@ PYTHONPATH=src uv run python scripts/split_tdx_dataset.py \
   --output-dir data/selection-datasets/batch-split \
   --train-end 2026-06-30 \
   --validation-end 2026-09-30
+# 机器学习训练前先做准入审计；未通过时退出码为 2，不启动训练
+PYTHONPATH=src uv run python scripts/audit_selection_ml_readiness.py \
+  --input data/selection-datasets/batch.jsonl \
+  --output data/selection-datasets/batch-readiness.json \
+  --strategy-parameters-frozen \
+  --tracking-policy-id <tracking_policy_id> \
+  --min-completed-samples 100
 ```
 
 成熟任务要求显式提供单笔名义金额；这是最低佣金换算为收益率所必需的参数，系统不会猜测。

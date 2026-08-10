@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -15,13 +16,15 @@ from stratgauge.domain.selections import (
     SelectionOutcomeStatus,
 )
 
+DATASET_SCHEMA_VERSION = "selection-dataset-v1"
+
 
 class SelectionDatasetRow(BaseModel):
     """One versioned candidate/outcome observation for later time-split training."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: str = "selection-dataset-v1"
+    schema_version: str = DATASET_SCHEMA_VERSION
     candidate_id: str
     batch_id: str
     symbol: str
@@ -88,6 +91,29 @@ def build_selection_dataset(
                     source_snapshot_ids=outcome.source_snapshot_ids if outcome else (),
                 )
             )
+    return tuple(rows)
+
+
+def read_selection_dataset(content: bytes) -> tuple[SelectionDatasetRow, ...]:
+    """Parse UTF-8 JSONL and reject unknown or malformed dataset rows."""
+
+    try:
+        lines = content.decode("utf-8").splitlines()
+    except UnicodeDecodeError as exc:
+        raise ValueError("dataset is not valid UTF-8") from exc
+    rows: list[SelectionDatasetRow] = []
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+            if not isinstance(payload, dict):
+                raise ValueError("dataset row must be a JSON object")
+            if payload.get("schema_version") != DATASET_SCHEMA_VERSION:
+                raise ValueError("unsupported dataset schema")
+            rows.append(SelectionDatasetRow.model_validate(payload))
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise ValueError(f"invalid dataset row at line {line_number}: {exc}") from exc
     return tuple(rows)
 
 

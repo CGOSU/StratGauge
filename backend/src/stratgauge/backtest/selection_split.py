@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
@@ -11,10 +10,16 @@ from tempfile import NamedTemporaryFile
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from stratgauge.backtest.selection_dataset import SelectionDatasetRow
+from stratgauge.backtest.selection_dataset import (
+    DATASET_SCHEMA_VERSION as _DATASET_SCHEMA_VERSION,
+)
+from stratgauge.backtest.selection_dataset import (
+    SelectionDatasetRow,
+    read_selection_dataset,
+)
 
 SPLIT_MANIFEST_VERSION = "selection-dataset-split-v1"
-DATASET_SCHEMA_VERSION = "selection-dataset-v1"
+DATASET_SCHEMA_VERSION = _DATASET_SCHEMA_VERSION
 
 
 class SelectionDatasetSplitManifest(BaseModel):
@@ -71,7 +76,7 @@ def write_selection_dataset_split(
     source = Path(source_path)
     destination = Path(output_dir)
     content = source.read_bytes()
-    rows = _read_dataset_rows(content)
+    rows = read_selection_dataset(content)
     splits = split_selection_dataset(
         rows,
         train_end=train_end,
@@ -100,27 +105,6 @@ def write_selection_dataset_split(
             path.unlink(missing_ok=True)
         raise
     return manifest
-
-
-def _read_dataset_rows(content: bytes) -> tuple[SelectionDatasetRow, ...]:
-    try:
-        lines = content.decode("utf-8").splitlines()
-    except UnicodeDecodeError as exc:
-        raise ValueError("dataset is not valid UTF-8") from exc
-    rows: list[SelectionDatasetRow] = []
-    for line_number, line in enumerate(lines, start=1):
-        if not line.strip():
-            continue
-        try:
-            payload = json.loads(line)
-            if not isinstance(payload, dict):
-                raise ValueError("dataset row must be a JSON object")
-            if payload.get("schema_version") != DATASET_SCHEMA_VERSION:
-                raise ValueError("unsupported dataset schema")
-            rows.append(SelectionDatasetRow.model_validate(payload))
-        except (json.JSONDecodeError, UnicodeDecodeError, ValueError, TypeError) as exc:
-            raise ValueError(f"invalid dataset row at line {line_number}: {exc}") from exc
-    return tuple(rows)
 
 
 def _atomic_write(path: Path, content: str) -> None:
