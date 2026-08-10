@@ -49,7 +49,13 @@ def check_bars(
     snapshot_id: str,
     expected_sessions: Iterable[date] = (),
     expected_security_ids: Iterable[str] = (),
+    missing_security_severity: str = "error",
+    minimum_security_coverage: Decimal | None = None,
 ) -> QualityReport:
+    if missing_security_severity not in {"error", "warning"}:
+        raise ValueError("missing_security_severity must be error or warning")
+    if minimum_security_coverage is not None and not 0 <= minimum_security_coverage <= 1:
+        raise ValueError("minimum_security_coverage must be between 0 and 1")
     issues: list[QualityIssue] = []
     expected_session_set = set(expected_sessions)
     expected_security_set = set(expected_security_ids)
@@ -90,15 +96,47 @@ def check_bars(
                 session_date=missing_session,
             )
         )
-    for missing_security_id in sorted(expected_security_set - actual_security_ids):
-        issues.append(
-            QualityIssue(
-                severity="error",
-                code="MISSING_SECURITY",
-                message="预期证券没有返回日线。",
-                details={"security_id": missing_security_id},
+    missing_security_ids = sorted(expected_security_set - actual_security_ids)
+    if missing_security_ids:
+        if missing_security_severity == "error":
+            for missing_security_id in missing_security_ids:
+                issues.append(
+                    QualityIssue(
+                        severity="error",
+                        code="MISSING_SECURITY",
+                        message="预期证券没有返回日线。",
+                        details={"security_id": missing_security_id},
+                    )
+                )
+        else:
+            issues.append(
+                QualityIssue(
+                    severity="warning",
+                    code="MISSING_SECURITY",
+                    message="部分证券未返回日线，可能为停牌或供应商未提供记录。",
+                    details={
+                        "missing_count": str(len(missing_security_ids)),
+                        "expected_count": str(len(expected_security_set)),
+                        "actual_count": str(len(actual_security_ids)),
+                    },
+                )
             )
-        )
+    if minimum_security_coverage is not None and expected_security_set:
+        coverage = Decimal(len(actual_security_ids)) / Decimal(len(expected_security_set))
+        if coverage < minimum_security_coverage:
+            issues.append(
+                QualityIssue(
+                    severity="error",
+                    code="LOW_SECURITY_COVERAGE",
+                    message="日线证券覆盖率低于质量门阈值。",
+                    details={
+                        "coverage": str(coverage),
+                        "minimum_coverage": str(minimum_security_coverage),
+                        "expected_count": str(len(expected_security_set)),
+                        "actual_count": str(len(actual_security_ids)),
+                    },
+                )
+            )
 
     return QualityReport(snapshot_id=snapshot_id, checked_rows=len(bars), issues=tuple(issues))
 

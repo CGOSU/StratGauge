@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -73,10 +73,48 @@ class DailyBarRequest(BaseModel):
     start_date: date
     end_date: date
 
+    @property
+    def request_kind(self) -> str:
+        return "security_daily"
+
     @model_validator(mode="after")
     def validate_range(self) -> DailyBarRequest:
         if self.end_date < self.start_date:
             raise ValueError("end_date must not precede start_date")
+        return self
+
+
+class MarketDailyRequest(BaseModel):
+    """One full-market daily request scoped to an approved universe snapshot."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    session_date: date
+    universe_snapshot_id: str
+    expected_security_ids: tuple[str, ...]
+
+    @property
+    def request_kind(self) -> str:
+        return "market_daily"
+
+    @property
+    def start_date(self) -> date:
+        return self.session_date
+
+    @property
+    def end_date(self) -> date:
+        return self.session_date
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> MarketDailyRequest:
+        if not self.universe_snapshot_id.strip():
+            raise ValueError("universe_snapshot_id must not be empty")
+        if not self.expected_security_ids:
+            raise ValueError("market request requires expected securities")
+        if any(not security_id.strip() for security_id in self.expected_security_ids):
+            raise ValueError("expected security IDs must not be empty")
+        if len(set(self.expected_security_ids)) != len(self.expected_security_ids):
+            raise ValueError("expected security IDs must be unique")
         return self
 
 
@@ -85,6 +123,16 @@ class AdapterResult:
     provider: str
     adapter_version: str
     request: DailyBarRequest
+    fetched_at: datetime
+    raw_records: tuple[Mapping[str, Any], ...]
+    bars: tuple[DailyBar, ...]
+
+
+@dataclass(frozen=True)
+class MarketAdapterResult:
+    provider: str
+    adapter_version: str
+    request: MarketDailyRequest
     fetched_at: datetime
     raw_records: tuple[Mapping[str, Any], ...]
     bars: tuple[DailyBar, ...]
@@ -99,7 +147,19 @@ class MarketDataAdapter(Protocol):
     def fetch_daily_bars(self, request: DailyBarRequest) -> AdapterResult: ...
 
 
+class MarketDailyDataAdapter(Protocol):
+    provider: str
+    adapter_version: str
+
+    def fetch_market_daily(
+        self,
+        request: MarketDailyRequest,
+        securities: Sequence[Security],
+    ) -> MarketAdapterResult: ...
+
+
 Fetcher = Callable[[DailyBarRequest], Iterable[Mapping[str, Any]]]
+MarketFetcher = Callable[[MarketDailyRequest], Iterable[Mapping[str, Any]]]
 Clock = Callable[[], datetime]
 
 

@@ -37,6 +37,30 @@ class QualityTests(unittest.TestCase):
         self.assertFalse(report.approved)
         self.assertEqual(report.errors[0].code, "MISSING_SESSION")
 
+    def test_missing_security_can_be_a_warning_with_a_coverage_gate(self) -> None:
+        report = check_bars(
+            [bar()],
+            snapshot_id="snapshot-1",
+            expected_security_ids=("security-1", "security-2"),
+            missing_security_severity="warning",
+            minimum_security_coverage=Decimal("0.5"),
+        )
+
+        self.assertTrue(report.approved)
+        self.assertEqual(report.warnings[0].code, "MISSING_SECURITY")
+
+    def test_low_security_coverage_blocks_approval(self) -> None:
+        report = check_bars(
+            [bar()],
+            snapshot_id="snapshot-1",
+            expected_security_ids=("security-1", "security-2"),
+            missing_security_severity="warning",
+            minimum_security_coverage=Decimal("0.9"),
+        )
+
+        self.assertFalse(report.approved)
+        self.assertEqual(report.errors[0].code, "LOW_SECURITY_COVERAGE")
+
     def test_duplicate_bar_blocks_approval(self) -> None:
         report = check_bars([bar(), bar()], snapshot_id="snapshot-1")
         self.assertFalse(report.approved)

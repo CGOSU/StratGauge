@@ -276,3 +276,10 @@
 - 完成内容：默认成本政策升级为 `a-share-main-board-cost-v1`，按 100 股整手向下取整，佣金 0.03%（最低 5 元）、卖出印花税 0.05%、滑点 0；不足一手拒绝完成结果。
 - 验证：后端 `PYTHONPATH=src uv run python -m unittest discover -s tests -q`（170 项通过，1 项环境相关跳过）；`uv run ruff format --check .`、`uv run ruff check .`、`uv run mypy src tests scripts` 通过。
 - 遗留问题：下一项全市场收盘后增量行情尚未实现；本轮代码和文档改动尚未提交。
+
+### 2026-08-10 全市场单日增量行情同步
+
+- 完成内容：新增 `MarketDailyRequest`、Tushare 单日全市场 `daily(trade_date=...)` 适配、`market_daily_sync.py` 和 `sync_tushare_daily.py`；仅保留显式沪深主板股票池中的证券。
+- 完成内容：快照清单记录 `request_kind`/`universe_snapshot_id`；已批准的交易日/股票池组合幂等跳过；缺失证券为警告，覆盖率低于 90% 拒绝发布；非交易日安全跳过。
+- 验证：全市场同步、过滤换算、质量覆盖率、拒绝重抓和幂等测试通过；后端 `PYTHONPATH=src uv run python -m unittest discover -s tests -q`（176 项通过，1 项环境相关跳过）；Ruff/MyPy 通过；显式 CLI 非交易日返回 `status=skipped`。
+- 遗留问题：`trade_cal` 真实文件仍受 Tushare 配额限制；多日调度、复权因子、全量历史补齐和条件胜率查询尚未实现；本轮代码和文档改动尚未提交。

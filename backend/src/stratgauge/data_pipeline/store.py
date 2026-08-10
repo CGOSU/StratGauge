@@ -15,7 +15,7 @@ import polars as pl
 from pydantic import BaseModel, ConfigDict, Field
 
 from stratgauge.data_pipeline.quality import QualityReport
-from stratgauge.data_sources.base import AdapterResult
+from stratgauge.data_sources.base import AdapterResult, MarketAdapterResult
 from stratgauge.domain.models import DailyBar
 
 
@@ -45,6 +45,8 @@ class SnapshotManifest(BaseModel):
     status: SnapshotStatus = SnapshotStatus.PENDING
     quality_run_id: str | None = None
     created_at: datetime
+    request_kind: str = "security_daily"
+    universe_snapshot_id: str | None = None
 
 
 class SnapshotStore:
@@ -66,7 +68,7 @@ class SnapshotStore:
             directory.mkdir(parents=True, exist_ok=True)
         self._initialize_catalog()
 
-    def write(self, result: AdapterResult) -> SnapshotManifest:
+    def write(self, result: AdapterResult | MarketAdapterResult) -> SnapshotManifest:
         payload = {
             "provider": result.provider,
             "adapter_version": result.adapter_version,
@@ -102,6 +104,8 @@ class SnapshotStore:
             raw_path=str(raw_path.relative_to(self.root)),
             normalized_path=str(normalized_path.relative_to(self.root)),
             created_at=result.fetched_at,
+            request_kind=result.request.request_kind,
+            universe_snapshot_id=getattr(result.request, "universe_snapshot_id", None),
         )
         _atomic_write_text(
             manifest_path,
@@ -172,6 +176,24 @@ class SnapshotStore:
             )
         return str(path.relative_to(self.root))
 
+    def find_approved_market_snapshot(
+        self,
+        *,
+        provider: str,
+        session_date: date,
+        universe_snapshot_id: str,
+    ) -> SnapshotManifest | None:
+        for manifest in self.list_manifests(SnapshotStatus.APPROVED):
+            if (
+                manifest.request_kind == "market_daily"
+                and manifest.provider == provider
+                and manifest.start_date == session_date
+                and manifest.end_date == session_date
+                and manifest.universe_snapshot_id == universe_snapshot_id
+            ):
+                return manifest
+        return None
+
     def list_manifests(self, status: SnapshotStatus | None = None) -> tuple[SnapshotManifest, ...]:
         query = "SELECT snapshot_id FROM snapshot_catalog"
         parameters: list[str] = []
@@ -199,9 +221,18 @@ class SnapshotStore:
                     normalized_path VARCHAR NOT NULL,
                     status VARCHAR NOT NULL,
                     quality_run_id VARCHAR,
-                    created_at VARCHAR NOT NULL
+                    created_at VARCHAR NOT NULL,
+                    request_kind VARCHAR NOT NULL DEFAULT 'security_daily',
+                    universe_snapshot_id VARCHAR
                 )
                 """
+            )
+            connection.execute(
+                "ALTER TABLE snapshot_catalog "
+                "ADD COLUMN IF NOT EXISTS request_kind VARCHAR DEFAULT 'security_daily'"
+            )
+            connection.execute(
+                "ALTER TABLE snapshot_catalog ADD COLUMN IF NOT EXISTS universe_snapshot_id VARCHAR"
             )
             connection.execute(
                 """
@@ -223,8 +254,9 @@ class SnapshotStore:
                 """
                 INSERT OR REPLACE INTO snapshot_catalog
                 (snapshot_id, provider, adapter_version, start_date, end_date, row_count,
-                 content_sha256, raw_path, normalized_path, status, quality_run_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 content_sha256, raw_path, normalized_path, status, quality_run_id, created_at,
+                 request_kind, universe_snapshot_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     manifest.snapshot_id,
@@ -239,6 +271,8 @@ class SnapshotStore:
                     manifest.status.value,
                     manifest.quality_run_id,
                     manifest.created_at.isoformat(),
+                    manifest.request_kind,
+                    manifest.universe_snapshot_id,
                 ],
             )
 

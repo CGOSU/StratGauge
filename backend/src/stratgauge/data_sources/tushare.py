@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from decimal import Decimal
 from typing import Any
 
@@ -12,13 +12,17 @@ from stratgauge.data_sources.base import (
     Clock,
     DailyBarRequest,
     Fetcher,
+    MarketAdapterResult,
+    MarketDailyRequest,
     MarketDataAdapter,
+    MarketFetcher,
     RetryableAdapterError,
     is_retryable_adapter_exception,
     normalize_daily_rows,
     now_utc,
 )
 from stratgauge.data_sources.tushare_api import query_tushare
+from stratgauge.domain.models import DailyBar, Security
 
 
 class TushareAdapter(MarketDataAdapter):
@@ -30,9 +34,11 @@ class TushareAdapter(MarketDataAdapter):
     def __init__(
         self,
         fetcher: Fetcher | None = None,
+        market_fetcher: MarketFetcher | None = None,
         clock: Clock = now_utc,
     ) -> None:
         self._fetcher = fetcher or self._fetch_from_tushare
+        self._market_fetcher = market_fetcher or self._fetch_market_from_tushare
         self._clock = clock
 
     def fetch_daily_bars(self, request: DailyBarRequest) -> AdapterResult:
@@ -65,6 +71,68 @@ class TushareAdapter(MarketDataAdapter):
             fetched_at=fetched_at,
             raw_records=raw_records,
             bars=bars,
+        )
+
+    def fetch_market_daily(
+        self,
+        request: MarketDailyRequest,
+        securities: Sequence[Security],
+    ) -> MarketAdapterResult:
+        fetched_at = self._clock()
+        security_by_symbol = {security.symbol: security for security in securities}
+        if not security_by_symbol:
+            raise AdapterError("market request requires securities")
+        try:
+            provider_records = tuple(self._market_fetcher(request))
+            scoped_records: list[Mapping[str, Any]] = []
+            bars: list[DailyBar] = []
+            for record in provider_records:
+                contract_row = _to_contract_row(record)
+                symbol = str(contract_row["code"]).strip().upper()
+                security = security_by_symbol.get(symbol)
+                if security is None:
+                    continue
+                scoped_records.append(record)
+                bars.extend(
+                    normalize_daily_rows(
+                        [contract_row],
+                        DailyBarRequest(
+                            security=security,
+                            start_date=request.session_date,
+                            end_date=request.session_date,
+                        ),
+                        self.provider,
+                        self.adapter_version,
+                        fetched_at,
+                    )
+                )
+        except AdapterError as exc:
+            if is_retryable_adapter_exception(exc):
+                raise RetryableAdapterError(
+                    f"Tushare transient market fetch failure for {request.session_date}"
+                ) from exc
+            raise
+        except Exception as exc:
+            error_type = (
+                RetryableAdapterError if is_retryable_adapter_exception(exc) else AdapterError
+            )
+            raise error_type("Tushare market fetch failed") from exc
+        return MarketAdapterResult(
+            provider=self.provider,
+            adapter_version=self.adapter_version,
+            request=request,
+            fetched_at=fetched_at,
+            raw_records=tuple(
+                sorted(scoped_records, key=lambda record: str(record.get("ts_code", "")))
+            ),
+            bars=tuple(sorted(bars, key=lambda bar: (bar.symbol, bar.session_date))),
+        )
+
+    @staticmethod
+    def _fetch_market_from_tushare(request: MarketDailyRequest) -> Iterable[Mapping[str, Any]]:
+        return query_tushare(
+            "daily",
+            {"trade_date": request.session_date.strftime("%Y%m%d")},
         )
 
     @staticmethod

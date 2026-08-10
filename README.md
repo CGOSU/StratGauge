@@ -247,6 +247,18 @@ PYTHONPATH=src uv run python scripts/run_selection_maturity_tasks.py \
 
 数据管理可以下载带 `schema_version=selection-dataset-v2` 的 JSONL；每条成熟结果同时记录 `outcome_policy_id`。CLI 导出不会覆盖已有文件：
 
+全市场日线同步必须显式提供交易日历和已批准的沪深主板股票池快照；单个交易日可执行：
+
+```bash
+cd backend
+PYTHONPATH=src uv run python scripts/sync_tushare_daily.py \
+  --session-date 2026-08-10 \
+  --calendar-file data/calendars/a-share-sessions.txt \
+  --universe-snapshot-id <approved_universe_snapshot_id>
+```
+
+非交易日安全跳过；已批准的同一交易日/股票池组合不会重复请求，覆盖率不足的快照不会发布。
+
 ```bash
 cd backend
 PYTHONPATH=src uv run python scripts/export_tdx_dataset.py \
