@@ -20,7 +20,7 @@ type ManagementFilter = 'all' | LifecycleStatus
 type BatchSource = 'tongdaxin' | 'manual'
 type ManagementSourceFilter = 'all' | BatchSource
 type Exchange = 'SH' | 'SZ' | 'BJ'
-type Provider = 'akshare' | 'baostock' | 'waizao'
+type Provider = 'tushare' | 'akshare' | 'baostock' | 'waizao'
 type MaturityTaskStatus = 'queued' | 'running' | 'completed' | 'partial' | 'failed'
 
 type Formula = {
@@ -192,7 +192,8 @@ const apiBase = import.meta.env.VITE_API_BASE_URL
 const healthUrl = `${apiBase}/healthz`
 
 const providerLabels: Record<Provider, string> = {
-  akshare: 'AKShare（主源）',
+  tushare: 'Tushare Pro（主源）',
+  akshare: 'AKShare（兼容）',
   baostock: 'BaoStock（备用）',
   waizao: '歪枣网（临时恢复源）',
 }
@@ -264,7 +265,7 @@ function App() {
   const [file, setFile] = useState<File | null>(null)
   const [selectionDate, setSelectionDate] = useState('')
   const [exportedAt, setExportedAt] = useState('')
-  const [provider, setProvider] = useState<Provider>('baostock')
+  const [provider, setProvider] = useState<Provider>('tushare')
   const [evaluatedAt, setEvaluatedAt] = useState('')
   const [horizonSessions, setHorizonSessions] = useState('5')
   const [positionNotional, setPositionNotional] = useState('10000')

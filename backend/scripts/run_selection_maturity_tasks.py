@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from stratgauge.data_pipeline.store import SnapshotStore
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.baostock import BaoStockAdapter
 from stratgauge.data_sources.base import MarketDataAdapter
+from stratgauge.data_sources.tushare import TushareAdapter
 from stratgauge.data_sources.waizao import WaizaoAdapter
 from stratgauge.domain.selections import SelectionMaturityTask, SelectionMaturityTaskStatus
 
@@ -55,7 +57,8 @@ def _select_tasks(
 
 
 def _adapter(provider: str) -> MarketDataAdapter:
-    adapters = {
+    adapters: dict[str, Callable[[], MarketDataAdapter]] = {
+        "tushare": TushareAdapter,
         "akshare": AKShareAdapter,
         "baostock": BaoStockAdapter,
         "waizao": WaizaoAdapter,

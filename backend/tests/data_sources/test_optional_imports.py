@@ -5,6 +5,7 @@ from datetime import date
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.baostock import BaoStockAdapter
 from stratgauge.data_sources.base import AdapterError, DailyBarRequest
+from stratgauge.data_sources.tushare import TushareAdapter
 from stratgauge.data_sources.waizao import WaizaoAdapter
 from stratgauge.domain.models import Exchange, Security
 
@@ -14,6 +15,7 @@ class OptionalImportTests(unittest.TestCase):
         self.assertIsInstance(AKShareAdapter(), AKShareAdapter)
         self.assertIsInstance(BaoStockAdapter(), BaoStockAdapter)
         self.assertIsInstance(WaizaoAdapter(), WaizaoAdapter)
+        self.assertIsInstance(TushareAdapter(), TushareAdapter)
 
     def test_missing_provider_dependency_is_reported_at_use_time(self) -> None:
         request = DailyBarRequest(
@@ -28,7 +30,7 @@ class OptionalImportTests(unittest.TestCase):
         )
         adapters = tuple(
             adapter
-            for adapter in (AKShareAdapter(), BaoStockAdapter())
+            for adapter in (AKShareAdapter(), BaoStockAdapter(), TushareAdapter())
             if importlib.util.find_spec(adapter.provider) is None
         )
         if not adapters:

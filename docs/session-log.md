@@ -173,3 +173,54 @@
 - 完成内容：新增 `selection_ml_audit.py` 和 `audit_selection_ml_readiness.py`；审计 `selection-dataset-v1` 的策略冻结声明、样本量、目标类别、追踪政策、重复候选、待定/未解决状态和结果快照溯源；未知或不完整训练证据返回非零退出码，不启动训练。
 - 验证：新增审计测试 6 项通过；相关数据集/切分测试共 11 项通过；Ruff format/check、MyPy 通过。
 - 遗留问题：特征工程、基线模型、LightGBM、走步验证、模型注册和 Web 预测尚未实现。
+
+### 2026-08-10 历史行情补齐基础
+
+- 完成内容：新增 `history_backfill.py` 和 `backfill_selection_history.py`；按显式升序交易日历截取选股日前最长回看窗口，候选自动来自批次，基准/行业标的要求显式 `CODE.EXCHANGE`；逐证券通过统一适配器和质量门抓取，并报告缺失证券、缺失交易日、历史窗口不足、质量失败和 provider 失败。新增 `SnapshotStore.load_bars`，默认拒绝读取未批准快照；报告和 rejected 快照不覆盖已有证据。
+- 验证：`PYTHONPATH=src uv run python -m unittest tests.data_pipeline.test_history_backfill tests.data_pipeline.test_store -v`（9 项通过）；`uv run ruff check src/stratgauge/data_pipeline/history_backfill.py src/stratgauge/data_pipeline/store.py scripts/backfill_selection_history.py tests/data_pipeline/test_history_backfill.py tests/data_pipeline/test_store.py`、`uv run mypy src tests scripts` 通过。
+- 遗留问题：特征契约、`available_at` 防泄漏测试、基线模型、LightGBM、走步验证、模型注册和 Web 预测尚未实现；真实交易日历和基准/行业映射仍需由研究配置显式提供。
+
+### 2026-08-10 实现当前可独立完成的研究基础
+
+- 完成内容：新增版本化确定性特征契约和计算引擎（收益、波动率、流动性、均线距离、基准相对强弱），严格拒绝选股日之后或 `available_at` 晚于 `as_of` 的数据；新增 `selection-feature-dataset-v1` 解析、按选股日期切分和离线常数概率基线训练 CLI；新增批准来源约束的时间点股票池快照；新增策略版本生命周期事件账本；新增手工订单、成交、持仓推导、复盘记录及基础 API。
+- 验证：`PYTHONPATH=src uv run python -m unittest discover -s tests -v`（135 项通过，1 项环境相关跳过）；`uv run ruff format --check .`、`uv run ruff check .`、`uv run mypy src tests scripts` 通过。
+- 遗留问题：用户真实策略参数、完整股票主数据和历史成分、AKShare 网络、LightGBM、走步验证、概率校准、模型注册/晋升、用户覆写仍未实现。
+
+### 2026-08-10 理论回测报告和时间点股票搜索
+
+- 完成内容：新增 `backtest/report.py` 与 `report_backtest.py`，从不可变 `BacktestResult` 生成内容寻址的理论报告，按策略版本、成本政策、显式市场状态和入场日期分组；新增 `/v1/universe/securities`，只在请求 `as_of` 时已知的股票池快照中按代码/名称搜索。
+- 约束：报告不混入推荐或实际成交；市场状态不自动推断；无时间点股票池时搜索返回结构化错误；当前不提供完整股票主数据补齐。
+- 验证：`PYTHONPATH=src uv run python -m unittest discover -s tests`（139 项通过，1 项环境相关跳过）；`uv run ruff format --check .`、`uv run ruff check .`、`uv run mypy src tests scripts` 通过。
+- 遗留问题：P4-03 尚未接入 Web 报告查询；完整历史成分、用户覆写、真实策略参数和机器学习高级阶段仍未实现。
+
+### 2026-08-10 切换 Tushare Pro 自动数据源
+
+- 完成内容：新增 `TushareAdapter`，对接 Tushare `daily` 不复权日线；新增 `TushareReferenceClient`/`TushareReferenceStore`，对接 `stock_basic` 和 `trade_cal`；新增 `sync_tushare_universe.py`、`sync_tushare_calendar.py`；成熟、历史补数、任务调度、API 和真实验证脚本加入 Tushare，新增流程默认主源；前端行情源选项同步更新。
+- 数据边界：`TUSHARE_TOKEN` 只从环境变量读取；成交量由手转换为股，成交额由千元转换为元；参考响应和股票池按内容保存，交易日历仍是显式 session 集合。
+- 实际验证：未设置 `TUSHARE_TOKEN`，未执行真实 Tushare API 调用；只验证 HTTPS 端点可连接和注入响应契约。
+- 验证：后端 `uv sync --extra live-data` 后执行 `PYTHONPATH=src uv run python -m unittest discover -s tests`（144 项通过，1 项环境相关跳过）；`uv run ruff format --check .`、`uv run ruff check .`、`uv run mypy src tests scripts` 通过；`uv lock` 成功。
+- 遗留问题：设置 Token 后仍需运行 Tushare/BaoStock 固定区间质量门和交叉校验；Tushare 积分/限流/修订时间需进一步确认。
+
+### 2026-08-10 走步验证和模型注册基础
+
+- 完成内容：增强 `walk_forward.py` 的最终测试起点隔离、折排序和输入哈希校验；新增 `validate_walk_forward.py`，读取版本化特征 JSONL 和显式折 JSON，输出不可覆盖报告；新增走步边界、清除期、多政策、重复行、单类别和最终测试隔离测试。
+- 完成内容：新增 `ModelRegistryStore`、`register_selection_model.py`、`transition_selection_model.py` 和 `ModelLifecycle`；模型、评估报告、训练 manifest 内容复制并校验哈希；支持 challenger/shadow/active/retired、人工 promote、rollback 和追加操作者审计事件。
+- 实际验证：走步 CLI 临时夹具成功输出 `selection-walk-forward-v1` 报告，最终测试行只计数未参与折评估；模型注册/transition CLI 临时夹具完成注册、shadow、active 和工件校验；未执行真实模型或外部数据评分。
+- 验证：后端 `PYTHONPATH=src uv run python -m unittest discover -s tests`（152 项通过，1 项环境相关跳过）；`uv run ruff format --check .`、`uv run ruff check .`、`uv run mypy src tests scripts` 通过。
+- 遗留问题：P3-07 LightGBM、完整走步成交/收益指标、概率校准、冠军/挑战者门禁和 Web 展示仍未实现；影子评分目前只支持离线常数基线 CLI，尚未自动接入新批次；不把常数基线或未校准分数称为胜率。
+
+### 2026-08-10 独立影子评分底座
+
+- 完成内容：新增 `shadow.py`、`score_selection_shadow.py` 和 `ShadowScoreStore`；只接受不含客观标签的候选/`FeatureSnapshot`，只允许 shadow 生命周期模型；输出独立不可变评分和报告，记录模型、特征、输入快照、追踪政策、评分时间、失败项，并固定标记未校准且不用于决策。
+- 完成内容：训练基线 manifest 增加模型类型、随机种子、标签字段和 Python 运行环境；模型注册加载前继续校验工件哈希和元数据。
+- 实际验证：影子评分 CLI 临时夹具成功注册模型、进入 shadow、生成一条评分报告；过期特征作为候选级失败保留在报告，不写入评分。
+- 验证：后端 `PYTHONPATH=src uv run python -m unittest discover -s tests`（156 项通过，1 项环境相关跳过）；`uv run ruff format --check .`、`uv run ruff check .`、`uv run mypy src tests scripts` 通过。
+- 遗留问题：影子评分尚未接入导入批次/API/前端；LightGBM、概率校准模型和完整走步收益指标仍未实现。
+
+### 2026-08-10 模型比较门禁和人工晋升
+
+- 完成内容：新增 `evaluation.py` 的版本化评估证据；基线 `metrics.json` 改为带模型/特征/政策/源哈希和指标字典的标准报告。
+- 完成内容：新增 `comparison.py` 和 `compare_selection_models.py`；比较策略显式声明指标方向、绝对边界、最大相对退化和校准要求；比较报告内容寻址、不可覆盖并记录候选/冠军评估哈希。
+- 完成内容：`ModelRegistryStore.promote` 现在必须引用通过的比较报告；报告被篡改、来自未来、候选/冠军/政策/评估哈希不匹配或 active 冠军未先人工退役时拒绝晋升；回滚入口保持不变。
+- 实际验证：比较 CLI 临时夹具成功生成通过报告并完成人工 active；单元测试覆盖缺失指标、相对退化、校准门禁、报告篡改和生命周期顺序。
+- 遗留问题：当前只有常数基线的 Log Loss/Brier 等基础指标；信号量、净收益、回撤、换手、特征稳定性、最差折表现和真正概率校准仍需合格真实样本与完整走步数据。

@@ -151,7 +151,7 @@ class SelectionLabelRequest(BaseModel):
 class SelectionMatureRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    provider: Literal["akshare", "baostock", "waizao"]
+    provider: Literal["tushare", "akshare", "baostock", "waizao"]
     evaluated_at: datetime
     horizon_sessions: int = Field(gt=0)
     position_notional: Decimal = Field(gt=0)

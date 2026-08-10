@@ -1,4 +1,4 @@
-"""Explicit network verification for both market-data adapters."""
+"""Explicit network verification for a primary source and BaoStock fallback."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from stratgauge.data_pipeline.store import SnapshotStore
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.baostock import BaoStockAdapter
 from stratgauge.data_sources.base import AdapterError, DailyBarRequest
+from stratgauge.data_sources.tushare import TushareAdapter
 from stratgauge.data_sources.waizao import WaizaoAdapter
 from stratgauge.domain.models import Exchange, Security, canonical_symbol
 
@@ -35,7 +36,11 @@ def main() -> int:
     )
     store = SnapshotStore(arguments.root)
     try:
-        primary_adapter = AKShareAdapter() if arguments.primary == "akshare" else WaizaoAdapter()
+        primary_adapter = {
+            "tushare": TushareAdapter,
+            "akshare": AKShareAdapter,
+            "waizao": WaizaoAdapter,
+        }[arguments.primary]()
         primary = ingest(
             primary_adapter,
             request,
@@ -82,7 +87,11 @@ def _quality_failure(primary: IngestResult, fallback: IngestResult) -> dict[str,
 def _parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--symbol", default="000001.SZ")
-    parser.add_argument("--primary", choices=("akshare", "waizao"), default="akshare")
+    parser.add_argument(
+        "--primary",
+        choices=("tushare", "akshare", "waizao"),
+        default="tushare",
+    )
     parser.add_argument("--start-date", type=date.fromisoformat, default=date(2024, 1, 2))
     parser.add_argument("--end-date", type=date.fromisoformat, default=date(2024, 1, 5))
     parser.add_argument("--root", type=Path, default=Path("data/live-verification"))

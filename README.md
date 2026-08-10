@@ -25,7 +25,7 @@ StratGauge 是一款个人 A 股策略助手：把现有的手工选股、买入
 - FastAPI 和 Pydantic；
 - LightGBM、Optuna 和 MLflow；
 - React、Vite、TypeScript 和 ECharts；
-- AKShare 主数据适配器、BaoStock 备用适配器；
+- Tushare Pro 主数据适配器，BaoStock 备用适配器，AKShare 兼容适配器；
 - 量化核心稳定后再考虑 Tauri/Axum 封装。
 
 ## 核心原则
@@ -57,8 +57,9 @@ PYTHONPATH=src uv run uvicorn stratgauge.api.app:app --reload
 ```bash
 cd backend
 uv sync --extra live-data
+# Tushare Pro 是新增流程默认主源，需要先设置 TUSHARE_TOKEN
 PYTHONPATH=src uv run python scripts/verify_live_adapters.py
-# 临时使用歪枣网（需要本地设置 WAIZAO_TOKEN）
+# 兼容验证：临时使用歪枣网（需要本地设置 WAIZAO_TOKEN）
 PYTHONPATH=src uv run python scripts/verify_live_adapters.py --primary waizao
 ```
 
@@ -80,7 +81,7 @@ PYTHONPATH=src uv run python scripts/label_tdx_selection.py \
 # 显式用已有日线源成熟一个批次；不会自动交易
 PYTHONPATH=src uv run python scripts/mature_tdx_selection.py \
   --batch-id <batch_id> \
-  --provider baostock \
+  --provider tushare \
   --evaluated-at 2026-01-10T17:00:00+08:00 \
   --horizon-sessions 5 \
   --position-notional 10000
@@ -106,6 +107,41 @@ PYTHONPATH=src uv run python scripts/audit_selection_ml_readiness.py \
   --strategy-parameters-frozen \
   --tracking-policy-id <tracking_policy_id> \
   --min-completed-samples 100
+# 补齐选股日前的历史；默认从 Tushare trade_cal 获取显式交易日
+PYTHONPATH=src uv run python scripts/backfill_selection_history.py \
+  --root data/selection \
+  --market-root data/selection-market \
+  --batch-id <batch_id> \
+  --provider tushare \
+  --lookback-sessions 60 \
+  --benchmark 000300.SH \
+  --industry 399006.SZ \
+  --output data/selection-history/<batch_id>.json
+# 训练离线常数概率基线；输入必须是 selection-feature-dataset-v1
+PYTHONPATH=src uv run python scripts/train_selection_baseline.py \
+  --input data/selection-features/features.jsonl \
+  --output-dir data/models/baseline-v1 \
+  --train-end 2026-06-30 \
+  --validation-end 2026-09-30 \
+  --feature-set-version-id <feature_set_version_id> \
+  --tracking-policy-id <tracking_policy_id> \
+  --label-field label \
+  --random-seed 0
+# 保存显式时间点股票池；来源快照必须已批准
+PYTHONPATH=src uv run python scripts/create_universe_snapshot.py \
+  --root data \
+  --market-root data/selection-market \
+  --as-of 2026-01-05T16:00:00+08:00 \
+  --source manual-universe \
+  --source-snapshot-id <approved_snapshot_id> \
+  --symbol 000001.SZ
+# 注册策略版本并追加生命周期变更
+PYTHONPATH=src uv run python scripts/register_strategy.py --input strategy.json
+PYTHONPATH=src uv run python scripts/transition_strategy.py \
+  --strategy-version-id <strategy_version_id> \
+  --to validated \
+  --changed-at 2026-01-05T16:00:00+08:00 \
+  --reason "验证通过"
 ```
 
 成熟任务要求显式提供单笔名义金额；这是最低佣金换算为收益率所必需的参数，系统不会猜测。
@@ -177,7 +213,7 @@ PYTHONPATH=src uv run python scripts/import_tdx_selection.py \
 - 评估时间必须晚于选股日期；
 - 只使用日线、收盘后可获得的数据；
 - 不为止盈、止损等尚未确认的策略参数自行添加规则；
-- `AKShare` 是主源，`BaoStock` 是备用源，歪枣网只是临时恢复源；
+- `Tushare Pro` 是新增流程主源，`BaoStock` 是备用和交叉校验源，`AKShare` 保留兼容入口，歪枣网只是临时恢复源；
 - 网络、限流和超时错误可以有限重试，质量门、参数和响应格式错误不会盲目重试。
 
 任务 ID 由批次、UTC 评估时间、追踪政策和行情源确定。同一配置重复提交会复用任务；同一任务和候选最多保存一个客观结果。任务事件会记录排队、执行、重试、失败和结果写入过程。
@@ -228,6 +264,190 @@ PYTHONPATH=src uv run python scripts/split_tdx_dataset.py \
 
 命令会生成 `train.jsonl`、`validation.jsonl`、`test.jsonl` 和 `manifest.json`。manifest 保存源文件 SHA-256、schema 版本、切分边界和各分区行数；已有输出会拒绝覆盖。
 
+### 8. 补齐历史行情
+
+特征工程前，用显式交易日历补齐每个候选选股日前的最长回看窗口。未提供 `--sessions-file` 时，脚本从 Tushare `trade_cal` 获取交易日，不使用自然日填充：
+
+```bash
+PYTHONPATH=src uv run python scripts/backfill_selection_history.py \
+  --batch-id <batch_id> \
+  --provider tushare \
+  --lookback-sessions 60 \
+  --benchmark 000300.SH \
+  --industry 399006.SZ \
+  --output data/selection-history/<batch_id>.json
+```
+
+交易日文件必须是按升序排列的 ISO 日期，一行一个日期；不能用自然日猜测周末或节假日。候选由批次自动生成，基准和行业标的必须显式使用 `CODE.EXCHANGE`。报告列出缺失证券、缺失交易日、窗口不足、质量失败和可用快照 ID；只有通过质量门的 `approved` 快照会进入 `approved_snapshot_ids`，本命令不计算特征。
+
+### 9. 特征和离线基线
+
+`features/engine.py` 只接受严格早于选股日、且 `available_at <= as_of` 的批准行情。特征快照和特征版本均不可覆盖。训练入口只接受 `selection-feature-dataset-v1`：
+
+```bash
+PYTHONPATH=src uv run python scripts/train_selection_baseline.py \
+  --input data/selection-features/features.jsonl \
+  --output-dir data/models/baseline-v1 \
+  --train-end 2026-06-30 \
+  --validation-end 2026-09-30 \
+  --feature-set-version-id <feature_set_version_id> \
+  --tracking-policy-id <tracking_policy_id> \
+  --label-field label
+```
+
+当前基线是常数概率模型，只用于流程对照，不代表预测收益或交易建议。事后抓取的历史行情若 `available_at` 晚于历史 `as_of`，会被特征引擎拒绝。
+
+显式配置走步折和最终测试起点后，运行基础走步验证：
+
+```bash
+PYTHONPATH=src uv run python scripts/validate_walk_forward.py \
+  --input data/selection-features/features.jsonl \
+  --folds data/selection-features/walk-forward-folds.json \
+  --final-test-start 2026-10-01 \
+  --output data/models/walk-forward-v1/report.json
+```
+
+折 JSON 必须由研究配置显式提供；最终测试期只计数、不参与折验证。当前输入契约没有成交/净收益序列，因此报告中的成交率、净收益、回撤和换手保持为空。
+
+模型注册会复制模型、评估报告和训练 manifest，并校验 SHA-256；生命周期只能人工追加，不能自动晋升：
+
+```bash
+PYTHONPATH=src uv run python scripts/register_selection_model.py \
+  --root data \
+  --model data/models/baseline-v1/model.json \
+  --evaluation data/models/baseline-v1/metrics.json \
+  --manifest data/models/baseline-v1/manifest.json \
+  --registered-at 2026-10-02T18:00:00+08:00 \
+  --registered-by researcher
+PYTHONPATH=src uv run python scripts/transition_selection_model.py \
+  --root data \
+  --model-version-id <model_version_id> \
+  --to shadow \
+  --changed-at 2026-10-02T18:05:00+08:00 \
+  --reason "人工开始影子阶段" \
+  --operator researcher
+```
+
+晋升前必须使用显式比较政策生成不可变报告；缺失的净收益、回撤、换手、信号量、特征稳定性或校准指标会阻断，不会填充默认值。先准备策略政策 JSON，例如：
+
+```json
+{
+  "comparison_policy_id": "policy-gate-v1",
+  "tracking_policy_id": "<tracking_policy_id>",
+  "require_incumbent": false,
+  "require_calibrated": false,
+  "rules": [
+    {
+      "metric_name": "validation_log_loss",
+      "direction": "minimize",
+      "maximum_value": "1.0",
+      "max_regression": "0.0"
+    }
+  ]
+}
+```
+
+```bash
+PYTHONPATH=src uv run python scripts/compare_selection_models.py \
+  --root data \
+  --challenger-model-version-id <model_version_id> \
+  --policy data/models/comparison-policy.json \
+  --compared-at 2026-10-03T17:55:00+08:00 \
+  --compared-by researcher
+```
+
+只有人工确认并提供比较报告 ID/哈希、注册评估报告 SHA-256 后才能 promote；已有 active 冠军时必须先人工退役。不得把未校准分数称为胜率：
+
+```bash
+PYTHONPATH=src uv run python scripts/transition_selection_model.py \
+  --root data \
+  --model-version-id <model_version_id> \
+  --to active \
+  --evaluation-sha256 <evaluation_sha256> \
+  --comparison-report-id <comparison_report_id> \
+  --comparison-report-sha256 <comparison_report_sha256> \
+  --changed-at 2026-10-03T18:00:00+08:00 \
+  --reason "人工确认" \
+  --operator researcher
+```
+
+影子评分独立保存，不改变人工标签、客观结果或成熟任务；输入只能是未带结果标签的候选/特征快照 JSONL：
+
+```bash
+PYTHONPATH=src uv run python scripts/score_selection_shadow.py \
+  --root data \
+  --model-version-id <shadow_model_version_id> \
+  --input data/selection-features/shadow-input.jsonl \
+  --scored-at 2026-10-03T18:05:00+08:00 \
+  --output data/models/shadow-reports/run.json
+```
+
+输出字段是 `uncalibrated_model_score`，并明确 `calibrated=false`、`used_for_decision=false`，不能称为胜率。
+
+### 10. Tushare 参考数据、时间点股票池和策略生命周期
+
+首次同步股票主数据和交易日历：
+
+```bash
+# 需要 TUSHARE_TOKEN；保存不可变 stock_basic 参考响应和时间点股票池
+PYTHONPATH=src uv run python scripts/sync_tushare_universe.py \
+  --root data \
+  --as-of 2026-01-05T16:00:00+08:00
+# 保存显式交易日文件；不会用自然日填充
+PYTHONPATH=src uv run python scripts/sync_tushare_calendar.py \
+  --start-date 2025-01-01 \
+  --end-date 2026-01-05 \
+  --output data/calendars/a-share-sessions.txt
+```
+
+Tushare `daily` 返回的成交量是手、成交额是千元，系统分别转换为股和元。Token 只从 `TUSHARE_TOKEN` 读取，不进入日志或快照。
+
+股票池必须显式提供证券和已批准来源快照：
+
+```bash
+PYTHONPATH=src uv run python scripts/create_universe_snapshot.py \
+  --as-of 2026-01-05T16:00:00+08:00 \
+  --source manual-universe \
+  --source-snapshot-id <approved_snapshot_id> \
+  --symbol 000001.SZ
+```
+
+策略版本先用 `register_strategy.py` 注册，再通过 `transition_strategy.py` 追加 `draft → validated → shadow → active → retired` 事件；不修改历史策略文件。
+
+### 11. 理论回测报告
+
+从 `BacktestResult` JSON 生成不可覆盖的理论报告；市场状态只能通过显式 JSON 映射提供，缺失状态标记为 `unspecified`，不会自动推断：
+
+```bash
+PYTHONPATH=src uv run python scripts/report_backtest.py \
+  --input data/backtests/run.json \
+  --output data/backtests/reports/run-report.json \
+  --market-states data/backtests/market-states.json
+```
+
+报告按策略版本、成本政策、市场状态和入场日期分组，并包含收益、胜率、复合收益和最大回撤。它只表示理论回测，不包含推荐结果或实际成交。
+
+### 12. 时间点股票搜索
+
+股票搜索只读取 `as_of` 时已经存在的最新股票池快照，不使用未来成分或自动猜测交易所：
+
+```text
+GET /v1/universe/securities?as_of=2026-01-06T09:00:00+08:00&query=平安&limit=20
+```
+
+若请求时间点没有可用快照，接口返回结构化错误；当前不提供全市场主数据补齐。
+
+### 13. 手工订单和持仓
+
+API 提供：
+
+- `POST /v1/manual-orders`
+- `POST /v1/manual-fills`
+- `GET /v1/positions`
+- `POST /v1/portfolio-reviews`
+
+持仓由成交记录重放推导，卖出不得超过当前持仓；系统不连接券商、不自动下单。
+
 ## 运行原理
 
 StratGauge 的核心不是“自动买卖”，而是把一次收盘后选股变成一条可复核证据链：
@@ -242,6 +462,7 @@ StratGauge 的核心不是“自动买卖”，而是把一次收盘后选股变
   → 固定持有期计算客观结果
   → 去重后的统计与 JSONL 样本
   → 按选股日期生成训练/验证/测试清单
+  → 理论回测报告与时间点股票池搜索
 ```
 
 每个环节的边界：
@@ -267,7 +488,7 @@ corepack pnpm build
 corepack pnpm lint
 ```
 
-AKShare、BaoStock 和临时歪枣网适配器默认延迟使用；默认单元测试使用冻结数据，不访问网络。`live-data` 是可选依赖组，真实抓取必须显式执行集成验证；验证脚本会保存快照、质量报告并执行主备数据差异检查。歪枣网当前仅按证券代码请求日线，`code=all` 需要更高订阅权限；其接口仅提供 HTTP，Token 不得写入代码、日志或提交。通达信导入支持 UTF-8/GB18030 的 CSV、TSV、分号分隔文件、市场前缀 `.EBK` 和行情表 `.txt`；普通 CSV 代码仍要求交换所显式存在或代码带 `.SH/.SZ/.BJ` 后缀。DuckDB 保存快照、质量和状态索引，标准行情仍保存在 Parquet。
+Tushare Pro、AKShare、BaoStock 和临时歪枣网适配器默认延迟使用；默认单元测试使用冻结数据，不访问网络。`live-data` 是可选依赖组，真实抓取必须显式执行集成验证；验证脚本会保存快照、质量报告并执行主备数据差异检查。Tushare Token 只从 `TUSHARE_TOKEN` 环境变量读取；歪枣网当前仅按证券代码请求日线，`code=all` 需要更高订阅权限，其接口仅提供 HTTP。通达信导入支持 UTF-8/GB18030 的 CSV、TSV、分号分隔文件、市场前缀 `.EBK` 和行情表 `.txt`；普通 CSV 代码仍要求交换所显式存在或代码带 `.SH/.SZ/.BJ` 后缀。DuckDB 保存快照、质量和状态索引，标准行情仍保存在 Parquet。
 
 ## 文档
 
@@ -283,7 +504,7 @@ AKShare、BaoStock 和临时歪枣网适配器默认延迟使用；默认单元�
 - 不连接券商，不自动创建、修改或取消订单；
 - 用户始终手动确认并执行交易；
 - v1 只使用日线数据，未经批准不引入分钟或 Tick 数据；
-- AKShare 为主数据适配器，BaoStock 为备用和交叉校验适配器，歪枣网仅作临时日线恢复源，Tushare Pro 为可选项；
+- Tushare Pro 为新增自动流程主数据适配器，BaoStock 为备用和交叉校验适配器，AKShare 为兼容适配器，歪枣网仅作临时日线恢复源；
 - 不臆造价格、指标、概率、收益、解释或数据新鲜度；
 - 每条推荐必须记录数据快照、特征集、策略和模型版本；
 - 防止未来函数、生存者偏差和提前使用修订信息；

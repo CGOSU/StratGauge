@@ -105,7 +105,7 @@ class SelectionMaturityTask(DomainModel):
 
     task_id: str
     batch_id: str
-    provider: Literal["akshare", "baostock", "waizao"]
+    provider: Literal["tushare", "akshare", "baostock", "waizao"]
     evaluated_at: datetime
     target_evaluation_date: date
     tracking_policy_id: str

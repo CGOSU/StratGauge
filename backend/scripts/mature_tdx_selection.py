@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -15,6 +16,7 @@ from stratgauge.data_pipeline.store import SnapshotStore
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.baostock import BaoStockAdapter
 from stratgauge.data_sources.base import MarketDataAdapter
+from stratgauge.data_sources.tushare import TushareAdapter
 from stratgauge.data_sources.waizao import WaizaoAdapter
 
 
@@ -58,7 +60,8 @@ def main() -> int:
 
 
 def _adapter(provider: str) -> MarketDataAdapter:
-    adapters = {
+    adapters: dict[str, Callable[[], MarketDataAdapter]] = {
+        "tushare": TushareAdapter,
         "akshare": AKShareAdapter,
         "baostock": BaoStockAdapter,
         "waizao": WaizaoAdapter,
@@ -71,7 +74,11 @@ def _parse_arguments() -> argparse.Namespace:
     parser.add_argument("--root", type=Path, default=Path("data/selection"))
     parser.add_argument("--market-root", type=Path, default=Path("data/selection-market"))
     parser.add_argument("--batch-id", required=True)
-    parser.add_argument("--provider", choices=("akshare", "baostock", "waizao"), required=True)
+    parser.add_argument(
+        "--provider",
+        choices=("tushare", "akshare", "baostock", "waizao"),
+        default="tushare",
+    )
     parser.add_argument("--evaluated-at", type=_parse_aware_datetime, required=True)
     parser.add_argument("--horizon-sessions", type=int, required=True)
     parser.add_argument("--position-notional", type=_parse_positive_decimal, required=True)

@@ -35,7 +35,7 @@ class SelectionMaturityTaskError(RuntimeError):
 def build_maturity_task(
     imported: TdxSelectionImport,
     *,
-    provider: Literal["akshare", "baostock", "waizao"],
+    provider: Literal["tushare", "akshare", "baostock", "waizao"],
     evaluated_at: datetime,
     policy: SelectionTrackingPolicy,
     max_retries: int = 2,

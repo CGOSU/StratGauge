@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote
@@ -16,6 +16,13 @@ from stratgauge.api.analysis import (
     AnalysisRecord,
     AnalysisService,
     InMemoryAnalysisRepository,
+)
+from stratgauge.api.portfolio import (
+    ManualFillRequest,
+    ManualOrderRequest,
+    PortfolioApiError,
+    PortfolioReviewRequest,
+    PortfolioService,
 )
 from stratgauge.api.selections import (
     ManualSelectionRequest,
@@ -35,12 +42,21 @@ from stratgauge.api.selections import (
     SelectionService,
     SelectionStatsView,
 )
+from stratgauge.api.universe import (
+    UniverseSearchError,
+    UniverseSearchResponse,
+    UniverseSearchService,
+)
+from stratgauge.data_pipeline.portfolio_store import ManualPortfolioStore
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.data_pipeline.store import SnapshotStore
+from stratgauge.data_pipeline.universe import UniverseSnapshotStore
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.baostock import BaoStockAdapter
 from stratgauge.data_sources.base import MarketDataAdapter
+from stratgauge.data_sources.tushare import TushareAdapter
 from stratgauge.data_sources.waizao import WaizaoAdapter
+from stratgauge.domain.portfolio import ManualFill, ManualOrder, PortfolioPosition, PortfolioReview
 from stratgauge.domain.selections import (
     ManualSelectionDecision,
     SelectionBatch,
@@ -57,9 +73,15 @@ def create_app(
     selection_root: str | Path = Path("data/selection"),
     market_root: str | Path = Path("data/selection-market"),
     market_adapter_factory: Callable[[str], MarketDataAdapter] | None = None,
+    portfolio_store: ManualPortfolioStore | None = None,
+    portfolio_root: str | Path = Path("data/portfolio"),
+    universe_store: UniverseSnapshotStore | None = None,
+    universe_root: str | Path = Path("data"),
 ) -> FastAPI:
     service = AnalysisService(InMemoryAnalysisRepository(records or {}))
     selections = SelectionService(selection_store or SelectionImportStore(selection_root))
+    portfolio = PortfolioService(portfolio_store or ManualPortfolioStore(portfolio_root))
+    universe = UniverseSearchService(universe_store or UniverseSnapshotStore(universe_root))
     create_market_adapter = market_adapter_factory or _create_market_adapter
     app = FastAPI(title="StratGauge API", version="0.1.0")
 
@@ -77,6 +99,20 @@ def create_app(
             content={"error": {"code": error.code, "message": error.message, "details": {}}},
         )
 
+    @app.exception_handler(PortfolioApiError)
+    async def handle_portfolio_error(_: Any, error: PortfolioApiError) -> JSONResponse:
+        return JSONResponse(
+            status_code=error.status_code,
+            content={"error": {"code": error.code, "message": error.message, "details": {}}},
+        )
+
+    @app.exception_handler(UniverseSearchError)
+    async def handle_universe_error(_: Any, error: UniverseSearchError) -> JSONResponse:
+        return JSONResponse(
+            status_code=error.status_code,
+            content={"error": {"code": error.code, "message": error.message, "details": {}}},
+        )
+
     @app.get("/healthz")
     def health() -> dict[str, str]:
         return {"status": "ok", "service": "stratgauge-api"}
@@ -84,6 +120,30 @@ def create_app(
     @app.get("/v1/stocks/{symbol}/analysis", response_model=AnalysisRecord)
     def get_stock_analysis(symbol: str, as_of: date) -> AnalysisRecord:
         return service.get(symbol, as_of)
+
+    @app.get("/v1/universe/securities", response_model=UniverseSearchResponse)
+    def search_universe(
+        as_of: datetime,
+        query: str = "",
+        limit: int = 50,
+    ) -> UniverseSearchResponse:
+        return universe.search(query=query, as_of=as_of, limit=limit)
+
+    @app.get("/v1/positions", response_model=list[PortfolioPosition])
+    def list_positions() -> list[PortfolioPosition]:
+        return list(portfolio.positions())
+
+    @app.post("/v1/manual-orders", response_model=ManualOrder, status_code=201)
+    def create_manual_order(request: ManualOrderRequest) -> ManualOrder:
+        return portfolio.create_order(request)
+
+    @app.post("/v1/manual-fills", response_model=ManualFill, status_code=201)
+    def record_manual_fill(request: ManualFillRequest) -> ManualFill:
+        return portfolio.record_fill(request)
+
+    @app.post("/v1/portfolio-reviews", response_model=PortfolioReview, status_code=201)
+    def write_portfolio_review(request: PortfolioReviewRequest) -> PortfolioReview:
+        return portfolio.write_review(request)
 
     @app.get("/v1/formulas", response_model=list[SelectionFormula])
     def list_formulas() -> list[SelectionFormula]:
@@ -301,6 +361,7 @@ def create_app(
 
 def _create_market_adapter(provider: str) -> MarketDataAdapter:
     adapters: dict[str, type[MarketDataAdapter]] = {
+        "tushare": TushareAdapter,
         "akshare": AKShareAdapter,
         "baostock": BaoStockAdapter,
         "waizao": WaizaoAdapter,

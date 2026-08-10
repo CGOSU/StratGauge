@@ -35,6 +35,15 @@ class StrategyLifecycle(StrEnum):
     RETIRED = "retired"
 
 
+class ModelLifecycle(StrEnum):
+    """Lifecycle states for an immutable model registration."""
+
+    CHALLENGER = "challenger"
+    SHADOW = "shadow"
+    ACTIVE = "active"
+    RETIRED = "retired"
+
+
 class ActionState(StrEnum):
     """User-facing recommendation state."""
 

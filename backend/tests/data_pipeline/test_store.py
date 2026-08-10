@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 
 import polars as pl
 
-from stratgauge.data_pipeline.store import SnapshotStatus, SnapshotStore
+from stratgauge.data_pipeline.store import SnapshotStatus, SnapshotStore, SnapshotStoreError
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.base import DailyBarRequest
 from stratgauge.domain.models import Exchange, Security
@@ -57,6 +57,31 @@ class SnapshotStoreTests(unittest.TestCase):
             self.assertTrue((Path(directory) / first.raw_path).exists())
             self.assertTrue((Path(directory) / "catalog.duckdb").exists())
             self.assertEqual(store.list_manifests()[0].snapshot_id, first.snapshot_id)
+
+    def test_load_bars_requires_approved_snapshot_by_default(self) -> None:
+        with TemporaryDirectory() as directory:
+            adapter = AKShareAdapter(
+                fetcher=lambda _: [
+                    {
+                        "日期": "2026-01-05",
+                        "开盘": "10.00",
+                        "最高": "10.50",
+                        "最低": "9.80",
+                        "收盘": "10.20",
+                        "成交量": "1000",
+                        "成交额": "10200",
+                    }
+                ],
+                clock=lambda: FETCHED_AT,
+            )
+            store = SnapshotStore(directory)
+            manifest = store.write(adapter.fetch_daily_bars(request()))
+
+            with self.assertRaises(SnapshotStoreError):
+                store.load_bars(manifest.snapshot_id)
+
+            store.update_status(manifest.snapshot_id, SnapshotStatus.APPROVED)
+            self.assertEqual(len(store.load_bars(manifest.snapshot_id)), 1)
 
     def test_status_update_preserves_manifest_identity(self) -> None:
         with TemporaryDirectory() as directory:

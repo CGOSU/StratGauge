@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from stratgauge.data_pipeline.quality import QualityReport
 from stratgauge.data_sources.base import AdapterResult
+from stratgauge.domain.models import DailyBar
 
 
 class SnapshotStoreError(RuntimeError):
@@ -117,6 +118,21 @@ class SnapshotStore:
             return SnapshotManifest.model_validate_json(path.read_text(encoding="utf-8"))
         except Exception as exc:
             raise SnapshotStoreError(f"snapshot manifest is invalid: {snapshot_id}") from exc
+
+    def load_bars(self, snapshot_id: str) -> tuple[DailyBar, ...]:
+        """Load normalized bars only from an approved snapshot."""
+
+        manifest = self.load_manifest(snapshot_id)
+        if manifest.status is not SnapshotStatus.APPROVED:
+            raise SnapshotStoreError(f"snapshot is not approved: {snapshot_id}")
+        path = self.root / manifest.normalized_path
+        if not path.exists():
+            raise SnapshotStoreError(f"normalized snapshot does not exist: {snapshot_id}")
+        try:
+            rows = pl.read_parquet(path).to_dicts()
+            return tuple(DailyBar.model_validate(row) for row in rows)
+        except Exception as exc:
+            raise SnapshotStoreError(f"normalized snapshot is invalid: {snapshot_id}") from exc
 
     def update_status(
         self,

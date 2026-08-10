@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.baostock import BaoStockAdapter
 from stratgauge.data_sources.base import AdapterError, DailyBarRequest
+from stratgauge.data_sources.tushare import TushareAdapter
 from stratgauge.data_sources.waizao import WaizaoAdapter
 from stratgauge.domain.models import Exchange, Security
 
@@ -69,6 +70,28 @@ class AdapterContractTests(unittest.TestCase):
         self.assertEqual(result.raw_records, tuple(raw))
         self.assertEqual(result.bars[0].volume, Decimal("100000"))
         self.assertEqual(result.bars[0].amount, Decimal("10200"))
+
+    def test_tushare_adapter_converts_lots_and_thousand_currency(self) -> None:
+        raw = [
+            {
+                "trade_date": "20260105",
+                "ts_code": "000001.SZ",
+                "open": "10.00",
+                "high": "10.50",
+                "low": "9.80",
+                "close": "10.20",
+                "pre_close": "10.00",
+                "vol": "1000",
+                "amount": "10200",
+            }
+        ]
+        adapter = TushareAdapter(fetcher=lambda _: raw, clock=lambda: FETCHED_AT)
+        result = adapter.fetch_daily_bars(request())
+        self.assertEqual(result.provider, "tushare")
+        self.assertEqual(result.raw_records, tuple(raw))
+        self.assertEqual(result.bars[0].volume, Decimal("100000"))
+        self.assertEqual(result.bars[0].amount, Decimal("10200000"))
+        self.assertEqual(result.bars[0].previous_close, Decimal("10.00"))
 
     def test_baostock_adapter_obeys_same_contract(self) -> None:
         adapter = BaoStockAdapter(
