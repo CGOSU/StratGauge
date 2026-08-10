@@ -352,3 +352,8 @@
 - 完成内容：新增只读模型证据服务和 `GET /v1/selection-batches/{batch_id}/candidates/{candidate_id}/model-scores`；候选页按需加载模型影子证据，展示模型版本、生命周期、原始/校准分数、样本量、适用日期和失败原因，固定标记不具权威性且不用于决策。
 - 验证：后端 202 项测试通过（1 项环境相关跳过）；Ruff、MyPy、API 回归、前端 typecheck/build/lint 和 `git diff --check` 通过。
 - 遗留问题：模型批次自动接入、完整推荐工作台和阶段 0 `trade_cal` 真实配额验证仍未完成。
+
+### 2026-08-10 交易日历本地复用收口
+
+- 完成内容：`backfill_selection_history.py` 在未显式提供 `--sessions-file` 时改用 `TradeCalendarCache`，默认持久化到 `data/calendars/trade-cal-{exchange}.txt` 及 manifest；覆盖范围内重复运行不再请求 Tushare，范围缺口才增量请求并保存参考快照。
+- 验证：交易日历缓存测试、Ruff、MyPy 和 `git diff --check` 通过。

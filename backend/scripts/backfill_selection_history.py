@@ -5,9 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 from collections.abc import Callable
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from stratgauge.data_pipeline.calendar_cache import CalendarCacheError, TradeCalendarCache
 from stratgauge.data_pipeline.history_backfill import (
     HistoryBackfillRequest,
     backfill_selection_history,
@@ -19,9 +20,12 @@ from stratgauge.data_pipeline.selection_store import SelectionImportStore, Selec
 from stratgauge.data_pipeline.store import SnapshotStore, SnapshotStoreError
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.baostock import BaoStockAdapter
-from stratgauge.data_sources.base import MarketDataAdapter
+from stratgauge.data_sources.base import AdapterError, MarketDataAdapter
 from stratgauge.data_sources.tushare import TushareAdapter
-from stratgauge.data_sources.tushare_reference import TushareReferenceClient
+from stratgauge.data_sources.tushare_reference import (
+    TushareReferenceClient,
+    TushareReferenceStore,
+)
 from stratgauge.data_sources.waizao import WaizaoAdapter
 from stratgauge.domain.models import Exchange, Security, canonical_symbol
 
@@ -51,7 +55,14 @@ def main() -> int:
         )
         if arguments.output:
             write_history_backfill_report(arguments.output, report)
-    except (OSError, SelectionStoreError, SnapshotStoreError, ValueError) as exc:
+    except (
+        AdapterError,
+        OSError,
+        SelectionStoreError,
+        SnapshotStoreError,
+        CalendarCacheError,
+        ValueError,
+    ) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
         return 2
 
@@ -98,9 +109,11 @@ def _parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--sessions-file",
         type=Path,
-        help="local ISO trading-session file; when omitted, fetch Tushare trade_cal",
+        help="local ISO trading-session file; when omitted, use the persistent Tushare cache",
     )
     parser.add_argument("--calendar-exchange", default="SSE")
+    parser.add_argument("--calendar-cache", type=Path)
+    parser.add_argument("--reference-root", type=Path, default=Path("data"))
     parser.add_argument(
         "--benchmark",
         action="append",
@@ -122,11 +135,18 @@ def _load_sessions(arguments: argparse.Namespace, selection_date: date) -> tuple
         return read_trading_sessions(arguments.sessions_file)
     end_date = selection_date - timedelta(days=1)
     start_date = selection_date - timedelta(days=max(arguments.lookback_sessions * 5, 30))
-    return TushareReferenceClient().trade_calendar(
+    cache_path = arguments.calendar_cache or (
+        Path("data") / "calendars" / f"trade-cal-{arguments.calendar_exchange.lower()}.txt"
+    )
+    result = TradeCalendarCache(cache_path).ensure(
         start_date=start_date,
         end_date=end_date,
         exchange=arguments.calendar_exchange,
+        client=TushareReferenceClient(),
+        reference_store=TushareReferenceStore(arguments.reference_root),
+        now=datetime.now(UTC),
     )
+    return result.sessions
 
 
 def _positive_int(value: str) -> int:
