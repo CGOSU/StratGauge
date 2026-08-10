@@ -19,6 +19,53 @@ class AdapterError(RuntimeError):
     """A provider or normalization failure with provider context."""
 
 
+class RetryableAdapterError(AdapterError):
+    """A provider failure that is safe to try again later."""
+
+
+def is_retryable_provider_message(message: str) -> bool:
+    """Recognize provider-declared transient failures without retrying bad data."""
+
+    normalized = message.strip().lower()
+    transient_terms = (
+        "rate limit",
+        "rate-limit",
+        "too many request",
+        "too many requests",
+        "throttl",
+        "限流",
+        "请求过于频繁",
+        "频率限制",
+        "temporarily unavailable",
+        "service unavailable",
+        "服务不可用",
+        "network",
+        "connection",
+        "remote disconnected",
+        "connection reset",
+        "connection refused",
+        "timeout",
+        "timed out",
+        "超时",
+    )
+    if any(term in normalized for term in transient_terms):
+        return True
+    return any(
+        f"http {status}" in normalized or f"status {status}" in normalized
+        for status in (408, 425, 429, 500, 502, 503, 504)
+    )
+
+
+def is_retryable_adapter_exception(error: BaseException) -> bool:
+    """Recognize only explicit transport, timeout, and rate-limit failures."""
+
+    if isinstance(error, RetryableAdapterError):
+        return True
+    if isinstance(error, (TimeoutError, ConnectionError, OSError)):
+        return True
+    return is_retryable_provider_message(str(error))
+
+
 class DailyBarRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 

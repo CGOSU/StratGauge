@@ -544,6 +544,162 @@
   margin-top: 20px;
 }
 
+.maturity-task-heading-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.maturity-action-button[data-saving="true"] {
+  border-color: hsl(221 83% 53%);
+  color: hsl(221 83% 32%);
+}
+
+.maturity-task-loading {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.maturity-task-loading > div {
+  height: 112px;
+}
+
+.maturity-task-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  min-width: 0;
+}
+
+.maturity-task-card {
+  background: hsl(210 40% 98%);
+  border: 1px solid hsl(214 32% 91%);
+  border-radius: 0.65rem;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.maturity-task-card-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.maturity-task-card-heading > :last-child {
+  flex: 0 0 auto;
+}
+
+.maturity-task-identity {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.maturity-task-identity strong,
+.maturity-task-identity span {
+  overflow-wrap: anywhere;
+}
+
+.maturity-task-identity strong {
+  color: hsl(222 47% 11%);
+}
+
+.maturity-task-identity span,
+.maturity-task-secondary-meta,
+.maturity-task-meta span {
+  color: hsl(215 16% 42%);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.maturity-task-meta {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.maturity-task-meta div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.maturity-task-meta strong {
+  color: hsl(222 47% 18%);
+  overflow-wrap: anywhere;
+}
+
+.maturity-task-secondary-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 14px;
+  min-width: 0;
+}
+
+.maturity-task-secondary-meta span {
+  overflow-wrap: anywhere;
+}
+
+.maturity-task-feedback {
+  align-items: baseline;
+  background: hsl(38 92% 97%);
+  border: 1px solid hsl(38 80% 82%);
+  border-radius: 0.5rem;
+  color: hsl(30 75% 35%);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  line-height: 1.5;
+  margin: 0;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+}
+
+.maturity-task-feedback .retryable {
+  color: hsl(142 55% 28%);
+}
+
+.maturity-task-feedback .not-retryable {
+  color: hsl(0 60% 40%);
+}
+
+.maturity-task-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.maturity-status--queued,
+.maturity-status--running {
+  background: hsl(221 83% 96%);
+  border-color: hsl(221 83% 82%);
+  color: hsl(221 70% 36%);
+}
+
+.maturity-status--completed {
+  background: hsl(142 76% 95%);
+  border-color: hsl(142 55% 82%);
+  color: hsl(142 55% 28%);
+}
+
+.maturity-status--partial {
+  background: hsl(38 92% 95%);
+  border-color: hsl(38 80% 78%);
+  color: hsl(30 75% 35%);
+}
+
+.maturity-status--failed {
+  background: hsl(0 86% 97%);
+  border-color: hsl(0 72% 86%);
+  color: hsl(0 60% 40%);
+}
+
 .form-hint {
   font-size: 0.82rem;
   margin: 14px 0 0;
@@ -796,6 +952,10 @@
   .mature-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .maturity-task-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -833,8 +993,26 @@
 
   .candidate-row,
   .mature-form,
-  .manual-entry-fields {
+  .manual-entry-fields,
+  .maturity-task-meta {
     grid-template-columns: 1fr;
+  }
+
+  .maturity-section-heading {
+    display: block;
+  }
+
+  .maturity-task-heading-actions {
+    justify-content: flex-start;
+    margin-top: 12px;
+  }
+
+  .maturity-task-card-heading {
+    flex-direction: column;
+  }
+
+  .maturity-task-card-heading > :last-child {
+    align-self: flex-start;
   }
 
   .manual-entry-fields > button {

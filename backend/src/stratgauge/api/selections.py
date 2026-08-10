@@ -20,6 +20,12 @@ from stratgauge.backtest.selection_outcomes import (
     latest_selection_outcomes,
 )
 from stratgauge.backtest.selection_stats import SelectionOutcomeStats, summarize_selection_outcomes
+from stratgauge.backtest.selection_tasks import (
+    SelectionMaturityTaskError,
+    build_maturity_task,
+    create_maturity_task,
+    run_maturity_task,
+)
 from stratgauge.data_pipeline.manual_selection import (
     ManualSelectionCandidateInput,
     ManualSelectionError,
@@ -38,6 +44,7 @@ from stratgauge.domain.selections import (
     SelectionFormula,
     SelectionLifecycleEvent,
     SelectionLifecycleStatus,
+    SelectionMaturityTask,
     SelectionOutcome,
     TdxSelectionImport,
 )
@@ -148,6 +155,8 @@ class SelectionMatureRequest(BaseModel):
     evaluated_at: datetime
     horizon_sessions: int = Field(gt=0)
     position_notional: Decimal = Field(gt=0)
+    max_retries: int = Field(default=2, ge=0, le=5)
+    timeout_seconds: int = Field(default=900, gt=0, le=86400)
 
     @field_validator("evaluated_at")
     @classmethod
@@ -485,6 +494,96 @@ class SelectionService:
         if not self._store.is_entity_active("formula", formula.formula_id):
             raise SelectionApiError("SELECTION_FORMULA_ARCHIVED", "选股公式已停用。", 422)
         return formula
+
+    def create_maturity_task(
+        self,
+        batch_id: str,
+        request: SelectionMatureRequest,
+    ) -> SelectionMaturityTask:
+        try:
+            imported = self._store.load_import(batch_id)
+            if not self._store.is_entity_active("batch", batch_id):
+                raise SelectionApiError("SELECTION_BATCH_ARCHIVED", "选股批次已归档。", 422)
+            policy = SelectionTrackingPolicy(
+                horizon_sessions=request.horizon_sessions,
+                position_notional=request.position_notional,
+            )
+            task = build_maturity_task(
+                imported,
+                provider=request.provider,
+                evaluated_at=request.evaluated_at,
+                policy=policy,
+                max_retries=request.max_retries,
+                timeout_seconds=request.timeout_seconds,
+                created_at=datetime.now(UTC),
+            )
+            return create_maturity_task(self._store, task, now=datetime.now(UTC))
+        except SelectionApiError:
+            raise
+        except SelectionMaturityTaskError as exc:
+            raise SelectionApiError("SELECTION_MATURITY_TASK_INVALID", str(exc), 422) from exc
+        except SelectionStoreError as exc:
+            if "does not exist" in str(exc):
+                raise SelectionApiError(
+                    "SELECTION_BATCH_NOT_FOUND", "选股批次不存在。", 404
+                ) from exc
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+        except ValueError as exc:
+            raise SelectionApiError("SELECTION_MATURITY_TASK_INVALID", str(exc), 422) from exc
+
+    def list_maturity_tasks(self, batch_id: str) -> tuple[SelectionMaturityTask, ...]:
+        try:
+            self._store.load_import(batch_id)
+            return self._store.list_maturity_tasks(batch_id=batch_id)
+        except SelectionStoreError as exc:
+            if "does not exist" in str(exc):
+                raise SelectionApiError(
+                    "SELECTION_BATCH_NOT_FOUND", "选股批次不存在。", 404
+                ) from exc
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+
+    def get_maturity_task(self, task_id: str) -> SelectionMaturityTask:
+        try:
+            return self._store.load_maturity_task(task_id)
+        except SelectionStoreError as exc:
+            if "does not exist" in str(exc):
+                raise SelectionApiError(
+                    "SELECTION_MATURITY_TASK_NOT_FOUND", "成熟任务不存在。", 404
+                ) from exc
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+
+    def run_maturity_task(
+        self,
+        task_id: str,
+        *,
+        adapter: MarketDataAdapter,
+        market_store: SnapshotStore,
+    ) -> SelectionMaturityTask:
+        try:
+            task = self._store.load_maturity_task(task_id)
+            imported = self._store.load_import(task.batch_id)
+            if not self._store.is_entity_active("batch", task.batch_id):
+                raise SelectionApiError("SELECTION_BATCH_ARCHIVED", "选股批次已归档。", 422)
+            return run_maturity_task(
+                task,
+                imported=imported,
+                adapter=adapter,
+                selection_store=self._store,
+                market_store=market_store,
+                now=datetime.now(UTC),
+            )
+        except SelectionApiError:
+            raise
+        except SelectionMaturityTaskError as exc:
+            raise SelectionApiError("SELECTION_MATURITY_TASK_FAILED", str(exc), 409) from exc
+        except SelectionStoreError as exc:
+            if "does not exist" in str(exc):
+                raise SelectionApiError(
+                    "SELECTION_MATURITY_TASK_NOT_FOUND", "成熟任务不存在。", 404
+                ) from exc
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+        except (OSError, ValueError) as exc:
+            raise SelectionApiError("SELECTION_MATURITY_TASK_FAILED", str(exc), 422) from exc
 
     def mature_batch(
         self,

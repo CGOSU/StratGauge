@@ -13,7 +13,12 @@ from stratgauge.backtest.selection_outcomes import (
 from stratgauge.data_pipeline.ingest import ingest
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.data_pipeline.store import SnapshotStore
-from stratgauge.data_sources.base import AdapterError, DailyBarRequest, MarketDataAdapter
+from stratgauge.data_sources.base import (
+    AdapterError,
+    DailyBarRequest,
+    MarketDataAdapter,
+    RetryableAdapterError,
+)
 from stratgauge.domain.models import Security, canonical_symbol
 from stratgauge.domain.selections import SelectionOutcome, TdxSelectionImport
 
@@ -23,6 +28,7 @@ class SelectionOutcomeJobResult:
     outcomes: tuple[SelectionOutcome, ...]
     rejected_candidates: tuple[tuple[str, str], ...]
     market_snapshot_ids: tuple[str, ...]
+    retryable_rejections: tuple[tuple[str, str], ...] = ()
 
 
 def run_selection_outcome_job(
@@ -33,11 +39,14 @@ def run_selection_outcome_job(
     market_store: SnapshotStore,
     evaluated_at: datetime,
     policy: SelectionTrackingPolicy,
+    maturity_task_id: str | None = None,
 ) -> SelectionOutcomeJobResult:
     """Fetch approved daily bars and persist only quality-safe outcomes.
 
     The adapter is injected so this job never silently chooses a provider. It is
     intentionally sequential because the current adapters are single-security APIs.
+    When a task ID is supplied, a previously persisted candidate result is reused
+    before touching the provider again.
     """
 
     if evaluated_at.tzinfo is None or evaluated_at.utcoffset() is None:
@@ -50,8 +59,19 @@ def run_selection_outcome_job(
 
     outcomes: list[SelectionOutcome] = []
     rejected: list[tuple[str, str]] = []
+    retryable_rejections: list[tuple[str, str]] = []
     market_snapshot_ids: list[str] = []
     for candidate in imported.candidates:
+        if maturity_task_id is not None:
+            existing = selection_store.find_outcome_for_task(
+                maturity_task_id,
+                candidate.candidate_id,
+            )
+            if existing is not None:
+                outcomes.append(existing)
+                _append_unique(market_snapshot_ids, existing.source_snapshot_ids)
+                continue
+
         security = Security(
             security_id=f"selection-{candidate.candidate_id}",
             local_code=candidate.local_code,
@@ -65,20 +85,32 @@ def run_selection_outcome_job(
             end_date=end_date,
         )
         try:
-            # ponytail: one request per candidate; add a batch adapter when a provider supports it.
+            # One request per candidate; add a batch adapter when a provider supports it.
             ingested = ingest(
                 adapter,
                 request,
                 market_store,
                 expected_security_ids=[security.security_id],
             )
-        except (AdapterError, OSError) as exc:
+        except RetryableAdapterError as exc:
+            reason = str(exc)
+            rejected.append((candidate.candidate_id, reason))
+            retryable_rejections.append((candidate.candidate_id, reason))
+            continue
+        except AdapterError as exc:
             rejected.append((candidate.candidate_id, str(exc)))
+            continue
+        except OSError as exc:
+            # A protocol implementation may expose a transport error directly.
+            reason = str(exc)
+            rejected.append((candidate.candidate_id, reason))
+            retryable_rejections.append((candidate.candidate_id, reason))
             continue
         if not ingested.quality.approved:
             rejected.append((candidate.candidate_id, "market_snapshot_quality_rejected"))
             continue
-        market_snapshot_ids.append(ingested.manifest.snapshot_id)
+
+        _append_unique(market_snapshot_ids, (ingested.manifest.snapshot_id,))
         outcome = evaluate_selection_outcome(
             candidate,
             selection_date=imported.batch.selection_date,
@@ -87,11 +119,20 @@ def run_selection_outcome_job(
             policy=policy,
             source_snapshot_ids=[ingested.manifest.snapshot_id],
         )
-        selection_store.write_outcome(outcome)
-        outcomes.append(outcome)
+        if maturity_task_id is not None:
+            outcome = outcome.model_copy(update={"maturity_task_id": maturity_task_id})
+        persisted = selection_store.write_outcome(outcome)
+        outcomes.append(persisted)
 
     return SelectionOutcomeJobResult(
         outcomes=tuple(outcomes),
         rejected_candidates=tuple(rejected),
         market_snapshot_ids=tuple(market_snapshot_ids),
+        retryable_rejections=tuple(retryable_rejections),
     )
+
+
+def _append_unique(destination: list[str], values: tuple[str, ...]) -> None:
+    for value in values:
+        if value not in destination:
+            destination.append(value)

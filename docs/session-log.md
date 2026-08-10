@@ -125,3 +125,10 @@
 
 - 执行：`PYTHONPATH=src uv run python scripts/verify_live_adapters.py --symbol 000001.SZ --start-date 2024-01-02 --end-date 2024-01-05`。
 - 结果：AKShare 仍返回 `AKShare fetch failed for 000001.SZ`，退出码 2；未将 BaoStock 或歪枣网结果冒充 AKShare 主源通过，阶段 0 退出条件继续阻塞。
+
+### 2026-08-10 成熟任务可靠调度
+
+- 完成内容：新增本地成熟任务模型、任务/事件 JSON 账本、确定性任务指纹、创建幂等、排队/执行中/完成/部分完成/失败状态、陈旧运行恢复、有限重试和同任务候选结果去重；保留原同步成熟接口。
+- API/CLI：新增 `POST/GET /v1/selection-batches/{batch_id}/maturity-tasks`、`POST /v1/maturity-tasks/{task_id}/run` 和 `run_selection_maturity_tasks.py`；CLI 只执行排队任务，适合由 Windows Task Scheduler 显式调用，不注册服务内后台定时器。
+- 前端：成熟区改为创建幂等任务并立即执行，显示任务状态、尝试次数、写入/拒绝数量、事件和重试提示，支持手动刷新及排队任务再次执行。
+- 验证：后端 100 项测试通过（1 项环境相关跳过）；Ruff、MyPy 通过；前端 `corepack pnpm typecheck`、`build`、`lint` 通过。

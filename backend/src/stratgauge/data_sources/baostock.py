@@ -13,6 +13,9 @@ from stratgauge.data_sources.base import (
     DailyBarRequest,
     Fetcher,
     MarketDataAdapter,
+    RetryableAdapterError,
+    is_retryable_adapter_exception,
+    is_retryable_provider_message,
     normalize_daily_rows,
     now_utc,
 )
@@ -37,10 +40,17 @@ class BaoStockAdapter(MarketDataAdapter):
                 self.adapter_version,
                 fetched_at,
             )
-        except AdapterError:
+        except AdapterError as exc:
+            if is_retryable_adapter_exception(exc):
+                raise RetryableAdapterError(
+                    f"BaoStock transient fetch failure for {request.security.symbol}: {exc}"
+                ) from exc
             raise
         except Exception as exc:
-            raise AdapterError(f"BaoStock fetch failed for {request.security.symbol}") from exc
+            error_type = (
+                RetryableAdapterError if is_retryable_adapter_exception(exc) else AdapterError
+            )
+            raise error_type(f"BaoStock fetch failed for {request.security.symbol}") from exc
         return AdapterResult(
             provider=self.provider,
             adapter_version=self.adapter_version,
@@ -61,7 +71,11 @@ class BaoStockAdapter(MarketDataAdapter):
 
         login = bs.login()
         if getattr(login, "error_code", "0") != "0":
-            raise AdapterError(f"BaoStock login failed: {getattr(login, 'error_msg', login)}")
+            message = str(getattr(login, "error_msg", login))
+            error_type = (
+                RetryableAdapterError if is_retryable_provider_message(message) else AdapterError
+            )
+            raise error_type(f"BaoStock login failed: {message}")
         try:
             code = f"{request.security.exchange.value.lower()}.{request.security.local_code}"
             result = bs.query_history_k_data_plus(
@@ -73,7 +87,13 @@ class BaoStockAdapter(MarketDataAdapter):
                 adjustflag="3",
             )
             if getattr(result, "error_code", "0") != "0":
-                raise AdapterError(f"BaoStock query failed: {getattr(result, 'error_msg', result)}")
+                message = str(getattr(result, "error_msg", result))
+                error_type = (
+                    RetryableAdapterError
+                    if is_retryable_provider_message(message)
+                    else AdapterError
+                )
+                raise error_type(f"BaoStock query failed: {message}")
             rows: list[dict[str, Any]] = []
             while result.next():
                 rows.append(dict(zip(result.fields, result.get_row_data(), strict=True)))

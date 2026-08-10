@@ -19,6 +19,9 @@ from stratgauge.data_sources.base import (
     DailyBarRequest,
     Fetcher,
     MarketDataAdapter,
+    RetryableAdapterError,
+    is_retryable_adapter_exception,
+    is_retryable_provider_message,
     normalize_daily_rows,
     now_utc,
 )
@@ -56,10 +59,17 @@ class WaizaoAdapter(MarketDataAdapter):
                 self.adapter_version,
                 fetched_at,
             )
-        except AdapterError:
+        except AdapterError as exc:
+            if is_retryable_adapter_exception(exc):
+                raise RetryableAdapterError(
+                    f"Waizao transient fetch failure for {request.security.symbol}: {exc}"
+                ) from exc
             raise
         except Exception as exc:
-            raise AdapterError(f"Waizao fetch failed for {request.security.symbol}") from exc
+            error_type = (
+                RetryableAdapterError if is_retryable_adapter_exception(exc) else AdapterError
+            )
+            raise error_type(f"Waizao fetch failed for {request.security.symbol}") from exc
         return AdapterResult(
             provider=self.provider,
             adapter_version=self.adapter_version,
@@ -97,15 +107,25 @@ class WaizaoAdapter(MarketDataAdapter):
             with urlopen(http_request, timeout=self._timeout_seconds) as response:
                 response_payload = json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
-            raise AdapterError(f"Waizao request failed with HTTP {exc.code}") from exc
-        except (URLError, TimeoutError, json.JSONDecodeError) as exc:
-            raise AdapterError("Waizao request failed") from exc
+            error_type = (
+                RetryableAdapterError
+                if exc.code in {408, 425, 429, 500, 502, 503, 504}
+                else AdapterError
+            )
+            raise error_type(f"Waizao request failed with HTTP {exc.code}") from exc
+        except (URLError, TimeoutError) as exc:
+            raise RetryableAdapterError("Waizao request failed") from exc
+        except json.JSONDecodeError as exc:
+            raise AdapterError("Waizao returned invalid JSON") from exc
 
         if not isinstance(response_payload, dict):
             raise AdapterError("Waizao returned an invalid response")
         if response_payload.get("code") != 200:
             message = str(response_payload.get("message") or "unknown provider error")
-            raise AdapterError(f"Waizao API rejected the request: {message}")
+            error_type = (
+                RetryableAdapterError if is_retryable_provider_message(message) else AdapterError
+            )
+            raise error_type(f"Waizao API rejected the request: {message}")
         data = response_payload.get("data")
         if data is None:
             return ()

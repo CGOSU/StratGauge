@@ -84,6 +84,11 @@ PYTHONPATH=src uv run python scripts/mature_tdx_selection.py \
   --evaluated-at 2026-01-10T17:00:00+08:00 \
   --horizon-sessions 5 \
   --position-notional 10000
+# 执行 Web/API 已创建的排队成熟任务；可由 Windows Task Scheduler 调用，不注册后台定时器
+PYTHONPATH=src uv run python scripts/run_selection_maturity_tasks.py \
+  --root data/selection \
+  --market-root data/selection-market \
+  --limit 1
 # 导出可追溯 JSONL 数据集；目标文件已存在时拒绝覆盖
 PYTHONPATH=src uv run python scripts/export_tdx_dataset.py \
   --batch-id <batch_id> \

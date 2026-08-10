@@ -13,6 +13,8 @@ from stratgauge.data_sources.base import (
     DailyBarRequest,
     Fetcher,
     MarketDataAdapter,
+    RetryableAdapterError,
+    is_retryable_adapter_exception,
     normalize_daily_rows,
     now_utc,
 )
@@ -37,10 +39,17 @@ class AKShareAdapter(MarketDataAdapter):
                 self.adapter_version,
                 fetched_at,
             )
-        except AdapterError:
+        except AdapterError as exc:
+            if is_retryable_adapter_exception(exc):
+                raise RetryableAdapterError(
+                    f"AKShare transient fetch failure for {request.security.symbol}: {exc}"
+                ) from exc
             raise
         except Exception as exc:
-            raise AdapterError(f"AKShare fetch failed for {request.security.symbol}") from exc
+            error_type = (
+                RetryableAdapterError if is_retryable_adapter_exception(exc) else AdapterError
+            )
+            raise error_type(f"AKShare fetch failed for {request.security.symbol}") from exc
         return AdapterResult(
             provider=self.provider,
             adapter_version=self.adapter_version,

@@ -44,6 +44,7 @@ from stratgauge.domain.selections import (
     SelectionBatch,
     SelectionFormula,
     SelectionLifecycleStatus,
+    SelectionMaturityTask,
 )
 
 
@@ -140,6 +141,36 @@ def create_app(
     )
     def create_manual_selection_batch(request: ManualSelectionRequest) -> SelectionBatchView:
         return selections.create_manual_batch(request)
+
+    @app.post(
+        "/v1/selection-batches/{batch_id}/maturity-tasks",
+        response_model=SelectionMaturityTask,
+        status_code=201,
+    )
+    def create_maturity_task(
+        batch_id: str,
+        request: SelectionMatureRequest,
+    ) -> SelectionMaturityTask:
+        return selections.create_maturity_task(batch_id, request)
+
+    @app.get(
+        "/v1/selection-batches/{batch_id}/maturity-tasks",
+        response_model=list[SelectionMaturityTask],
+    )
+    def list_maturity_tasks(batch_id: str) -> list[SelectionMaturityTask]:
+        return list(selections.list_maturity_tasks(batch_id))
+
+    @app.post(
+        "/v1/maturity-tasks/{task_id}/run",
+        response_model=SelectionMaturityTask,
+    )
+    def run_maturity_task(task_id: str) -> SelectionMaturityTask:
+        task = selections.get_maturity_task(task_id)
+        return selections.run_maturity_task(
+            task_id,
+            adapter=create_market_adapter(task.provider),
+            market_store=SnapshotStore(market_root),
+        )
 
     @app.get(
         "/v1/data-management/batches",
