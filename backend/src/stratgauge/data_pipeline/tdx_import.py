@@ -58,7 +58,11 @@ def import_tdx_export(
     formula_version: str | None = None,
     formula_sha256: str | None = None,
 ) -> TdxSelectionImport:
-    """Parse one header-based CSV/TSV/TXT selection export.
+    """Parse one TongdaXin CSV/TSV/TXT or market-prefixed ``.EBK`` export.
+
+    EBK rows use the explicit seven-digit market-code form ``0xxxxxx`` for SZ,
+    ``1xxxxxx`` for SH and ``2xxxxxx`` for BJ; no exchange is inferred from a
+    six-digit code prefix.
 
     Exchange metadata is mandatory unless the code itself has an explicit ``.SH``,
     ``.SZ`` or ``.BJ`` suffix. The parser never infers an exchange from a code prefix.
@@ -68,10 +72,19 @@ def import_tdx_export(
         raise TdxImportError("TongdaXin export is empty")
     source_file_sha256 = hashlib.sha256(content).hexdigest()
     text = _decode_content(content)
-    delimiter = _detect_delimiter(text)
-    rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))
-    headers = _parse_headers(rows)
-    indexes = _column_indexes(headers)
+    ebk_rows = _parse_ebk_rows(text)
+    if ebk_rows is None:
+        delimiter = _detect_delimiter(text)
+        rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))
+        headers = _parse_headers(rows)
+        indexes = _column_indexes(headers)
+        data_rows = tuple(
+            (line_number, row, False) for line_number, row in enumerate(rows[1:], start=2)
+        )
+    else:
+        headers = ("代码",)
+        indexes = _ColumnIndexes(code=0, exchange=None, name=None)
+        data_rows = tuple((line_number, [code], True) for line_number, code in ebk_rows)
     batch_id = _batch_id(
         source_file_sha256=source_file_sha256,
         selection_date=selection_date,
@@ -82,7 +95,7 @@ def import_tdx_export(
 
     candidates: list[SelectionCandidate] = []
     seen_symbols: set[str] = set()
-    for line_number, row in enumerate(rows[1:], start=2):
+    for line_number, row, is_ebk in data_rows:
         if not any(cell.strip() for cell in row):
             continue
         if len(row) > len(headers):
@@ -90,6 +103,8 @@ def import_tdx_export(
         values = list(row) + [""] * (len(headers) - len(row))
         code_value = values[indexes.code].strip()
         exchange_value = values[indexes.exchange].strip() if indexes.exchange is not None else ""
+        if is_ebk:
+            code_value = _parse_ebk_security(code_value, line_number)
         local_code, exchange = _parse_security(code_value, exchange_value, line_number)
         symbol = f"{local_code}.{exchange.value}"
         if symbol in seen_symbols:
@@ -141,6 +156,24 @@ def _decode_content(content: bytes) -> str:
         except UnicodeDecodeError:
             continue
     raise TdxImportError("TongdaXin export is not valid UTF-8 or GB18030 text")
+
+
+def _parse_ebk_rows(text: str) -> tuple[tuple[int, str], ...] | None:
+    rows = tuple(
+        (line_number, line.strip())
+        for line_number, line in enumerate(text.splitlines(), start=1)
+        if line.strip()
+    )
+    if rows and all(re.fullmatch(r"\d{7}", code) for _, code in rows):
+        return rows
+    return None
+
+
+def _parse_ebk_security(value: str, line_number: int) -> str:
+    market = {"0": "SZ", "1": "SH", "2": "BJ"}.get(value[0])
+    if market is None:
+        raise TdxImportError(f"line {line_number} has an unsupported EBK market prefix")
+    return f"{value[1:]}.{market}"
 
 
 def _detect_delimiter(text: str) -> str:

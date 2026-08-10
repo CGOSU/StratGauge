@@ -37,6 +37,23 @@ class TdxImportTests(unittest.TestCase):
         self.assertEqual(imported.candidates[0].source_fields["评分"], "85")
         self.assertTrue(imported.candidates[0].candidate_id.startswith("tdx-"))
 
+    def test_imports_tongdaxin_ebk_market_prefixed_codes(self) -> None:
+        content = b"\r\n0002167\r\n1600593\r\n1603183\r\n1603980\r\n"
+
+        imported = import_tdx_export(
+            content,
+            selection_date=EXPORTED_AT.date(),
+            exported_at=EXPORTED_AT,
+            imported_at=IMPORTED_AT,
+            formula_name="公式 A",
+        )
+
+        self.assertEqual(
+            [candidate.symbol for candidate in imported.candidates],
+            ["002167.SZ", "600593.SH", "603183.SH", "603980.SH"],
+        )
+        self.assertEqual(imported.batch.candidate_count, 4)
+
     def test_accepts_explicit_symbol_suffix_without_exchange_column(self) -> None:
         content = "代码,名称\n000001.SZ,平安银行\n".encode()
 

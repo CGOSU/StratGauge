@@ -10,6 +10,7 @@ backend/.venv/
 # Runtime data and generated artifacts
 data/
 artifacts/
+*.EBK
 
 # Frontend dependencies and build output
 frontend/node_modules/
