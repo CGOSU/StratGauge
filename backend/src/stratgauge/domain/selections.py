@@ -110,7 +110,7 @@ class SelectionBatch(DomainModel):
     """Immutable metadata for one TongdaXin export."""
 
     batch_id: str
-    source: str = "tongdaxin"
+    source: Literal["tongdaxin", "manual"] = "tongdaxin"
     source_filename: str | None = None
     formula_id: str | None = None
     selection_date: date
