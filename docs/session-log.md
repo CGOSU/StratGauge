@@ -120,3 +120,8 @@
 - 完成内容：新增 `POST /v1/selection-batches/manual`；手工批次使用 canonical JSON 保存原始输入证据，按请求内容生成批次 ID，重复提交幂等；普通六位代码必须显式选择 SH/SZ/BJ，重复证券拒绝。
 - 前端：研究工作台新增手动添加候选对话框，支持公式、日期、记录时间、逐条候选、名称、备注、预览、移除和取消；数据管理增加通达信/手工来源筛选。
 - 验证：后端 94 项测试通过（1 项环境相关跳过）；Ruff、MyPy 通过；前端 `corepack pnpm typecheck`、`build`、`lint` 通过。
+
+### 2026-08-10 阶段 0 主源验证重试
+
+- 执行：`PYTHONPATH=src uv run python scripts/verify_live_adapters.py --symbol 000001.SZ --start-date 2024-01-02 --end-date 2024-01-05`。
+- 结果：AKShare 仍返回 `AKShare fetch failed for 000001.SZ`，退出码 2；未将 BaoStock 或歪枣网结果冒充 AKShare 主源通过，阶段 0 退出条件继续阻塞。
