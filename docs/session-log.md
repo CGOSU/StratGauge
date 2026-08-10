@@ -283,3 +283,9 @@
 - 完成内容：快照清单记录 `request_kind`/`universe_snapshot_id`；已批准的交易日/股票池组合幂等跳过；缺失证券为警告，覆盖率低于 90% 拒绝发布；非交易日安全跳过。
 - 验证：全市场同步、过滤换算、质量覆盖率、拒绝重抓和幂等测试通过；后端 `PYTHONPATH=src uv run python -m unittest discover -s tests -q`（176 项通过，1 项环境相关跳过）；Ruff/MyPy 通过；显式 CLI 非交易日返回 `status=skipped`。
 - 遗留问题：`trade_cal` 真实文件仍受 Tushare 配额限制；多日调度、复权因子、全量历史补齐和条件胜率查询尚未实现；本轮代码和文档改动尚未提交。
+
+### 2026-08-10 全市场多交易日增量编排
+
+- 完成内容：`sync_tushare_daily.py` 支持交易日历范围，逐日复用单日同步；已批准快照幂等跳过；拒绝乱序/重复日期和未来股票池。
+- 验证：新增范围幂等、重复日期、未来股票池测试；后端 `PYTHONPATH=src uv run python -m unittest discover -s tests -q`（178 项通过，1 项环境相关跳过）；Ruff/MyPy 通过。
+- 遗留问题：`trade_cal` 配额恢复前不能执行真实多日行情同步；复权因子、全量历史补齐和条件胜率查询尚未实现；本轮代码和文档改动尚未提交。

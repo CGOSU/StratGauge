@@ -45,6 +45,10 @@ def sync_market_session(
 
     if not 0 <= minimum_security_coverage <= 1:
         raise MarketDailySyncError("minimum_security_coverage must be between 0 and 1")
+    if universe.as_of.date() > session_date:
+        raise MarketDailySyncError(
+            "universe snapshot was created after the requested market session"
+        )
     expected_security_ids = tuple(sorted(security.security_id for security in universe.securities))
     if not expected_security_ids:
         raise MarketDailySyncError("universe contains no securities")
@@ -87,6 +91,34 @@ def sync_market_session(
         expected_securities=len(expected_security_ids),
         actual_securities=len({bar.security_id for bar in fetched.bars}),
         skipped=False,
+    )
+
+
+def sync_market_sessions(
+    *,
+    adapter: MarketDailyDataAdapter,
+    session_dates: tuple[date, ...],
+    universe: UniverseSnapshot,
+    store: SnapshotStore,
+    minimum_security_coverage: Decimal = Decimal("0.90"),
+) -> tuple[MarketSessionSyncResult, ...]:
+    """Synchronize an explicit ordered set of trading sessions."""
+
+    if not session_dates:
+        raise MarketDailySyncError("session_dates must not be empty")
+    if len(set(session_dates)) != len(session_dates):
+        raise MarketDailySyncError("session_dates must not contain duplicates")
+    if tuple(sorted(session_dates)) != session_dates:
+        raise MarketDailySyncError("session_dates must be sorted in ascending order")
+    return tuple(
+        sync_market_session(
+            adapter=adapter,
+            session_date=session_date,
+            universe=universe,
+            store=store,
+            minimum_security_coverage=minimum_security_coverage,
+        )
+        for session_date in session_dates
     )
 
 

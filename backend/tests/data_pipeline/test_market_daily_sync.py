@@ -3,9 +3,14 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from tempfile import TemporaryDirectory
 
-from stratgauge.data_pipeline.market_daily_sync import sync_market_session
+from stratgauge.data_pipeline.market_daily_sync import (
+    MarketDailySyncError,
+    sync_market_session,
+    sync_market_sessions,
+)
 from stratgauge.data_pipeline.store import SnapshotStatus, SnapshotStore
 from stratgauge.data_pipeline.universe import build_universe_snapshot
+from stratgauge.data_sources.base import MarketDailyRequest
 from stratgauge.data_sources.tushare import TushareAdapter
 from stratgauge.domain.models import Exchange, Security
 
@@ -21,9 +26,9 @@ def security(security_id: str, local_code: str, exchange: Exchange) -> Security:
     )
 
 
-def market_row(symbol: str) -> dict[str, str]:
+def market_row(symbol: str, trade_date: str = "20260105") -> dict[str, str]:
     return {
-        "trade_date": "20260105",
+        "trade_date": trade_date,
         "ts_code": symbol,
         "pre_close": "10.00",
         "open": "10.10",
@@ -36,6 +41,75 @@ def market_row(symbol: str) -> dict[str, str]:
 
 
 class MarketDailySyncTests(unittest.TestCase):
+    def test_range_sync_is_ordered_and_idempotent(self) -> None:
+        securities = (
+            security("security-1", "000001", Exchange.SZ),
+            security("security-2", "600000", Exchange.SH),
+        )
+        universe = build_universe_snapshot(
+            as_of=datetime(2026, 1, 5, 17, tzinfo=UTC),
+            source="fixture",
+            source_snapshot_ids=("reference-1",),
+            securities=securities,
+        )
+        calls = 0
+
+        def fetch(request: MarketDailyRequest) -> list[dict[str, str]]:
+            nonlocal calls
+            calls += 1
+            session = request.session_date.strftime("%Y%m%d")
+            return [market_row("000001.SZ", session), market_row("600000.SH", session)]
+
+        adapter = TushareAdapter(market_fetcher=fetch, clock=lambda: FETCHED_AT)
+        with TemporaryDirectory() as directory:
+            store = SnapshotStore(directory)
+            first = sync_market_sessions(
+                adapter=adapter,
+                session_dates=(date(2026, 1, 5), date(2026, 1, 6)),
+                universe=universe,
+                store=store,
+            )
+            second = sync_market_sessions(
+                adapter=adapter,
+                session_dates=(date(2026, 1, 5), date(2026, 1, 6)),
+                universe=universe,
+                store=store,
+            )
+
+            self.assertEqual(calls, 2)
+            self.assertEqual(len(first), 2)
+            self.assertTrue(all(item.status is SnapshotStatus.APPROVED for item in first))
+            self.assertTrue(all(item.skipped for item in second))
+
+    def test_range_sync_rejects_duplicate_or_future_scoped_sessions(self) -> None:
+        securities = (security("security-1", "000001", Exchange.SZ),)
+        universe = build_universe_snapshot(
+            as_of=datetime(2026, 1, 6, 17, tzinfo=UTC),
+            source="fixture",
+            source_snapshot_ids=("reference-1",),
+            securities=securities,
+        )
+        adapter = TushareAdapter(
+            market_fetcher=lambda _: [market_row("000001.SZ")],
+            clock=lambda: FETCHED_AT,
+        )
+        with TemporaryDirectory() as directory:
+            store = SnapshotStore(directory)
+            with self.assertRaisesRegex(MarketDailySyncError, "duplicates"):
+                sync_market_sessions(
+                    adapter=adapter,
+                    session_dates=(date(2026, 1, 5), date(2026, 1, 5)),
+                    universe=universe,
+                    store=store,
+                )
+            with self.assertRaisesRegex(MarketDailySyncError, "created after"):
+                sync_market_session(
+                    adapter=adapter,
+                    session_date=date(2026, 1, 5),
+                    universe=universe,
+                    store=store,
+                )
+
     def test_session_is_approved_and_second_run_is_idempotent(self) -> None:
         securities = (
             security("security-1", "000001", Exchange.SZ),

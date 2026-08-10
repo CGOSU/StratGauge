@@ -1,4 +1,4 @@
-"""Synchronize one explicit full-market Tushare daily session."""
+"""Synchronize explicit full-market Tushare daily sessions."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 from stratgauge.data_pipeline.history_backfill import read_trading_sessions
 from stratgauge.data_pipeline.market_daily_sync import (
     MarketDailySyncError,
-    sync_market_session,
+    sync_market_sessions,
 )
 from stratgauge.data_pipeline.store import SnapshotStatus, SnapshotStore, SnapshotStoreError
 from stratgauge.data_pipeline.universe import UniverseSnapshotStore, UniverseSnapshotStoreError
@@ -23,13 +23,13 @@ def main() -> int:
     arguments = _parse_arguments()
     try:
         sessions = read_trading_sessions(arguments.calendar_file)
-        if arguments.session_date not in sessions:
+        selected_sessions = _select_sessions(arguments, sessions)
+        if not selected_sessions:
             print(
                 json.dumps(
                     {
                         "status": "skipped",
-                        "reason": "not_trading_session",
-                        "session_date": arguments.session_date.isoformat(),
+                        "reason": "no_trading_sessions_in_range",
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -39,9 +39,9 @@ def main() -> int:
         universe = UniverseSnapshotStore(arguments.universe_root).load(
             arguments.universe_snapshot_id
         )
-        result = sync_market_session(
+        results = sync_market_sessions(
             adapter=TushareAdapter(),
-            session_date=arguments.session_date,
+            session_dates=selected_sessions,
             universe=universe,
             store=SnapshotStore(arguments.market_root),
             minimum_security_coverage=arguments.minimum_coverage,
@@ -56,13 +56,26 @@ def main() -> int:
     ) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
         return 2
-    print(result.model_dump_json(indent=2))
-    return 0 if result.status is not SnapshotStatus.REJECTED else 1
+    rejected = any(result.status is SnapshotStatus.REJECTED for result in results)
+    print(
+        json.dumps(
+            {
+                "status": "partial" if rejected else "completed",
+                "results": [result.model_dump(mode="json") for result in results],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 1 if rejected else 0
 
 
 def _parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--session-date", type=_parse_date, required=True)
+    date_group = parser.add_mutually_exclusive_group(required=True)
+    date_group.add_argument("--session-date", type=_parse_date)
+    date_group.add_argument("--start-date", type=_parse_date)
+    parser.add_argument("--end-date", type=_parse_date)
     parser.add_argument("--calendar-file", type=Path, required=True)
     parser.add_argument("--universe-snapshot-id", required=True)
     parser.add_argument("--universe-root", type=Path, default=Path("data"))
@@ -72,7 +85,31 @@ def _parse_arguments() -> argparse.Namespace:
         type=_parse_decimal,
         default=Decimal("0.90"),
     )
-    return parser.parse_args()
+    arguments = parser.parse_args()
+    if arguments.session_date is not None and arguments.end_date is not None:
+        parser.error("--end-date requires --start-date")
+    if arguments.start_date is not None and arguments.end_date is None:
+        parser.error("--start-date requires --end-date")
+    if (
+        arguments.start_date is not None
+        and arguments.end_date is not None
+        and arguments.end_date < arguments.start_date
+    ):
+        parser.error("--end-date must not precede --start-date")
+    return arguments
+
+
+def _select_sessions(
+    arguments: argparse.Namespace,
+    sessions: tuple[date, ...],
+) -> tuple[date, ...]:
+    if arguments.session_date is not None:
+        return (arguments.session_date,) if arguments.session_date in sessions else ()
+    assert arguments.start_date is not None
+    assert arguments.end_date is not None
+    return tuple(
+        session for session in sessions if arguments.start_date <= session <= arguments.end_date
+    )
 
 
 def _parse_date(value: str) -> date:
