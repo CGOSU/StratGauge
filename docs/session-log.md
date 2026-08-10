@@ -340,3 +340,9 @@
 - 完成内容：新增 `calibration.py` 和 `calibrate_selection_probabilities.py`；实现 validation-only PAVA Isotonic 校准、test 隔离应用、默认 100 样本/双类别/双分数门槛、前后 Log Loss/Brier、校准模型和不可覆盖输出。
 - 验证：后端 199 项测试通过（1 项环境相关跳过）；Ruff、MyPy、CLI 帮助检查、前端 typecheck/build/lint 和 `git diff --check` 通过。
 - 遗留问题：模型注册、批次自动接入、Web 评分、影子运行和完整不确定性展示仍未实现。
+
+### 2026-08-10 LightGBM 影子推理
+
+- 完成内容：模型注册扩展支持 baseline/LightGBM 元数据和运行时工件；影子评分支持 LightGBM 单候选概率、可选同源 Isotonic 校准分数、工件哈希和校准器一致性校验；新增 `score_selection_shadow.py --calibration`。
+- 验证：后端 200 项测试通过（1 项环境相关跳过）；Ruff、MyPy、注册/影子 CLI 帮助检查、前端 typecheck/build/lint 和 `git diff --check` 通过。
+- 遗留问题：模型批次自动接入、Web 评分和完整模型运营仍未实现。

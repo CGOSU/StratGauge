@@ -12,7 +12,10 @@ from typing import Any, Literal
 from pydantic import field_validator
 
 from stratgauge.domain.models import DomainModel, ModelLifecycle
+from stratgauge.ml.lightgbm_training import LightGBMModel
 from stratgauge.ml.selection_training import BaselineModel
+
+RegisteredModelMetadata = BaselineModel | LightGBMModel
 
 MODEL_REGISTRY_VERSION = "selection-model-registry-v1"
 
@@ -32,6 +35,7 @@ class RegisteredModel(DomainModel):
     tracking_policy_id: str
     source_file_sha256: str
     artifact_sha256: str
+    runtime_artifact_sha256: str | None = None
     evaluation_sha256: str
     training_manifest_sha256: str
     random_seed: int
@@ -106,12 +110,14 @@ class ModelRegistryStore:
         self.registration_dir = self.root / "models" / "registry"
         self.event_dir = self.root / "models" / "lifecycle"
         self.artifact_dir = self.root / "models" / "artifacts"
+        self.runtime_artifact_dir = self.root / "models" / "runtime-artifacts"
         self.evaluation_dir = self.root / "models" / "evaluations"
         self.training_manifest_dir = self.root / "models" / "training-manifests"
         for directory in (
             self.registration_dir,
             self.event_dir,
             self.artifact_dir,
+            self.runtime_artifact_dir,
             self.evaluation_dir,
             self.training_manifest_dir,
         ):
@@ -119,9 +125,10 @@ class ModelRegistryStore:
 
     def register(
         self,
-        model: BaselineModel,
+        model: RegisteredModelMetadata,
         *,
         model_artifact: bytes,
+        runtime_artifact: bytes | None = None,
         evaluation_report: bytes,
         training_manifest: bytes,
         registered_at: datetime,
@@ -131,7 +138,7 @@ class ModelRegistryStore:
 
         _require_aware(registered_at, "registered_at")
         _require_text(registered_by, "registered_by")
-        _validate_model_artifact(model, model_artifact)
+        _validate_model_artifact(model, model_artifact, runtime_artifact)
         _validate_json_object(training_manifest, "training manifest")
         _validate_json(evaluation_report, "evaluation report")
         manifest = _parse_json_object(training_manifest, "training manifest")
@@ -143,6 +150,9 @@ class ModelRegistryStore:
             tracking_policy_id=model.tracking_policy_id,
             source_file_sha256=model.source_file_sha256,
             artifact_sha256=_sha256(model_artifact),
+            runtime_artifact_sha256=(
+                _sha256(runtime_artifact) if runtime_artifact is not None else None
+            ),
             evaluation_sha256=_sha256(evaluation_report),
             training_manifest_sha256=_sha256(training_manifest),
             random_seed=model.random_seed,
@@ -162,6 +172,12 @@ class ModelRegistryStore:
             model_artifact,
             "model artifact",
         )
+        if runtime_artifact is not None:
+            self._write_once(
+                self._runtime_artifact_path(model.model_version_id),
+                runtime_artifact,
+                "model runtime artifact",
+            )
         self._write_once(
             self._evaluation_path(model.model_version_id),
             evaluation_report,
@@ -194,6 +210,12 @@ class ModelRegistryStore:
                 base.artifact_sha256,
                 "model artifact",
             )
+            if base.runtime_artifact_sha256 is not None:
+                self._verify_artifact(
+                    self._runtime_artifact_path(model_version_id),
+                    base.runtime_artifact_sha256,
+                    "model runtime artifact",
+                )
             self._verify_artifact(
                 self._evaluation_path(model_version_id),
                 base.evaluation_sha256,
@@ -222,16 +244,25 @@ class ModelRegistryStore:
             lifecycle = event.to_lifecycle
         return base.model_copy(update={"lifecycle": lifecycle})
 
-    def load_baseline_model(self, model_version_id: str) -> tuple[RegisteredModel, BaselineModel]:
-        """Load a registered constant baseline only after artifact verification."""
+    def load_model(self, model_version_id: str) -> tuple[RegisteredModel, RegisteredModelMetadata]:
+        """Load a registered baseline or LightGBM metadata artifact."""
 
         registration = self.load(model_version_id)
         try:
-            model = BaselineModel.model_validate_json(
-                self._artifact_path(model_version_id).read_bytes()
-            )
+            content = self._artifact_path(model_version_id).read_bytes()
+            model: RegisteredModelMetadata
+            if registration.model_type == "constant_probability":
+                model = BaselineModel.model_validate_json(content)
+            elif registration.model_type == "lightgbm":
+                model = LightGBMModel.model_validate_json(content)
+            else:
+                raise ModelRegistryError(
+                    f"registered model type is unsupported: {registration.model_type}"
+                )
+        except ModelRegistryError:
+            raise
         except (OSError, TypeError, ValueError) as exc:
-            raise ModelRegistryError("registered model artifact is not a valid baseline") from exc
+            raise ModelRegistryError("registered model artifact metadata is invalid") from exc
         if (
             model.model_version_id != registration.model_version_id
             or model.feature_set_version_id != registration.feature_set_version_id
@@ -240,7 +271,31 @@ class ModelRegistryStore:
             raise ModelRegistryError(
                 "registered model artifact metadata does not match registration"
             )
+        if isinstance(model, LightGBMModel):
+            if registration.runtime_artifact_sha256 is None:
+                raise ModelRegistryError("registered LightGBM model has no runtime artifact")
+            if model.artifact_sha256 != registration.runtime_artifact_sha256:
+                raise ModelRegistryError("LightGBM runtime hash does not match model metadata")
         return registration, model
+
+    def load_baseline_model(self, model_version_id: str) -> tuple[RegisteredModel, BaselineModel]:
+        """Load a registered constant baseline only after artifact verification."""
+
+        registration, model = self.load_model(model_version_id)
+        if not isinstance(model, BaselineModel):
+            raise ModelRegistryError("registered model is not a constant baseline")
+        return registration, model
+
+    def read_runtime_artifact(self, model_version_id: str) -> bytes:
+        """Read a registered executable model artifact after hash verification."""
+
+        registration = self.load(model_version_id)
+        if registration.runtime_artifact_sha256 is None:
+            raise ModelRegistryError("registered model has no runtime artifact")
+        try:
+            return self._runtime_artifact_path(model_version_id).read_bytes()
+        except OSError as exc:
+            raise ModelRegistryError("model runtime artifact is missing") from exc
 
     def read_evaluation_report(self, model_version_id: str) -> bytes:
         """Read a registered evaluation report only after registry verification."""
@@ -518,6 +573,9 @@ class ModelRegistryStore:
     def _artifact_path(self, model_version_id: str) -> Path:
         return self.artifact_dir / f"{_safe_identifier(model_version_id)}.json"
 
+    def _runtime_artifact_path(self, model_version_id: str) -> Path:
+        return self.runtime_artifact_dir / f"{_safe_identifier(model_version_id)}.bin"
+
     def _evaluation_path(self, model_version_id: str) -> Path:
         return self.evaluation_dir / f"{_safe_identifier(model_version_id)}.json"
 
@@ -552,16 +610,36 @@ class ModelRegistryStore:
             raise ModelRegistryError(f"{artifact_name} hash does not match registration")
 
 
-def _validate_model_artifact(model: BaselineModel, content: bytes) -> None:
+def _validate_model_artifact(
+    model: RegisteredModelMetadata,
+    content: bytes,
+    runtime_artifact: bytes | None,
+) -> None:
+    if isinstance(model, BaselineModel):
+        if runtime_artifact is not None:
+            raise ModelRegistryError("baseline model must not have a runtime artifact")
+        try:
+            parsed = BaselineModel.model_validate_json(content)
+        except (TypeError, ValueError) as exc:
+            raise ModelRegistryError("model artifact is not a valid baseline model") from exc
+        if parsed != model:
+            raise ModelRegistryError("model artifact does not match model metadata")
+        return
+    if runtime_artifact is None:
+        raise ModelRegistryError("LightGBM model requires a runtime artifact")
+    if _sha256(runtime_artifact) != model.artifact_sha256:
+        raise ModelRegistryError("LightGBM runtime artifact hash does not match model metadata")
     try:
-        parsed = BaselineModel.model_validate_json(content)
+        parsed_lightgbm = LightGBMModel.model_validate_json(content)
     except (TypeError, ValueError) as exc:
-        raise ModelRegistryError("model artifact is not a valid baseline model") from exc
-    if parsed != model:
+        raise ModelRegistryError("model artifact is not valid LightGBM metadata") from exc
+    if parsed_lightgbm != model:
         raise ModelRegistryError("model artifact does not match model metadata")
 
 
-def _validate_training_manifest(manifest: Mapping[str, Any], model: BaselineModel) -> None:
+def _validate_training_manifest(
+    manifest: Mapping[str, Any], model: RegisteredModelMetadata
+) -> None:
     expected = {
         "model_version_id": model.model_version_id,
         "feature_set_version_id": model.feature_set_version_id,

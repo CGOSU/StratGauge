@@ -383,7 +383,7 @@ PYTHONPATH=src uv run python scripts/calibrate_selection_probabilities.py \
 
 默认至少需要 100 个 validation 样本和两类标签；输出显式记录 `calibrated=true`、校准日期、适用日期、模型版本和源哈希。校准结果当前不进入 Web、推荐或自动晋升。
 
-模型注册会复制模型、评估报告和训练 manifest，并校验 SHA-256；生命周期只能人工追加，不能自动晋升：
+模型注册会复制模型、评估报告和训练 manifest，并校验 SHA-256；LightGBM 注册时 `--model` 指向 `model.json`，另用 `--runtime-artifact model.txt` 保存可执行工件；生命周期只能人工追加，不能自动晋升：
 
 ```bash
 PYTHONPATH=src uv run python scripts/register_selection_model.py \
@@ -453,10 +453,11 @@ PYTHONPATH=src uv run python scripts/score_selection_shadow.py \
   --model-version-id <shadow_model_version_id> \
   --input data/selection-features/shadow-input.jsonl \
   --scored-at 2026-10-03T18:05:00+08:00 \
+  --calibration data/models/lightgbm-v1-calibrated/calibration.json \
   --output data/models/shadow-reports/run.json
 ```
 
-输出字段是 `uncalibrated_model_score`，并明确 `calibrated=false`、`used_for_decision=false`，不能称为胜率。
+输出同时保留 `uncalibrated_model_score` 和可选 `calibrated_model_score`，并明确 `used_for_decision=false`；未提供校准器时 `calibrated=false`，任何分数都不能称为胜率。
 
 ### 10. Tushare 参考数据、时间点股票池和策略生命周期
 

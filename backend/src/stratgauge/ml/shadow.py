@@ -1,4 +1,4 @@
-"""Independent, uncalibrated shadow scoring for registered baseline models."""
+"""Independent shadow scoring for registered baseline and LightGBM models."""
 
 from __future__ import annotations
 
@@ -7,18 +7,22 @@ import json
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime
 from decimal import Decimal
+from importlib import import_module
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, field_validator
 
 from stratgauge.domain.models import DomainModel, ModelLifecycle
 from stratgauge.features.contract import FeatureSnapshot
+from stratgauge.ml.calibration import CalibratedModel
+from stratgauge.ml.lightgbm_training import LightGBMModel
 from stratgauge.ml.registry import (
     ModelRegistryError,
     ModelRegistryStore,
     RegisteredModel,
 )
+from stratgauge.ml.selection_training import BaselineModel
 
 SHADOW_SCORE_VERSION = "selection-shadow-score-v1"
 SHADOW_REPORT_VERSION = "selection-shadow-report-v1"
@@ -58,7 +62,9 @@ class ShadowScore(DomainModel):
     source_snapshot_ids: tuple[str, ...]
     scored_at: datetime
     uncalibrated_model_score: Decimal = Field(ge=0, le=1)
-    calibrated: Literal[False] = False
+    calibrated_model_id: str | None = None
+    calibrated_model_score: Decimal | None = Field(default=None, ge=0, le=1)
+    calibrated: bool = False
     used_for_decision: Literal[False] = False
 
 
@@ -155,6 +161,7 @@ def score_shadow_batch(
     model_version_id: str,
     scored_at: datetime,
     source_input_sha256: str,
+    calibration_model: CalibratedModel | None = None,
 ) -> ShadowScoringReport:
     """Score feature snapshots independently and record candidate-level failures."""
 
@@ -166,17 +173,31 @@ def score_shadow_batch(
     if not rows:
         raise ShadowScoreError("shadow scoring requires at least one input")
     try:
-        registered, model = registry.load_baseline_model(model_version_id)
+        registered, model = registry.load_model(model_version_id)
     except ModelRegistryError as exc:
         raise ShadowScoreError(str(exc)) from exc
     if registered.lifecycle is not ModelLifecycle.SHADOW:
         raise ShadowScoreError("shadow scoring requires a model in shadow lifecycle")
+    if calibration_model is not None:
+        _validate_calibration(registered, model, calibration_model)
+    runtime_model = (
+        _load_lightgbm_runtime(registry.read_runtime_artifact(model_version_id))
+        if isinstance(model, LightGBMModel)
+        else None
+    )
 
     score_ids: list[str] = []
     failures: list[ShadowScoreFailure] = []
     for row in rows:
         try:
-            score = _score_one(row, registered, model.positive_probability, scored_at)
+            score = _score_one(
+                row,
+                registered,
+                model,
+                runtime_model,
+                scored_at,
+                calibration_model,
+            )
         except (ShadowScoreError, ValueError) as exc:
             failures.append(
                 ShadowScoreFailure(
@@ -190,6 +211,9 @@ def score_shadow_batch(
         score_ids.append(score.score_id)
     identity = {
         "failures": [failure.model_dump(mode="json") for failure in failures],
+        "calibration_model_id": (
+            None if calibration_model is None else calibration_model.calibration_id
+        ),
         "model_version_id": model_version_id,
         "report_version": SHADOW_REPORT_VERSION,
         "score_ids": score_ids,
@@ -213,16 +237,25 @@ def score_shadow_batch(
 def _score_one(
     row: ShadowScoringInput,
     registered: RegisteredModel,
-    probability: Decimal,
+    model: BaselineModel | LightGBMModel,
+    runtime_model: tuple[Any, Any] | None,
     scored_at: datetime,
+    calibration_model: CalibratedModel | None,
 ) -> ShadowScore:
     feature_snapshot = row.feature_snapshot
     if feature_snapshot.feature_set_version_id != registered.feature_set_version_id:
         raise ShadowScoreError("feature snapshot does not match registered feature set")
     if feature_snapshot.as_of > scored_at:
         raise ShadowScoreError("feature snapshot is not available at scored_at")
-    score_value = probability
+    score_value = _raw_score(model, feature_snapshot, runtime_model)
+    calibrated_score = (
+        None if calibration_model is None else _apply_calibration(score_value, calibration_model)
+    )
     identity = {
+        "calibrated_model_id": (
+            None if calibration_model is None else calibration_model.calibration_id
+        ),
+        "calibrated_score": None if calibrated_score is None else str(calibrated_score),
         "candidate_id": row.candidate_id,
         "feature_set_version_id": feature_snapshot.feature_set_version_id,
         "feature_snapshot_id": feature_snapshot.feature_snapshot_id,
@@ -243,6 +276,69 @@ def _score_one(
         source_snapshot_ids=feature_snapshot.source_snapshot_ids,
         scored_at=scored_at,
         uncalibrated_model_score=score_value,
+        calibrated_model_id=(
+            None if calibration_model is None else calibration_model.calibration_id
+        ),
+        calibrated_model_score=calibrated_score,
+        calibrated=calibration_model is not None,
+    )
+
+
+def _raw_score(
+    model: BaselineModel | LightGBMModel,
+    feature_snapshot: FeatureSnapshot,
+    runtime_model: tuple[Any, Any] | None,
+) -> Decimal:
+    if isinstance(model, BaselineModel):
+        return model.positive_probability
+    if runtime_model is None:
+        raise ShadowScoreError("LightGBM runtime artifact is unavailable")
+    booster, numpy = runtime_model
+    try:
+        matrix = numpy.asarray(
+            [[float(feature_snapshot.values[name]) for name in model.feature_names]],
+            dtype=float,
+        )
+        value = Decimal(str(float(booster.predict(matrix)[0])))
+    except (KeyError, TypeError, ValueError, IndexError, OverflowError) as exc:
+        raise ShadowScoreError("LightGBM could not score the feature snapshot") from exc
+    if not value.is_finite() or not 0 <= value <= 1:
+        raise ShadowScoreError("LightGBM produced an invalid probability")
+    return value
+
+
+def _load_lightgbm_runtime(content: bytes) -> tuple[Any, Any]:
+    try:
+        lightgbm = import_module("lightgbm")
+        numpy = import_module("numpy")
+        return lightgbm.Booster(model_str=content.decode("utf-8")), numpy
+    except (ImportError, OSError, UnicodeDecodeError, TypeError, ValueError) as exc:
+        raise ShadowScoreError("LightGBM runtime is unavailable or invalid") from exc
+
+
+def _validate_calibration(
+    registered: RegisteredModel,
+    model: BaselineModel | LightGBMModel,
+    calibration_model: CalibratedModel,
+) -> None:
+    if not isinstance(model, LightGBMModel):
+        raise ShadowScoreError("calibration is only supported for LightGBM models")
+    if calibration_model.base_model_version_id != registered.model_version_id:
+        raise ShadowScoreError("calibration model does not match the registered model")
+    if calibration_model.feature_set_version_id != registered.feature_set_version_id:
+        raise ShadowScoreError("calibration model does not match the registered feature set")
+    if calibration_model.tracking_policy_id != registered.tracking_policy_id:
+        raise ShadowScoreError("calibration model does not match the tracking policy")
+
+
+def _apply_calibration(probability: Decimal, model: CalibratedModel) -> Decimal:
+    return next(
+        (
+            item.calibrated_probability
+            for item in model.bins
+            if probability <= item.upper_probability
+        ),
+        model.bins[-1].calibrated_probability,
     )
 
 
