@@ -35,6 +35,13 @@ class SecurityOverride(DomainModel):
             raise ValueError("security override text must not be empty")
         return normalized
 
+    @field_validator("override_id")
+    @classmethod
+    def validate_override_id_path(cls, value: str) -> str:
+        if any(character in value for character in ("/", "\\", "\0", "\r", "\n")):
+            raise ValueError("security override identifier contains an invalid path character")
+        return value
+
     @field_validator("effective_at")
     @classmethod
     def validate_effective_at(cls, value: datetime) -> datetime:
