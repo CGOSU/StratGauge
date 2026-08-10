@@ -334,3 +334,9 @@
 - 完成内容：走步报告升级为 `selection-walk-forward-v2`；`validate_walk_forward.py` 增加可选 `--outcomes`，按候选/选股日关联客观结果并输出结果覆盖率、执行率、平均净收益、最大回撤、换手和市场状态平均收益；最终测试行仍不参与折评估，结果源哈希写入报告。
 - 验证：后端 196 项测试通过（1 项环境相关跳过）；Ruff、MyPy、CLI 帮助检查、前端 typecheck/build/lint 和 `git diff --check` 通过。
 - 遗留问题：概率校准、模型批次自动接入、Web 评分和完整模型运营仍未实现。
+
+### 2026-08-10 概率校准
+
+- 完成内容：新增 `calibration.py` 和 `calibrate_selection_probabilities.py`；实现 validation-only PAVA Isotonic 校准、test 隔离应用、默认 100 样本/双类别/双分数门槛、前后 Log Loss/Brier、校准模型和不可覆盖输出。
+- 验证：后端 199 项测试通过（1 项环境相关跳过）；Ruff、MyPy、CLI 帮助检查、前端 typecheck/build/lint 和 `git diff --check` 通过。
+- 遗留问题：模型注册、批次自动接入、Web 评分、影子运行和完整不确定性展示仍未实现。

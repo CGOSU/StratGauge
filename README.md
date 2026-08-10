@@ -371,6 +371,18 @@ PYTHONPATH=src uv run python scripts/validate_walk_forward.py \
 
 折 JSON 必须由研究配置显式提供；最终测试期只计数、不参与折验证。`--outcomes` 可选，提供后按候选/选股日关联 `selection-dataset-v2` 的客观结果：未解决样本不进入执行率分母，缺少净收益或名义金额时对应收益/换手指标保持为空；不提供时仍只生成概率指标和标签清除审计。
 
+对 LightGBM 预测进行概率校准时，只使用 validation 预测拟合 PAVA Isotonic，test 预测保持隔离：
+
+```bash
+PYTHONPATH=src uv run python scripts/calibrate_selection_probabilities.py \
+  --predictions data/models/lightgbm-v1/predictions.jsonl \
+  --manifest data/models/lightgbm-v1/manifest.json \
+  --output-dir data/models/lightgbm-v1-calibrated \
+  --calibrated-at 2026-10-02T18:00:00+08:00
+```
+
+默认至少需要 100 个 validation 样本和两类标签；输出显式记录 `calibrated=true`、校准日期、适用日期、模型版本和源哈希。校准结果当前不进入 Web、推荐或自动晋升。
+
 模型注册会复制模型、评估报告和训练 manifest，并校验 SHA-256；生命周期只能人工追加，不能自动晋升：
 
 ```bash
