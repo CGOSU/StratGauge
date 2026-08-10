@@ -137,3 +137,8 @@
 
 - 完成内容：每条 `SelectionDatasetRow` 增加 `schema_version=selection-dataset-v1`，保留待定、未入场和未解决样本，便于后续训练脚本拒绝未知列版本。
 - 验证：后端 100 项测试通过（1 项环境相关跳过）；Ruff、MyPy 通过。
+
+### 2026-08-10 数据集按日期切分
+
+- 完成内容：新增 `split_tdx_dataset.py` 和 `selection_split.py`，按 `selection_date` 与显式 train/validation 边界生成不随机、不覆盖的三份 JSONL，并保存源文件 SHA-256、schema 版本和各分区行数 manifest。
+- 验证：后端 103 项测试通过（1 项环境相关跳过）；Ruff、MyPy 通过。

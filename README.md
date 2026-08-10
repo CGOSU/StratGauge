@@ -93,6 +93,12 @@ PYTHONPATH=src uv run python scripts/run_selection_maturity_tasks.py \
 PYTHONPATH=src uv run python scripts/export_tdx_dataset.py \
   --batch-id <batch_id> \
   --output data/selection-datasets/batch.jsonl
+# 按选股日期生成不可覆盖的 train/validation/test 清单和切分 manifest
+PYTHONPATH=src uv run python scripts/split_tdx_dataset.py \
+  --input data/selection-datasets/batch.jsonl \
+  --output-dir data/selection-datasets/batch-split \
+  --train-end 2026-06-30 \
+  --validation-end 2026-09-30
 ```
 
 成熟任务要求显式提供单笔名义金额；这是最低佣金换算为收益率所必需的参数，系统不会猜测。
