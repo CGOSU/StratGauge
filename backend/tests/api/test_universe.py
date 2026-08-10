@@ -35,6 +35,7 @@ class UniverseApiTests(unittest.TestCase):
                     selection_store=SelectionImportStore(f"{directory}/selection"),
                     portfolio_store=ManualPortfolioStore(f"{directory}/portfolio"),
                     universe_store=universe_store,
+                    universe_root=f"{directory}/universe",
                 )
             )
 
@@ -46,6 +47,24 @@ class UniverseApiTests(unittest.TestCase):
             payload = response.json()
             self.assertEqual(payload["universe_snapshot_id"], snapshot.universe_snapshot_id)
             self.assertEqual([item["symbol"] for item in payload["results"]], ["000001.SZ"])
+
+            override = client.post(
+                "/v1/universe/overrides",
+                json={
+                    "override_id": "override-1",
+                    "symbol": "000001.SZ",
+                    "effective_at": "2026-01-05T17:00:00+00:00",
+                    "name": "平安银行（自定义）",
+                    "note": "研究备注",
+                    "operator": "test",
+                },
+            )
+            self.assertEqual(override.status_code, 201)
+            overridden = client.get(
+                "/v1/universe/securities",
+                params={"as_of": "2026-01-06T09:00:00+00:00", "query": "平安"},
+            )
+            self.assertEqual(overridden.json()["results"][0]["name"], "平安银行（自定义）")
 
             future_response = client.get(
                 "/v1/universe/securities",

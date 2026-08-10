@@ -52,6 +52,7 @@ from stratgauge.api.selections import (
     SelectionStatsView,
 )
 from stratgauge.api.universe import (
+    SecurityOverrideRequest,
     UniverseSearchError,
     UniverseSearchResponse,
     UniverseSearchService,
@@ -61,7 +62,7 @@ from stratgauge.backtest.selection_analysis import SelectionCandidateAnalysis
 from stratgauge.data_pipeline.portfolio_store import ManualPortfolioStore
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.data_pipeline.store import SnapshotStore
-from stratgauge.data_pipeline.universe import UniverseSnapshotStore
+from stratgauge.data_pipeline.universe import UniverseOverrideStore, UniverseSnapshotStore
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.baostock import BaoStockAdapter
 from stratgauge.data_sources.base import MarketDataAdapter
@@ -96,7 +97,10 @@ def create_app(
     selection_store_instance = selection_store or SelectionImportStore(selection_root)
     selections = SelectionService(selection_store_instance)
     portfolio = PortfolioService(portfolio_store or ManualPortfolioStore(portfolio_root))
-    universe = UniverseSearchService(universe_store or UniverseSnapshotStore(universe_root))
+    universe = UniverseSearchService(
+        universe_store or UniverseSnapshotStore(universe_root),
+        UniverseOverrideStore(universe_root),
+    )
     score_store = ShadowScoreStore(model_root)
     model_scores = ModelScoreService(
         selection_store_instance,
@@ -160,6 +164,12 @@ def create_app(
     @app.get("/v1/stocks/{symbol}/analysis", response_model=AnalysisRecord)
     def get_stock_analysis(symbol: str, as_of: date) -> AnalysisRecord:
         return service.get(symbol, as_of)
+
+    @app.post("/v1/universe/overrides", response_model=SecurityOverrideRequest, status_code=201)
+    def create_universe_override(request: SecurityOverrideRequest) -> SecurityOverrideRequest:
+        return SecurityOverrideRequest.model_validate(
+            universe.create_override(request).model_dump()
+        )
 
     @app.get("/v1/universe/securities", response_model=UniverseSearchResponse)
     def search_universe(

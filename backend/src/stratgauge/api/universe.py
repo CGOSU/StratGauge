@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from stratgauge.data_pipeline.universe import (
+    SecurityOverride,
+    UniverseOverrideStore,
+    UniverseOverrideStoreError,
     UniverseSnapshotStore,
     UniverseSnapshotStoreError,
 )
@@ -23,6 +26,24 @@ class UniverseSearchError(Exception):
         self.status_code = status_code
 
 
+class SecurityOverrideRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    override_id: str = Field(min_length=1)
+    symbol: str = Field(min_length=1)
+    effective_at: datetime
+    name: str | None = None
+    note: str = Field(min_length=1)
+    operator: str = Field(min_length=1)
+
+    @field_validator("effective_at")
+    @classmethod
+    def require_aware_effective_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("effective_at must include a timezone")
+        return value
+
+
 class UniverseSearchResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -36,8 +57,21 @@ class UniverseSearchResponse(BaseModel):
 class UniverseSearchService:
     """Search only the latest universe known at the requested time."""
 
-    def __init__(self, store: UniverseSnapshotStore) -> None:
+    def __init__(
+        self,
+        store: UniverseSnapshotStore,
+        override_store: UniverseOverrideStore | None = None,
+    ) -> None:
         self._store = store
+        self._override_store = override_store
+
+    def create_override(self, request: SecurityOverrideRequest) -> SecurityOverride:
+        if self._override_store is None:
+            raise UniverseSearchError("UNIVERSE_OVERRIDE_UNAVAILABLE", "股票覆写存储未配置。", 503)
+        try:
+            return self._override_store.write(SecurityOverride(**request.model_dump()))
+        except (UniverseOverrideStoreError, ValueError) as exc:
+            raise UniverseSearchError("UNIVERSE_OVERRIDE_REJECTED", str(exc), 409) from exc
 
     def search(self, *, query: str, as_of: datetime, limit: int = 50) -> UniverseSearchResponse:
         if as_of.tzinfo is None or as_of.utcoffset() is None:
@@ -62,7 +96,7 @@ class UniverseSearchService:
                 404,
             )
         results = tuple(
-            security
+            self._apply_override(security, as_of)
             for security in snapshot.securities
             if not normalized_query or _matches(security, normalized_query)
         )[:limit]
@@ -73,6 +107,17 @@ class UniverseSearchService:
             universe_as_of=snapshot.as_of,
             results=results,
         )
+
+    def _apply_override(self, security: Security, as_of: datetime) -> Security:
+        if self._override_store is None:
+            return security
+        try:
+            override = self._override_store.latest_for(security.symbol, as_of)
+        except UniverseOverrideStoreError as exc:
+            raise UniverseSearchError("UNIVERSE_OVERRIDE_READ_FAILED", str(exc), 409) from exc
+        if override is None or override.name is None:
+            return security
+        return security.model_copy(update={"name": override.name})
 
 
 def _matches(security: Security, query: str) -> bool:

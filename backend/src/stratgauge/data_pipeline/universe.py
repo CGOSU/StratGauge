@@ -9,12 +9,57 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Protocol
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from stratgauge.data_pipeline.store import SnapshotStatus
-from stratgauge.domain.models import DomainModel, Security
+from stratgauge.domain.models import DomainModel, Exchange, Security, canonical_symbol
 
 UNIVERSE_SNAPSHOT_VERSION = "universe-snapshot-v1"
+
+
+class SecurityOverride(DomainModel):
+    """User annotation for display; it never changes source membership facts."""
+
+    override_id: str
+    symbol: str
+    effective_at: datetime
+    name: str | None = None
+    note: str = Field(min_length=1)
+    operator: str = Field(min_length=1)
+
+    @field_validator("override_id", "symbol", "note", "operator")
+    @classmethod
+    def validate_override_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("security override text must not be empty")
+        return normalized
+
+    @field_validator("effective_at")
+    @classmethod
+    def validate_effective_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("security override effective_at must include a timezone")
+        return value
+
+    @field_validator("name")
+    @classmethod
+    def normalize_override_name(cls, value: str | None) -> str | None:
+        return None if value is None else value.strip() or None
+
+    @field_validator("symbol")
+    @classmethod
+    def normalize_symbol(cls, value: str) -> str:
+        normalized = value.upper()
+        parts = normalized.split(".")
+        if len(parts) != 2:
+            raise ValueError("security override symbol must use CODE.EXCHANGE")
+        try:
+            if canonical_symbol(parts[0], Exchange(parts[1])) != normalized:
+                raise ValueError("security override symbol must use CODE.EXCHANGE")
+        except ValueError as exc:
+            raise ValueError("security override symbol must use CODE.EXCHANGE") from exc
+        return normalized
 
 
 class UniverseSnapshot(DomainModel):
@@ -111,6 +156,52 @@ class ApprovedSnapshotManifest(Protocol):
 
 class ApprovedSnapshotReader(Protocol):
     def load_manifest(self, snapshot_id: str) -> ApprovedSnapshotManifest: ...
+
+
+class UniverseOverrideStoreError(RuntimeError):
+    """A user security override cannot be safely persisted or read."""
+
+
+class UniverseOverrideStore:
+    """Append-only user annotations kept outside immutable source snapshots."""
+
+    def __init__(self, root: str | Path) -> None:
+        self.root = Path(root)
+        self.override_dir = self.root / "universe" / "overrides"
+        self.override_dir.mkdir(parents=True, exist_ok=True)
+
+    def write(self, override: SecurityOverride) -> SecurityOverride:
+        path = self.override_dir / f"{override.override_id}.json"
+        if path.exists():
+            existing = self.load(override.override_id)
+            if existing != override:
+                raise UniverseOverrideStoreError(
+                    "security override identity already has different content"
+                )
+            return existing
+        try:
+            path.write_text(override.model_dump_json(indent=2), encoding="utf-8", newline="\n")
+        except OSError as exc:
+            raise UniverseOverrideStoreError("failed to write security override") from exc
+        return override
+
+    def load(self, override_id: str) -> SecurityOverride:
+        path = self.override_dir / f"{override_id}.json"
+        if not path.exists():
+            raise UniverseOverrideStoreError(f"security override does not exist: {override_id}")
+        try:
+            return SecurityOverride.model_validate_json(path.read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError) as exc:
+            raise UniverseOverrideStoreError(
+                f"security override is invalid: {override_id}"
+            ) from exc
+
+    def latest_for(self, symbol: str, as_of: datetime) -> SecurityOverride | None:
+        overrides = tuple(self.load(path.stem) for path in self.override_dir.glob("*.json"))
+        eligible = tuple(
+            item for item in overrides if item.symbol == symbol and item.effective_at <= as_of
+        )
+        return max(eligible, key=lambda item: (item.effective_at, item.override_id), default=None)
 
 
 class UniverseSnapshotStoreError(RuntimeError):
