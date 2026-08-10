@@ -4,14 +4,16 @@ from tempfile import TemporaryDirectory
 
 from stratgauge.data_pipeline.store import SnapshotStatus, SnapshotStore
 from stratgauge.data_pipeline.universe import (
+    SecurityMasterStore,
     UniverseSnapshotStore,
     UniverseSnapshotStoreError,
+    build_security_master_snapshot,
     build_universe_snapshot,
     securities_at,
 )
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.base import DailyBarRequest
-from stratgauge.domain.models import Exchange, Security
+from stratgauge.domain.models import Exchange, Security, SecurityMasterRecord
 
 
 class UniverseSnapshotTests(unittest.TestCase):
@@ -23,6 +25,7 @@ class UniverseSnapshotTests(unittest.TestCase):
             security = _security("000001", Exchange.SZ)
             snapshot = build_universe_snapshot(
                 as_of=datetime(2026, 1, 5, 16, tzinfo=UTC),
+                membership_date=date(2026, 1, 5),
                 source="fixture-universe",
                 source_snapshot_ids=(source_snapshot_id,),
                 securities=(security,),
@@ -60,6 +63,28 @@ class UniverseSnapshotTests(unittest.TestCase):
         self.assertEqual(tuple(item.symbol for item in before), ("600000.SH",))
         self.assertEqual(tuple(item.symbol for item in on_listing), ("000001.SZ", "600000.SH"))
         self.assertEqual(tuple(item.symbol for item in after_delisting), ("000001.SZ",))
+
+    def test_security_master_is_resolved_by_known_at_not_effective_date(self) -> None:
+        with TemporaryDirectory() as directory:
+            reference_store = _approved_market_store(directory)
+            source_snapshot_id = reference_store.list_manifests()[0].snapshot_id
+            client_records = (_master_record("000001", Exchange.SZ, listed_at=date(2020, 1, 1)),)
+            snapshot = build_security_master_snapshot(
+                observed_at=datetime(2026, 1, 6, 8, tzinfo=UTC),
+                source_snapshot_id=source_snapshot_id,
+                records=client_records,
+            )
+            store = SecurityMasterStore(directory)
+            store.write(snapshot, reference_store)
+
+            self.assertIsNone(store.latest_at(datetime(2026, 1, 5, tzinfo=UTC)))
+            known_snapshot = store.latest_at(datetime(2026, 1, 6, 9, tzinfo=UTC))
+            self.assertEqual(known_snapshot, snapshot)
+            assert known_snapshot is not None
+            self.assertEqual(
+                tuple(record.symbol for record in known_snapshot.records),
+                ("000001.SZ",),
+            )
 
     def test_unapproved_source_snapshot_is_rejected(self) -> None:
         with TemporaryDirectory() as directory:
@@ -121,6 +146,24 @@ def _approved_market_store(directory: str) -> SnapshotStore:
     )
     store.update_status(manifest.snapshot_id, SnapshotStatus.APPROVED)
     return store
+
+
+def _master_record(
+    local_code: str,
+    exchange: Exchange,
+    *,
+    listed_at: date | None = None,
+) -> SecurityMasterRecord:
+    return SecurityMasterRecord(
+        security_id=f"security-{local_code}.{exchange.value}",
+        local_code=local_code,
+        symbol=f"{local_code}.{exchange.value}",
+        exchange=exchange,
+        name="测试证券",
+        market="主板",
+        list_status="L",
+        listed_at=listed_at,
+    )
 
 
 def _security(local_code: str, exchange: Exchange) -> Security:

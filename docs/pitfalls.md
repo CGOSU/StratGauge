@@ -242,3 +242,9 @@
 
 - 现象：把 shadow 模型或未批准模型分数直接放进推荐工作台，会绕过人工晋升和质量门。
 - 修复：评分 CLI 默认 `shadow`，active 评分必须显式指定 `--lifecycle active`；工作台同时检查 active 生命周期、来源快照批准状态和历史结果证据。
+
+### 证券主数据必须区分生效时间和知晓时间
+
+- 现象：只按 `list_date`/`delist_date` 过滤，而不限制主数据快照的观察时间，会把今天获取的退市事实带回过去。
+- 修复：`SecurityMasterSnapshot` 保存 `observed_at`；主数据查询同时要求 `effective_date` 和 `known_at`，并拒绝 `effective_date > known_at.date()`。
+- 约束：用户名称覆写只作用于显示层，不修改主数据事实或股票池成员资格。

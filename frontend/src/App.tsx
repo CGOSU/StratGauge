@@ -186,6 +186,30 @@ type RecommendationWorkbench = {
   automatic_action: false
 }
 
+type SecurityMasterRecord = {
+  symbol: string
+  local_code: string
+  exchange: Exchange
+  name: string | null
+  full_name: string | null
+  area: string | null
+  industry: string | null
+  market: string
+  list_status: string
+  listed_at: string | null
+  delisted_at: string | null
+  actual_controller: string | null
+}
+
+type SecurityMasterResponse = {
+  query: string
+  effective_date: string
+  known_at: string
+  master_snapshot_id: string
+  observed_at: string
+  results: SecurityMasterRecord[]
+}
+
 type PortfolioSecurity = {
   symbol: string
   name: string | null
@@ -514,6 +538,10 @@ function PortfolioWorkspace({ apiBase }: { apiBase: string }) {
   const [orders, setOrders] = useState<ManualOrder[]>([])
   const [fills, setFills] = useState<ManualFill[]>([])
   const [reviews, setReviews] = useState<PortfolioReview[]>([])
+  const [masterQuery, setMasterQuery] = useState('')
+  const [masterEffectiveDate, setMasterEffectiveDate] = useState(new Date().toISOString().slice(0, 10))
+  const [masterResults, setMasterResults] = useState<SecurityMasterRecord[]>([])
+  const [masterBusy, setMasterBusy] = useState(false)
   const [orderCode, setOrderCode] = useState('')
   const [orderExchange, setOrderExchange] = useState<Exchange>('SZ')
   const [orderSide, setOrderSide] = useState<'buy' | 'sell'>('buy')
@@ -554,6 +582,26 @@ function PortfolioWorkspace({ apiBase }: { apiBase: string }) {
       })
     return () => controller.abort()
   }, [apiBase])
+
+  async function searchMaster(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setMasterBusy(true)
+    setError(null)
+    try {
+      const params = new URLSearchParams({
+        effective_date: masterEffectiveDate,
+        known_at: new Date().toISOString(),
+        query: masterQuery,
+        limit: '20',
+      })
+      const response = await requestJson<SecurityMasterResponse>(`${apiBase}/v1/universe/master?${params.toString()}`)
+      setMasterResults(response.results)
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '搜索证券主数据失败。')
+    } finally {
+      setMasterBusy(false)
+    }
+  }
 
   async function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -672,6 +720,24 @@ function PortfolioWorkspace({ apiBase }: { apiBase: string }) {
           <Button type="submit" size="sm" disabled={ledgerBusy}>保存复盘</Button>
         </form>
       </div>
+      <Card className="panel portfolio-master-search">
+        <div className="section-heading"><h3>证券主数据搜索</h3><Badge variant="outline">时间点查询</Badge></div>
+        <form className="portfolio-search-form" onSubmit={searchMaster}>
+          <Input value={masterQuery} onChange={(event) => setMasterQuery(event.target.value)} placeholder="代码、名称、行业或控制人" />
+          <Input type="date" value={masterEffectiveDate} onChange={(event) => setMasterEffectiveDate(event.target.value)} required />
+          <Button type="submit" size="sm" disabled={masterBusy}>{masterBusy ? '搜索中…' : '搜索'}</Button>
+        </form>
+        {masterResults.length > 0 && (
+          <div className="portfolio-master-results">
+            {masterResults.map((record) => (
+              <div className="portfolio-ledger-row" key={record.symbol}>
+                <strong>{record.symbol} · {record.name ?? '未提供名称'}</strong>
+                <span>{record.industry ?? '行业未知'} · {record.area ?? '地区未知'} · {record.full_name ?? '全称未知'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
       {loading ? <Skeleton /> : (
         <>
           <div className="portfolio-position-grid">

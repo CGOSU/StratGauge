@@ -8,10 +8,16 @@ from stratgauge.api.app import create_app
 from stratgauge.data_pipeline.portfolio_store import ManualPortfolioStore
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.data_pipeline.store import SnapshotStatus, SnapshotStore
-from stratgauge.data_pipeline.universe import UniverseSnapshotStore, build_universe_snapshot
+from stratgauge.data_pipeline.universe import (
+    SecurityMasterStore,
+    UniverseSnapshotStore,
+    build_security_master_snapshot,
+    build_universe_snapshot,
+)
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.base import DailyBarRequest
-from stratgauge.domain.models import Exchange, Security
+from stratgauge.data_sources.tushare_reference import TushareReferenceStore
+from stratgauge.domain.models import Exchange, Security, SecurityMasterRecord
 
 
 class UniverseApiTests(unittest.TestCase):
@@ -30,6 +36,44 @@ class UniverseApiTests(unittest.TestCase):
                 ),
             )
             universe_store.write(snapshot, market_store)
+            reference_store = TushareReferenceStore(f"{directory}/universe")
+            reference = reference_store.write(
+                endpoint="stock_basic",
+                request={"list_status": "L"},
+                records=({"ts_code": "000001.SZ", "market": "主板"},),
+                created_at=datetime(2026, 1, 6, 8, tzinfo=UTC),
+            )
+            master = build_security_master_snapshot(
+                observed_at=datetime(2026, 1, 6, 8, tzinfo=UTC),
+                source_snapshot_id=reference.snapshot_id,
+                records=(
+                    SecurityMasterRecord(
+                        security_id="security-000001.SZ",
+                        local_code="000001",
+                        symbol="000001.SZ",
+                        exchange=Exchange.SZ,
+                        name="平安银行",
+                        full_name="平安银行股份有限公司",
+                        area="深圳",
+                        industry="银行",
+                        market="主板",
+                        list_status="L",
+                        listed_at=date(1991, 4, 3),
+                    ),
+                    SecurityMasterRecord(
+                        security_id="security-600000.SH",
+                        local_code="600000",
+                        symbol="600000.SH",
+                        exchange=Exchange.SH,
+                        name="已退市银行",
+                        market="主板",
+                        list_status="D",
+                        listed_at=date(1999, 11, 10),
+                        delisted_at=date(2025, 12, 31),
+                    ),
+                ),
+            )
+            SecurityMasterStore(f"{directory}/universe").write(master, reference_store)
             client = TestClient(
                 create_app(
                     selection_store=SelectionImportStore(f"{directory}/selection"),
@@ -47,6 +91,40 @@ class UniverseApiTests(unittest.TestCase):
             payload = response.json()
             self.assertEqual(payload["universe_snapshot_id"], snapshot.universe_snapshot_id)
             self.assertEqual([item["symbol"] for item in payload["results"]], ["000001.SZ"])
+
+            master_response = client.get(
+                "/v1/universe/master",
+                params={
+                    "effective_date": "2026-01-05",
+                    "known_at": "2026-01-06T09:00:00+00:00",
+                    "query": "银行",
+                },
+            )
+            self.assertEqual(master_response.status_code, 200)
+            self.assertEqual(
+                master_response.json()["results"][0]["full_name"],
+                "平安银行股份有限公司",
+            )
+            before_master = client.get(
+                "/v1/universe/master",
+                params={
+                    "effective_date": "2026-01-05",
+                    "known_at": "2026-01-05T09:00:00+00:00",
+                },
+            )
+            self.assertEqual(before_master.status_code, 404)
+            future_effective = client.get(
+                "/v1/universe/master",
+                params={
+                    "effective_date": "2026-01-07",
+                    "known_at": "2026-01-06T09:00:00+00:00",
+                },
+            )
+            self.assertEqual(future_effective.status_code, 422)
+            self.assertEqual(
+                future_effective.json()["error"]["code"],
+                "SECURITY_MASTER_EFFECTIVE_DATE_IN_FUTURE",
+            )
 
             override = client.post(
                 "/v1/universe/overrides",

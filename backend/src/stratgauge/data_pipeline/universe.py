@@ -12,9 +12,16 @@ from typing import Protocol
 from pydantic import Field, field_validator, model_validator
 
 from stratgauge.data_pipeline.store import SnapshotStatus
-from stratgauge.domain.models import DomainModel, Exchange, Security, canonical_symbol
+from stratgauge.domain.models import (
+    DomainModel,
+    Exchange,
+    Security,
+    SecurityMasterRecord,
+    canonical_symbol,
+)
 
 UNIVERSE_SNAPSHOT_VERSION = "universe-snapshot-v1"
+SECURITY_MASTER_SNAPSHOT_VERSION = "security-master-snapshot-v1"
 
 
 class SecurityOverride(DomainModel):
@@ -69,12 +76,44 @@ class SecurityOverride(DomainModel):
         return normalized
 
 
+class SecurityMasterSnapshot(DomainModel):
+    """Immutable normalized metadata observed at one provider read time."""
+
+    snapshot_id: str
+    snapshot_version: str = SECURITY_MASTER_SNAPSHOT_VERSION
+    observed_at: datetime
+    source_snapshot_id: str
+    records: tuple[SecurityMasterRecord, ...]
+
+    @field_validator("snapshot_id", "source_snapshot_id")
+    @classmethod
+    def validate_snapshot_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("security master snapshot text must not be empty")
+        return value.strip()
+
+    @field_validator("observed_at")
+    @classmethod
+    def validate_observed_at(cls, value: datetime) -> datetime:
+        _require_aware(value)
+        return value
+
+    @model_validator(mode="after")
+    def validate_records(self) -> SecurityMasterSnapshot:
+        symbols = tuple(record.symbol for record in self.records)
+        if len(symbols) != len(set(symbols)):
+            raise ValueError("security master snapshot cannot contain duplicate symbols")
+        return self
+
+
 class UniverseSnapshot(DomainModel):
     """The securities known to belong to one universe at an explicit time."""
 
     universe_snapshot_id: str
     snapshot_version: str = UNIVERSE_SNAPSHOT_VERSION
     as_of: datetime
+    membership_date: date | None = None
+    security_master_snapshot_id: str | None = None
     source: str
     source_snapshot_ids: tuple[str, ...]
     securities: tuple[Security, ...]
@@ -125,19 +164,54 @@ def securities_at(
     return tuple(sorted(effective, key=lambda security: security.symbol))
 
 
+def build_security_master_snapshot(
+    *,
+    observed_at: datetime,
+    source_snapshot_id: str,
+    records: Sequence[SecurityMasterRecord],
+) -> SecurityMasterSnapshot:
+    """Build a content-addressed normalized security-master snapshot."""
+
+    _require_aware(observed_at)
+    normalized_observed_at = observed_at.astimezone(UTC)
+    ordered_records = tuple(sorted(records, key=lambda record: record.symbol))
+    payload = {
+        "observed_at": normalized_observed_at.isoformat(),
+        "records": [record.model_dump(mode="json") for record in ordered_records],
+        "source_snapshot_id": source_snapshot_id,
+        "snapshot_version": SECURITY_MASTER_SNAPSHOT_VERSION,
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    return SecurityMasterSnapshot(
+        snapshot_id=f"security-master-{digest[:20]}",
+        observed_at=normalized_observed_at,
+        source_snapshot_id=source_snapshot_id,
+        records=ordered_records,
+    )
+
+
 def build_universe_snapshot(
     *,
     as_of: datetime,
+    membership_date: date | None = None,
     source: str,
     source_snapshot_ids: Sequence[str],
+    security_master_snapshot_id: str | None = None,
     securities: Sequence[Security],
 ) -> UniverseSnapshot:
     """Build a content-addressed universe snapshot from explicit membership."""
 
     _require_aware(as_of)
+    normalized_as_of = as_of.astimezone(UTC)
     ordered_securities = tuple(sorted(securities, key=lambda security: security.symbol))
     payload = {
-        "as_of": as_of.astimezone(UTC).isoformat(),
+        "as_of": normalized_as_of.isoformat(),
+        "membership_date": None if membership_date is None else membership_date.isoformat(),
+        "security_master_snapshot_id": security_master_snapshot_id,
         "securities": [security.model_dump(mode="json") for security in ordered_securities],
         "source": source.strip(),
         "source_snapshot_ids": tuple(dict.fromkeys(source_snapshot_ids)),
@@ -150,7 +224,9 @@ def build_universe_snapshot(
     ).hexdigest()
     return UniverseSnapshot(
         universe_snapshot_id=f"universe-{digest[:20]}",
-        as_of=as_of,
+        as_of=normalized_as_of,
+        membership_date=membership_date,
+        security_master_snapshot_id=security_master_snapshot_id,
         source=source,
         source_snapshot_ids=tuple(source_snapshot_ids),
         securities=ordered_securities,
@@ -163,6 +239,69 @@ class ApprovedSnapshotManifest(Protocol):
 
 class ApprovedSnapshotReader(Protocol):
     def load_manifest(self, snapshot_id: str) -> ApprovedSnapshotManifest: ...
+
+
+class SecurityMasterStoreError(RuntimeError):
+    """A normalized security-master snapshot cannot be safely persisted or read."""
+
+
+class SecurityMasterStore:
+    """Persist normalized master snapshots and resolve them by known-at time."""
+
+    def __init__(self, root: str | Path) -> None:
+        self.root = Path(root)
+        self.snapshot_dir = self.root / "universe" / "security-master"
+        self.snapshot_dir.mkdir(parents=True, exist_ok=True)
+
+    def write(
+        self,
+        snapshot: SecurityMasterSnapshot,
+        snapshot_store: ApprovedSnapshotReader,
+    ) -> SecurityMasterSnapshot:
+        manifest = snapshot_store.load_manifest(snapshot.source_snapshot_id)
+        if manifest.status is not SnapshotStatus.APPROVED:
+            raise SecurityMasterStoreError(
+                f"security master source snapshot is not approved: {snapshot.source_snapshot_id}"
+            )
+        path = self.snapshot_dir / f"{snapshot.snapshot_id}.json"
+        if path.exists():
+            existing = self.load(snapshot.snapshot_id)
+            if existing != snapshot:
+                raise SecurityMasterStoreError(
+                    "security master snapshot identity already has different content"
+                )
+            return existing
+        try:
+            path.write_text(snapshot.model_dump_json(indent=2), encoding="utf-8", newline="\n")
+        except OSError as exc:
+            raise SecurityMasterStoreError("failed to write security master snapshot") from exc
+        return snapshot
+
+    def load(self, snapshot_id: str) -> SecurityMasterSnapshot:
+        path = self.snapshot_dir / f"{snapshot_id}.json"
+        if not path.exists():
+            raise SecurityMasterStoreError(
+                f"security master snapshot does not exist: {snapshot_id}"
+            )
+        try:
+            return SecurityMasterSnapshot.model_validate_json(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise SecurityMasterStoreError(
+                f"security master snapshot is invalid: {snapshot_id}"
+            ) from exc
+
+    def latest_at(self, known_at: datetime) -> SecurityMasterSnapshot | None:
+        _require_aware(known_at)
+        snapshots = tuple(
+            self.load(path.stem) for path in self.snapshot_dir.glob("security-master-*.json")
+        )
+        eligible = tuple(snapshot for snapshot in snapshots if snapshot.observed_at <= known_at)
+        if not eligible:
+            return None
+        return max(
+            eligible,
+            key=lambda snapshot: (snapshot.observed_at, snapshot.snapshot_id),
+        )
 
 
 class UniverseOverrideStoreError(RuntimeError):

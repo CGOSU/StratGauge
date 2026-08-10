@@ -375,3 +375,10 @@
 - 完成内容：持仓工作区新增手工订单、成交和复盘录入表单；订单/成交/复盘仍分别写入本地追加式账本，持仓继续只由成交推导，不连接券商。
 - 验证：前端 typecheck、build、lint 通过；后端持仓 API 回归测试通过。
 - 遗留问题：完整股票主数据历史档案仍属于 P4-01/P4-05 未完成项。
+
+### 2026-08-11 证券主数据和双时间点搜索
+
+- 完成内容：新增 `SecurityMasterRecord`、`SecurityMasterSnapshot`、不可变 `SecurityMasterStore`；Tushare `stock_basic` 扩展标准化元数据字段，历史同步保存 L/D/P 记录并把 `membership_date`、主数据快照 ID 写入股票池快照。
+- API/前端：新增 `GET /v1/universe/master?effective_date=...&known_at=...`，查询严格阻止未来有效日期；持仓工作区新增按代码、名称、行业和控制人搜索证券主数据的时间点表单。
+- 验证：后端 211 项测试通过（1 项环境相关跳过）；Ruff、MyPy、CLI help、前端 typecheck/build/lint 通过。
+- 遗留问题：Tushare `trade_cal` 真实填充仍受 40203 月度频率限制；连续历史主数据需要在配额允许后按观察时间运行同步。

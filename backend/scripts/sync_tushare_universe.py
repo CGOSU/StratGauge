@@ -8,16 +8,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from stratgauge.data_pipeline.universe import (
+    SecurityMasterStore,
     UniverseSnapshotStore,
+    build_security_master_snapshot,
     build_universe_snapshot,
-    securities_at,
 )
 from stratgauge.data_sources.tushare_reference import (
     TUSHARE_MAIN_BOARD_MARKET,
     TushareReferenceClient,
     TushareReferenceStore,
 )
-from stratgauge.domain.models import Security
+from stratgauge.domain.models import SecurityMasterRecord
 
 
 def main() -> int:
@@ -27,11 +28,9 @@ def main() -> int:
         statuses = ("L", "D", "P") if arguments.historical else (arguments.list_status,)
         rows_by_status = {status: client.stock_basic(list_status=status) for status in statuses}
         rows = tuple(row for status in statuses for row in rows_by_status[status])
-        securities = _merge_securities(
-            tuple(client.securities(rows_by_status[status]) for status in statuses)
+        master_records = _merge_master_records(
+            tuple(client.security_master_records(rows_by_status[status]) for status in statuses)
         )
-        if arguments.historical:
-            securities = securities_at(securities, as_of=arguments.as_of.date())
         reference_store = TushareReferenceStore(arguments.root)
         source = reference_store.write(
             endpoint="stock_basic",
@@ -43,11 +42,24 @@ def main() -> int:
             records=rows,
             created_at=arguments.as_of,
         )
+        master_snapshot = build_security_master_snapshot(
+            observed_at=arguments.as_of,
+            source_snapshot_id=source.snapshot_id,
+            records=master_records,
+        )
+        SecurityMasterStore(arguments.root).write(master_snapshot, reference_store)
+        effective_securities = tuple(
+            record.to_security(effective_date=arguments.as_of.date())
+            for record in master_records
+            if record.is_effective_on(arguments.as_of.date())
+        )
         snapshot = build_universe_snapshot(
             as_of=arguments.as_of,
+            membership_date=arguments.as_of.date(),
             source="tushare:stock_basic",
             source_snapshot_ids=(source.snapshot_id,),
-            securities=securities,
+            security_master_snapshot_id=master_snapshot.snapshot_id,
+            securities=effective_securities,
         )
         stored = UniverseSnapshotStore(arguments.root).write(snapshot, reference_store)
     except (OSError, RuntimeError, ValueError) as exc:
@@ -70,22 +82,17 @@ def _parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _merge_securities(groups: tuple[tuple[Security, ...], ...]) -> tuple[Security, ...]:
-    merged: dict[str, Security] = {}
+def _merge_master_records(
+    groups: tuple[tuple[SecurityMasterRecord, ...], ...],
+) -> tuple[SecurityMasterRecord, ...]:
+    merged: dict[str, SecurityMasterRecord] = {}
     for group in groups:
-        for security in group:
-            existing = merged.get(security.symbol)
-            if existing is None:
-                merged[security.symbol] = security
-                continue
-            if existing.model_copy(update={"listed": True}) != security.model_copy(
-                update={"listed": True}
-            ):
-                raise ValueError(f"stock_basic returned conflicting metadata: {security.symbol}")
-            merged[security.symbol] = existing.model_copy(
-                update={"listed": existing.listed or security.listed}
-            )
-    return tuple(sorted(merged.values(), key=lambda security: security.symbol))
+        for record in group:
+            existing = merged.get(record.symbol)
+            if existing is not None and existing != record:
+                raise ValueError(f"stock_basic returned conflicting metadata: {record.symbol}")
+            merged[record.symbol] = record
+    return tuple(sorted(merged.values(), key=lambda record: record.symbol))
 
 
 def _parse_aware_datetime(value: str) -> datetime:

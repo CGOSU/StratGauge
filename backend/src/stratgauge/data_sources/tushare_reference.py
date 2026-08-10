@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict
 from stratgauge.data_pipeline.store import SnapshotStatus
 from stratgauge.data_sources.base import AdapterError
 from stratgauge.data_sources.tushare_api import query_tushare
-from stratgauge.domain.models import Exchange, Security, canonical_symbol
+from stratgauge.domain.models import Exchange, Security, SecurityMasterRecord, canonical_symbol
 
 ReferenceQuery = Callable[[str, Mapping[str, str]], Iterable[Mapping[str, Any]]]
 
@@ -117,7 +117,10 @@ class TushareReferenceClient:
                 "exchange": "",
                 "list_status": list_status,
                 "market": TUSHARE_MAIN_BOARD_MARKET,
-                "fields": ("ts_code,symbol,name,market,exchange,list_status,list_date,delist_date"),
+                "fields": (
+                    "ts_code,symbol,name,area,industry,fullname,enname,cnspell,market,exchange,"
+                    "curr_type,list_status,list_date,delist_date,is_hs,act_name,act_ent_type"
+                ),
             },
         )
         return tuple(row for row in rows if _is_main_board_row(row))
@@ -157,8 +160,10 @@ class TushareReferenceClient:
         )
 
     @staticmethod
-    def securities(rows: Iterable[Mapping[str, Any]]) -> tuple[Security, ...]:
-        securities: list[Security] = []
+    def security_master_records(
+        rows: Iterable[Mapping[str, Any]],
+    ) -> tuple[SecurityMasterRecord, ...]:
+        records: list[SecurityMasterRecord] = []
         for row in rows:
             ts_code = str(row.get("ts_code", "")).strip().upper()
             if ts_code.count(".") != 1:
@@ -175,24 +180,48 @@ class TushareReferenceClient:
             if exchange is None:
                 raise AdapterError(f"Tushare returned unsupported exchange: {exchange_code!r}")
             symbol = canonical_symbol(local_code, exchange)
-            listed_at = _parse_optional_date(row.get("list_date"))
-            delisted_at = _parse_optional_date(row.get("delist_date"))
-            securities.append(
-                Security(
+            records.append(
+                SecurityMasterRecord(
                     security_id=f"tushare-{symbol}",
                     local_code=local_code,
                     symbol=symbol,
                     exchange=exchange,
-                    name=str(row.get("name", "")).strip() or None,
-                    listed_at=listed_at,
-                    listed=str(row.get("list_status", "L")).strip() == "L",
-                    delisted_at=delisted_at,
+                    name=_optional_text(row.get("name")),
+                    full_name=_optional_text(row.get("fullname")),
+                    english_name=_optional_text(row.get("enname")),
+                    pinyin=_optional_text(row.get("cnspell")),
+                    area=_optional_text(row.get("area")),
+                    industry=_optional_text(row.get("industry")),
+                    market=str(row.get("market", "")).strip(),
+                    currency=_optional_text(row.get("curr_type")),
+                    list_status=str(row.get("list_status", "")).strip().upper(),
+                    listed_at=_parse_optional_date(row.get("list_date")),
+                    delisted_at=_parse_optional_date(row.get("delist_date")),
+                    hs_constituent=_optional_text(row.get("is_hs")),
+                    actual_controller=_optional_text(row.get("act_name")),
+                    actual_controller_type=_optional_text(row.get("act_ent_type")),
                 )
             )
-        by_symbol = {security.symbol: security for security in securities}
-        if len(by_symbol) != len(securities):
+        by_symbol = {record.symbol: record for record in records}
+        if len(by_symbol) != len(records):
             raise AdapterError("Tushare stock_basic returned duplicate symbols")
-        return tuple(sorted(by_symbol.values(), key=lambda security: security.symbol))
+        return tuple(sorted(by_symbol.values(), key=lambda record: record.symbol))
+
+    @staticmethod
+    def securities(rows: Iterable[Mapping[str, Any]]) -> tuple[Security, ...]:
+        return tuple(
+            Security(
+                security_id=record.security_id,
+                local_code=record.local_code,
+                symbol=record.symbol,
+                exchange=record.exchange,
+                name=record.name,
+                listed_at=record.listed_at,
+                listed=record.list_status == "L",
+                delisted_at=record.delisted_at,
+            )
+            for record in TushareReferenceClient.security_master_records(rows)
+        )
 
     @staticmethod
     def _query_from_tushare(
@@ -220,6 +249,12 @@ def _is_main_board_row(row: Mapping[str, Any]) -> bool:
     market = str(row.get("market", "")).strip()
     exchange = str(row.get("exchange", "")).strip().upper()
     return market == TUSHARE_MAIN_BOARD_MARKET and exchange in TUSHARE_MAIN_BOARD_EXCHANGES
+
+
+def _optional_text(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    return str(value).strip() or None
 
 
 def _parse_optional_date(value: Any) -> date | None:

@@ -136,6 +136,81 @@ class Security(DomainModel):
         return self
 
 
+class SecurityMasterRecord(DomainModel):
+    """Normalized provider metadata for one security at one observation time."""
+
+    security_id: str
+    local_code: str
+    symbol: str
+    exchange: Exchange
+    name: str | None = None
+    full_name: str | None = None
+    english_name: str | None = None
+    pinyin: str | None = None
+    area: str | None = None
+    industry: str | None = None
+    market: str
+    currency: str | None = None
+    list_status: str
+    listed_at: date | None = None
+    delisted_at: date | None = None
+    hs_constituent: str | None = None
+    actual_controller: str | None = None
+    actual_controller_type: str | None = None
+
+    @field_validator("security_id", "market", "list_status")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        return _require_id(value)
+
+    @field_validator(
+        "name",
+        "full_name",
+        "english_name",
+        "pinyin",
+        "area",
+        "industry",
+        "currency",
+        "hs_constituent",
+        "actual_controller",
+        "actual_controller_type",
+    )
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        return None if value is None else value.strip() or None
+
+    @model_validator(mode="after")
+    def validate_master_identity(self) -> SecurityMasterRecord:
+        if self.symbol != canonical_symbol(self.local_code, self.exchange):
+            raise ValueError("symbol must match local_code and exchange")
+        if (
+            self.listed_at is not None
+            and self.delisted_at is not None
+            and self.delisted_at < self.listed_at
+        ):
+            raise ValueError("delisted_at must not precede listed_at")
+        return self
+
+    def is_effective_on(self, effective_date: date) -> bool:
+        return (self.listed_at is None or self.listed_at <= effective_date) and (
+            self.delisted_at is None or self.delisted_at > effective_date
+        )
+
+    def to_security(self, *, effective_date: date) -> Security:
+        if not self.is_effective_on(effective_date):
+            raise ValueError("security is not effective at effective_date")
+        return Security(
+            security_id=self.security_id,
+            local_code=self.local_code,
+            symbol=self.symbol,
+            exchange=self.exchange,
+            name=self.name,
+            listed_at=self.listed_at,
+            listed=True,
+            delisted_at=self.delisted_at,
+        )
+
+
 class DailyBar(DomainModel):
     security_id: str
     symbol: str

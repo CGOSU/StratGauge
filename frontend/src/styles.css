@@ -935,6 +935,24 @@
   margin: 0;
 }
 
+.portfolio-master-search {
+  display: grid;
+  gap: 12px;
+}
+
+.portfolio-search-form {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) 180px auto;
+}
+
+.portfolio-master-results {
+  border-top: 1px solid var(--color-border-subtle);
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+}
+
 .portfolio-entry-form select {
   min-height: 40px;
 }
@@ -1726,6 +1744,7 @@
   .candidate-row,
   .mature-form,
   .portfolio-entry-grid,
+  .portfolio-search-form,
   .portfolio-ledger-grid,
   .manual-entry-fields,
   .maturity-task-meta {

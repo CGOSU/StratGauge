@@ -167,12 +167,34 @@ corepack pnpm dev
 打开 Vite 输出的本地地址。默认数据写入 `backend/data/selection` 和
 `backend/data/selection-market`；这些运行数据已被 Git 忽略，不应提交到仓库。
 
-### 2. 创建公式目录项
+### 2. 搜索时间点证券主数据
+
+持仓工作区提供证券主数据搜索，也可直接调用 API：
+
+```text
+GET /v1/universe/master?effective_date=2026-01-05&known_at=2026-08-11T09:00:00+08:00&query=银行
+```
+
+`effective_date` 用于判断上市/退市生命周期，`known_at` 用于选择当时已经观察到的主数据快照；不能用未来的主数据回答历史问题。用户名称覆写只改变显示，不修改供应商事实或股票池成员资格。
+
+需要补齐历史主板股票池时，显式运行：
+
+```bash
+cd backend
+PYTHONPATH=src uv run python scripts/sync_tushare_universe.py \
+  --root data \
+  --as-of 2026-08-11T17:00:00+08:00 \
+  --historical
+```
+
+该命令保存 L/D/P 主数据快照和按 `membership_date` 过滤的沪深主板股票池；重复运行相同观察时间会复用内容地址，连续历史档案需要在各观察时间显式运行。
+
+### 3. 创建公式目录项
 
 进入“数据管理” → “公式目录” → “新建公式”，填写公式名称、版本和说明。
 StratGauge 不解析或执行通达信公式，只保存公式目录和版本留痕。历史批次引用的公式不会被原地修改；调整公式时应新建版本。
 
-### 3. 每日收盘后导入选股结果
+### 4. 每日收盘后导入选股结果
 
 如果当天运行了通达信选股公式并需要纳入研究，建议在当日收盘后导出：
 
@@ -195,7 +217,7 @@ PYTHONPATH=src uv run python scripts/import_tdx_selection.py \
   --formula-version v1
 ```
 
-### 4. 人工标注
+### 5. 人工标注
 
 在研究工作台选择批次，为每只候选记录：
 
@@ -206,7 +228,7 @@ PYTHONPATH=src uv run python scripts/import_tdx_selection.py \
 
 人工标签是用户当时的决策记录，不是客观输赢标签。标签只追加保存，不覆盖历史。标注必须发生在导出时间之后，并在下一自然日 `00:00` 前完成；超过冻结时间应保留为未标注，而不是补写历史判断。
 
-### 5. 创建并执行成熟任务
+### 6. 创建并执行成熟任务
 
 成熟任务用于在未来数据已经可用后计算客观结果。研究工作台选择行情源、评估时间、持有交易日、单笔名义金额、最大重试次数和超时后，点击“创建并执行一次”。
 
@@ -245,7 +267,7 @@ PYTHONPATH=src uv run python scripts/queue_selection_maturity_tasks.py \
 
 队列只使用 `approved` 的全市场快照；任务保存固定股票池和输入快照 ID，运行时重放本地快照，不重新请求供应商。扫描必须使用显式交易日历，不能用自然日补齐缺口。
 
-### 6. 查看统计和管理证据
+### 7. 查看统计和管理证据
 
 “数据管理”支持按状态、来源、公式版本、选股日期、最新人工决策和结果政策筛选。统计区显示匹配批次、候选样本、待定数、结果样本、胜率和平均净收益。
 
@@ -264,7 +286,7 @@ GET /v1/selection-batches/{batch_id}/candidates/{candidate_id}/analysis
 
 接口按当前批次导出时间点筛选同公式历史结果；如历史样本包含多个追踪政策，需要追加 `tracking_policy_id` 查询参数。完成样本少于 100 个时显示“证据不足”而不返回胜率；历史入场价仅显示实际入场价分布，不构成买入价建议。
 
-### 7. 导出数据集和时间切分
+### 8. 导出数据集和时间切分
 
 数据管理可以下载带 `schema_version=selection-dataset-v2` 的 JSONL；每条成熟结果同时记录 `outcome_policy_id`。CLI 导出不会覆盖已有文件：
 

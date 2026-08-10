@@ -52,6 +52,7 @@ from stratgauge.api.selections import (
     SelectionStatsView,
 )
 from stratgauge.api.universe import (
+    SecurityMasterSearchResponse,
     SecurityOverrideRequest,
     UniverseSearchError,
     UniverseSearchResponse,
@@ -62,7 +63,11 @@ from stratgauge.backtest.selection_analysis import SelectionCandidateAnalysis
 from stratgauge.data_pipeline.portfolio_store import ManualPortfolioStore
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.data_pipeline.store import SnapshotStore
-from stratgauge.data_pipeline.universe import UniverseOverrideStore, UniverseSnapshotStore
+from stratgauge.data_pipeline.universe import (
+    SecurityMasterStore,
+    UniverseOverrideStore,
+    UniverseSnapshotStore,
+)
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.baostock import BaoStockAdapter
 from stratgauge.data_sources.base import MarketDataAdapter
@@ -100,6 +105,7 @@ def create_app(
     universe = UniverseSearchService(
         universe_store or UniverseSnapshotStore(universe_root),
         UniverseOverrideStore(universe_root),
+        SecurityMasterStore(universe_root),
     )
     score_store = ShadowScoreStore(model_root)
     model_scores = ModelScoreService(
@@ -169,6 +175,20 @@ def create_app(
     def create_universe_override(request: SecurityOverrideRequest) -> SecurityOverrideRequest:
         return SecurityOverrideRequest.model_validate(
             universe.create_override(request).model_dump()
+        )
+
+    @app.get("/v1/universe/master", response_model=SecurityMasterSearchResponse)
+    def search_security_master(
+        effective_date: date,
+        known_at: datetime,
+        query: str = "",
+        limit: int = 50,
+    ) -> SecurityMasterSearchResponse:
+        return universe.search_master(
+            query=query,
+            effective_date=effective_date,
+            known_at=known_at,
+            limit=limit,
         )
 
     @app.get("/v1/universe/securities", response_model=UniverseSearchResponse)
