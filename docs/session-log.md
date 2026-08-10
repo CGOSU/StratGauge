@@ -234,3 +234,9 @@
 - 实际验证：使用 `http://localhost:5175/` 生成桌面和 390px 视口截图；确认桌面标题单行、移动端无横向溢出、主要按钮和输入控件焦点/尺寸稳定；通过 Chrome DevTools 390px 指标确认 `document.scrollWidth=375`、无横向溢出，标题和状态卡均在容器内。
 - 验证：前端 `corepack pnpm typecheck`、`corepack pnpm build`、`corepack pnpm lint` 通过。
 - 遗留问题：页面仍是浅色主题，尚未增加完整视觉回归测试或 Storybook；不新增暗色模式，除非产品需求改变。
+
+### 2026-08-10 A 股主色和日期/下拉控件优化
+
+- 完成内容：将主要操作色从绿色改为 A 股涨势红；盈利/候选徽章同步使用涨势红，风险错误仍使用独立 danger 语义，信息与焦点保持蓝色。
+- 完成内容：继续使用原生 `date`/`datetime-local` 控件，统一 44px 高度、浅色配色、日历图标 hover 和焦点状态；Radix Select 的触发器、弹层、选项、滚动按钮和分隔线改为语义组件样式。
+- 验证：前端 `corepack pnpm typecheck`、`corepack pnpm build`、`corepack pnpm lint` 通过；使用 `http://localhost:5175/` 实际展开下拉弹层并生成桌面截图，确认红色主按钮、日期图标和选项高亮显示正常；390px 视口 `scrollWidth=390`，无横向溢出；`git diff --check` 通过。

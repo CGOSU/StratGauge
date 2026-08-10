@@ -21,9 +21,13 @@
     --color-selection-soft: #f1f5ff;
     --color-selection-border: #9fbcf0;
     --color-input-border: #c0cedc;
-    --color-primary: #1f7a4c;
-    --color-primary-600: #17603b;
-    --color-primary-700: #124c30;
+    /* A-share profit red: primary action and winning signal */
+    --color-primary: #c2413b;
+    --color-primary-600: #a83232;
+    --color-primary-700: #872626;
+    --color-profit: #c2413b;
+    --color-profit-soft: #fff1f0;
+    --color-profit-border: #f2b8b3;
     --color-accent: #2563eb;
     --color-accent-dark: #1e4fae;
     --color-accent-soft: #eef4ff;
@@ -67,7 +71,7 @@
     --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
-    --primary: 151 59% 30%;
+    --primary: 4 52% 50%;
     --primary-foreground: 0 0% 100%;
     --secondary: 210 40% 96%;
     --secondary-foreground: 222 47% 18%;
@@ -315,6 +319,26 @@
     color: var(--color-muted);
   }
 
+  .input-base[type="date"],
+  .input-base[type="datetime-local"] {
+    accent-color: var(--color-primary);
+    color-scheme: light;
+  }
+
+  .input-base[type="date"]::-webkit-calendar-picker-indicator,
+  .input-base[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    opacity: 0.72;
+    padding: 4px;
+  }
+
+  .input-base[type="date"]::-webkit-calendar-picker-indicator:hover,
+  .input-base[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+    background: var(--color-accent-soft);
+    opacity: 1;
+  }
+
   .input-base:focus-visible,
   .select-trigger:focus-visible,
   .native-select:focus-visible {
@@ -327,6 +351,68 @@
   .select-trigger:disabled {
     cursor: not-allowed;
     opacity: 0.58;
+  }
+
+  .select-trigger {
+    min-width: 0;
+  }
+
+  .select-trigger:hover {
+    border-color: var(--color-accent-border);
+  }
+
+  .select-trigger[data-state="open"] {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+  }
+
+  .select-content {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-2);
+    color: var(--color-text);
+  }
+
+  .select-item {
+    border-radius: var(--radius-sm);
+    color: var(--color-text-soft);
+    min-height: 40px;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .select-item[data-highlighted],
+  .select-item:focus {
+    background: var(--color-accent-soft);
+    color: var(--color-accent-dark);
+    outline: none;
+  }
+
+  .select-item[data-state="checked"] {
+    color: var(--color-accent-strong);
+    font-weight: 650;
+  }
+
+  .select-item[data-disabled] {
+    cursor: not-allowed;
+  }
+
+  .select-item-indicator {
+    color: var(--color-accent);
+  }
+
+  .select-label {
+    color: var(--color-heading-soft);
+    font-weight: 650;
+  }
+
+  .select-scroll-button {
+    color: var(--color-accent-dark);
+    min-height: 28px;
+  }
+
+  .select-separator {
+    background: var(--color-border);
   }
 }
 
@@ -797,16 +883,30 @@
 .native-select {
   background: var(--color-surface);
   border: 1px solid var(--color-input-border);
-  border-radius: 0.375rem;
-  height: 2.75rem;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  color-scheme: light;
+  cursor: pointer;
+  height: 44px;
   min-width: 0;
-  padding: 0 0.75rem;
+  padding: 0 12px;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
   width: 100%;
 }
 
+.native-select:hover {
+  border-color: var(--color-accent-border);
+}
+
 .native-select:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+  outline: none;
+}
+
+.native-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .manual-preview {
@@ -1189,9 +1289,9 @@
 
 .decision-badge--buy_candidate,
 .outcome-badge--win {
-  background: var(--color-success-soft);
-  border-color: var(--color-success-border);
-  color: var(--color-success);
+  background: var(--color-profit-soft);
+  border-color: var(--color-profit-border);
+  color: var(--color-profit);
 }
 
 .decision-badge--watch {
