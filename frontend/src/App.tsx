@@ -514,6 +514,16 @@ function PortfolioWorkspace({ apiBase }: { apiBase: string }) {
   const [orders, setOrders] = useState<ManualOrder[]>([])
   const [fills, setFills] = useState<ManualFill[]>([])
   const [reviews, setReviews] = useState<PortfolioReview[]>([])
+  const [orderCode, setOrderCode] = useState('')
+  const [orderExchange, setOrderExchange] = useState<Exchange>('SZ')
+  const [orderSide, setOrderSide] = useState<'buy' | 'sell'>('buy')
+  const [orderQuantity, setOrderQuantity] = useState('100')
+  const [fillOrderId, setFillOrderId] = useState('')
+  const [fillQuantity, setFillQuantity] = useState('100')
+  const [fillPrice, setFillPrice] = useState('')
+  const [reviewSymbol, setReviewSymbol] = useState('')
+  const [reviewNote, setReviewNote] = useState('')
+  const [ledgerBusy, setLedgerBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -545,6 +555,85 @@ function PortfolioWorkspace({ apiBase }: { apiBase: string }) {
     return () => controller.abort()
   }, [apiBase])
 
+  async function createOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setLedgerBusy(true)
+    setError(null)
+    try {
+      const order = await requestJson<ManualOrder>(`${apiBase}/v1/manual-orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: crypto.randomUUID(),
+          local_code: orderCode,
+          exchange: orderExchange,
+          side: orderSide,
+          ordered_at: new Date().toISOString(),
+          quantity: orderQuantity,
+        }),
+      })
+      setOrders((current) => [...current, order])
+      setOrderCode('')
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '录入订单失败。')
+    } finally {
+      setLedgerBusy(false)
+    }
+  }
+
+  async function createFill(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setLedgerBusy(true)
+    setError(null)
+    try {
+      const fill = await requestJson<ManualFill>(`${apiBase}/v1/manual-fills`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fill_id: crypto.randomUUID(),
+          order_id: fillOrderId,
+          filled_at: new Date().toISOString(),
+          quantity: fillQuantity,
+          price: fillPrice,
+        }),
+      })
+      setFills((current) => [...current, fill])
+      const nextPositions = await requestJson<PortfolioPosition[]>(`${apiBase}/v1/positions`)
+      setPositions(nextPositions)
+      setFillOrderId('')
+      setFillPrice('')
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '录入成交失败。')
+    } finally {
+      setLedgerBusy(false)
+    }
+  }
+
+  async function createReview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setLedgerBusy(true)
+    setError(null)
+    try {
+      const review = await requestJson<PortfolioReview>(`${apiBase}/v1/portfolio-reviews`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          review_id: crypto.randomUUID(),
+          symbol: reviewSymbol,
+          reviewed_at: new Date().toISOString(),
+          note: reviewNote,
+        }),
+      })
+      setReviews((current) => [...current, review])
+      setReviewSymbol('')
+      setReviewNote('')
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '保存复盘失败。')
+    } finally {
+      setLedgerBusy(false)
+    }
+  }
+
   return (
     <section className="portfolio-workspace" aria-label="手工持仓台账工作区">
       <div className="workspace-intro">
@@ -556,6 +645,33 @@ function PortfolioWorkspace({ apiBase }: { apiBase: string }) {
         <Badge variant="secondary">只读汇总</Badge>
       </div>
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+      <div className="portfolio-entry-grid">
+        <form className="portfolio-entry-form" onSubmit={createOrder}>
+          <h3>录入订单</h3>
+          <Input value={orderCode} onChange={(event) => setOrderCode(event.target.value)} placeholder="六位代码" required />
+          <select value={orderExchange} onChange={(event) => setOrderExchange(event.target.value as Exchange)} aria-label="订单交易所">
+            <option value="SZ">SZ</option><option value="SH">SH</option><option value="BJ">BJ</option>
+          </select>
+          <select value={orderSide} onChange={(event) => setOrderSide(event.target.value as 'buy' | 'sell')} aria-label="订单方向">
+            <option value="buy">买入</option><option value="sell">卖出</option>
+          </select>
+          <Input type="number" min="1" value={orderQuantity} onChange={(event) => setOrderQuantity(event.target.value)} placeholder="数量" required />
+          <Button type="submit" size="sm" disabled={ledgerBusy}>保存订单</Button>
+        </form>
+        <form className="portfolio-entry-form" onSubmit={createFill}>
+          <h3>录入成交</h3>
+          <Input value={fillOrderId} onChange={(event) => setFillOrderId(event.target.value)} placeholder="订单 ID" required />
+          <Input type="number" min="1" value={fillQuantity} onChange={(event) => setFillQuantity(event.target.value)} placeholder="数量" required />
+          <Input type="number" min="0.0001" step="0.0001" value={fillPrice} onChange={(event) => setFillPrice(event.target.value)} placeholder="成交价" required />
+          <Button type="submit" size="sm" disabled={ledgerBusy}>保存成交</Button>
+        </form>
+        <form className="portfolio-entry-form" onSubmit={createReview}>
+          <h3>添加复盘</h3>
+          <Input value={reviewSymbol} onChange={(event) => setReviewSymbol(event.target.value)} placeholder="代码.交易所" required />
+          <Input value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} placeholder="复盘内容" required />
+          <Button type="submit" size="sm" disabled={ledgerBusy}>保存复盘</Button>
+        </form>
+      </div>
       {loading ? <Skeleton /> : (
         <>
           <div className="portfolio-position-grid">

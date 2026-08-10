@@ -911,6 +911,34 @@
   gap: 18px;
 }
 
+.portfolio-entry-grid,
+.portfolio-position-grid,
+.portfolio-ledger-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.portfolio-entry-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.portfolio-entry-form {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 0.65rem;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.portfolio-entry-form h3 {
+  margin: 0;
+}
+
+.portfolio-entry-form select {
+  min-height: 40px;
+}
+
 .portfolio-position-grid,
 .portfolio-ledger-grid {
   display: grid;
@@ -1697,6 +1725,7 @@
 
   .candidate-row,
   .mature-form,
+  .portfolio-entry-grid,
   .portfolio-ledger-grid,
   .manual-entry-fields,
   .maturity-task-meta {
