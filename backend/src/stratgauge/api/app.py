@@ -83,43 +83,54 @@ from stratgauge.domain.selections import (
 )
 from stratgauge.ml.registry import ModelRegistryStore
 from stratgauge.ml.shadow import ShadowScoreStore
+from stratgauge.runtime import RuntimeConfig
 
 
 def create_app(
     records: Mapping[tuple[str, date], AnalysisRecord] | None = None,
     *,
     selection_store: SelectionImportStore | None = None,
-    selection_root: str | Path = Path("data/selection"),
-    market_root: str | Path = Path("data/selection-market"),
+    data_root: str | Path = Path("data"),
+    selection_root: str | Path | None = None,
+    market_root: str | Path | None = None,
     market_adapter_factory: Callable[[str], MarketDataAdapter] | None = None,
     portfolio_store: ManualPortfolioStore | None = None,
-    portfolio_root: str | Path = Path("data/portfolio"),
+    portfolio_root: str | Path | None = None,
     universe_store: UniverseSnapshotStore | None = None,
-    universe_root: str | Path = Path("data"),
-    model_root: str | Path = Path("data"),
+    universe_root: str | Path | None = None,
+    model_root: str | Path | None = None,
 ) -> FastAPI:
-    service = AnalysisService(InMemoryAnalysisRepository(records or {}))
-    selection_store_instance = selection_store or SelectionImportStore(selection_root)
-    selections = SelectionService(selection_store_instance)
-    portfolio = PortfolioService(portfolio_store or ManualPortfolioStore(portfolio_root))
-    universe = UniverseSearchService(
-        universe_store or UniverseSnapshotStore(universe_root),
-        UniverseOverrideStore(universe_root),
-        SecurityMasterStore(universe_root),
+    runtime = RuntimeConfig.from_environment(
+        data_root,
+        selection_root=selection_root,
+        market_root=market_root,
+        portfolio_root=portfolio_root,
+        universe_root=universe_root,
+        model_root=model_root,
     )
-    score_store = ShadowScoreStore(model_root)
+    service = AnalysisService(InMemoryAnalysisRepository(records or {}))
+    selection_store_instance = selection_store or SelectionImportStore(runtime.selection_root)
+    selections = SelectionService(selection_store_instance)
+    portfolio = PortfolioService(portfolio_store or ManualPortfolioStore(runtime.portfolio_root))
+    universe = UniverseSearchService(
+        universe_store or UniverseSnapshotStore(runtime.universe_root),
+        UniverseOverrideStore(runtime.universe_root),
+        SecurityMasterStore(runtime.universe_root),
+    )
+    score_store = ShadowScoreStore(runtime.model_root)
     model_scores = ModelScoreService(
         selection_store_instance,
-        model_registry=ModelRegistryStore(model_root),
+        model_registry=ModelRegistryStore(runtime.model_root),
         score_store=score_store,
     )
     recommendations = RecommendationWorkbenchService(
         selection_store_instance,
         score_store=score_store,
-        market_store=SnapshotStore(market_root),
+        market_store=SnapshotStore(runtime.market_root),
     )
     create_market_adapter = market_adapter_factory or _create_market_adapter
     app = FastAPI(title="StratGauge API", version="0.1.0")
+    app.state.runtime_config = runtime
 
     @app.exception_handler(AnalysisError)
     async def handle_analysis_error(_: Any, error: AnalysisError) -> JSONResponse:
@@ -313,7 +324,7 @@ def create_app(
         return selections.run_maturity_task(
             task_id,
             adapter=create_market_adapter(task.provider),
-            market_store=SnapshotStore(market_root),
+            market_store=SnapshotStore(runtime.market_root),
         )
 
     @app.get(
@@ -460,7 +471,7 @@ def create_app(
             batch_id,
             request,
             adapter=create_market_adapter(request.provider),
-            market_store=SnapshotStore(market_root),
+            market_store=SnapshotStore(runtime.market_root),
         )
 
     @app.post("/v1/selection-batches/{batch_id}/labels", response_model=SelectionBatchView)

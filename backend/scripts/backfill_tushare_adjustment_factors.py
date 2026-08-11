@@ -67,7 +67,7 @@ def _parse_arguments() -> argparse.Namespace:
     parser.add_argument("--calendar-file", type=Path, required=True)
     parser.add_argument("--universe-snapshot-id", required=True)
     parser.add_argument("--universe-root", type=Path, default=Path("data"))
-    parser.add_argument("--market-root", type=Path, default=Path("data/market"))
+    parser.add_argument("--market-root", type=Path, default=Path("data/selection-market"))
     parser.add_argument(
         "--minimum-coverage",
         type=_parse_decimal,
