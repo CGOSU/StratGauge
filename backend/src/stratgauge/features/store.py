@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.features.contract import FeatureSnapshot
 
 
@@ -20,17 +21,22 @@ class FeatureSnapshotStore:
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
 
     def write(self, snapshot: FeatureSnapshot) -> FeatureSnapshot:
-        path = self.snapshot_dir / f"{snapshot.feature_snapshot_id}.json"
-        if path.exists():
-            existing = self.load(snapshot.feature_snapshot_id)
-            if existing != snapshot:
-                raise FeatureStoreError("feature snapshot identity already has different content")
-            return existing
-        try:
-            path.write_text(snapshot.model_dump_json(indent=2), encoding="utf-8", newline="\n")
-        except OSError as exc:
-            raise FeatureStoreError("failed to write feature snapshot") from exc
-        return snapshot
+        with local_write_lock(self.root, name="features"):
+            path = self.snapshot_dir / f"{snapshot.feature_snapshot_id}.json"
+            if path.exists():
+                existing = self.load(snapshot.feature_snapshot_id)
+                if existing != snapshot:
+                    raise FeatureStoreError(
+                        "feature snapshot identity already has different content"
+                    )
+                return existing
+            try:
+                path.write_text(
+                    snapshot.model_dump_json(indent=2), encoding="utf-8", newline="\n"
+                )
+            except OSError as exc:
+                raise FeatureStoreError("failed to write feature snapshot") from exc
+            return snapshot
 
     def load(self, feature_snapshot_id: str) -> FeatureSnapshot:
         path = self.snapshot_dir / f"{feature_snapshot_id}.json"
