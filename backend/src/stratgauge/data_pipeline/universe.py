@@ -11,6 +11,7 @@ from typing import Protocol
 
 from pydantic import Field, field_validator, model_validator
 
+from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.data_pipeline.store import SnapshotStatus
 from stratgauge.domain.models import (
     DomainModel,
@@ -258,24 +259,30 @@ class SecurityMasterStore:
         snapshot: SecurityMasterSnapshot,
         snapshot_store: ApprovedSnapshotReader,
     ) -> SecurityMasterSnapshot:
-        manifest = snapshot_store.load_manifest(snapshot.source_snapshot_id)
-        if manifest.status is not SnapshotStatus.APPROVED:
-            raise SecurityMasterStoreError(
-                f"security master source snapshot is not approved: {snapshot.source_snapshot_id}"
-            )
-        path = self.snapshot_dir / f"{snapshot.snapshot_id}.json"
-        if path.exists():
-            existing = self.load(snapshot.snapshot_id)
-            if existing != snapshot:
+        with local_write_lock(self.root, name="universe"):
+            manifest = snapshot_store.load_manifest(snapshot.source_snapshot_id)
+            if manifest.status is not SnapshotStatus.APPROVED:
                 raise SecurityMasterStoreError(
-                    "security master snapshot identity already has different content"
+                    "security master source snapshot is not approved: "
+                    f"{snapshot.source_snapshot_id}"
                 )
-            return existing
-        try:
-            path.write_text(snapshot.model_dump_json(indent=2), encoding="utf-8", newline="\n")
-        except OSError as exc:
-            raise SecurityMasterStoreError("failed to write security master snapshot") from exc
-        return snapshot
+            path = self.snapshot_dir / f"{snapshot.snapshot_id}.json"
+            if path.exists():
+                existing = self.load(snapshot.snapshot_id)
+                if existing != snapshot:
+                    raise SecurityMasterStoreError(
+                        "security master snapshot identity already has different content"
+                    )
+                return existing
+            try:
+                path.write_text(
+                    snapshot.model_dump_json(indent=2), encoding="utf-8", newline="\n"
+                )
+            except OSError as exc:
+                raise SecurityMasterStoreError(
+                    "failed to write security master snapshot"
+                ) from exc
+            return snapshot
 
     def load(self, snapshot_id: str) -> SecurityMasterSnapshot:
         path = self.snapshot_dir / f"{snapshot_id}.json"
@@ -317,19 +324,22 @@ class UniverseOverrideStore:
         self.override_dir.mkdir(parents=True, exist_ok=True)
 
     def write(self, override: SecurityOverride) -> SecurityOverride:
-        path = self.override_dir / f"{override.override_id}.json"
-        if path.exists():
-            existing = self.load(override.override_id)
-            if existing != override:
-                raise UniverseOverrideStoreError(
-                    "security override identity already has different content"
+        with local_write_lock(self.root, name="universe"):
+            path = self.override_dir / f"{override.override_id}.json"
+            if path.exists():
+                existing = self.load(override.override_id)
+                if existing != override:
+                    raise UniverseOverrideStoreError(
+                        "security override identity already has different content"
+                    )
+                return existing
+            try:
+                path.write_text(
+                    override.model_dump_json(indent=2), encoding="utf-8", newline="\n"
                 )
-            return existing
-        try:
-            path.write_text(override.model_dump_json(indent=2), encoding="utf-8", newline="\n")
-        except OSError as exc:
-            raise UniverseOverrideStoreError("failed to write security override") from exc
-        return override
+            except OSError as exc:
+                raise UniverseOverrideStoreError("failed to write security override") from exc
+            return override
 
     def load(self, override_id: str) -> SecurityOverride:
         path = self.override_dir / f"{override_id}.json"
@@ -367,25 +377,28 @@ class UniverseSnapshotStore:
         snapshot: UniverseSnapshot,
         snapshot_store: ApprovedSnapshotReader,
     ) -> UniverseSnapshot:
-        for source_snapshot_id in snapshot.source_snapshot_ids:
-            manifest = snapshot_store.load_manifest(source_snapshot_id)
-            if manifest.status is not SnapshotStatus.APPROVED:
-                raise UniverseSnapshotStoreError(
-                    f"universe source snapshot is not approved: {source_snapshot_id}"
+        with local_write_lock(self.root, name="universe"):
+            for source_snapshot_id in snapshot.source_snapshot_ids:
+                manifest = snapshot_store.load_manifest(source_snapshot_id)
+                if manifest.status is not SnapshotStatus.APPROVED:
+                    raise UniverseSnapshotStoreError(
+                        f"universe source snapshot is not approved: {source_snapshot_id}"
+                    )
+            path = self.snapshot_dir / f"{snapshot.universe_snapshot_id}.json"
+            if path.exists():
+                existing = self.load(snapshot.universe_snapshot_id)
+                if existing != snapshot:
+                    raise UniverseSnapshotStoreError(
+                        "universe snapshot identity already has different content"
+                    )
+                return existing
+            try:
+                path.write_text(
+                    snapshot.model_dump_json(indent=2), encoding="utf-8", newline="\n"
                 )
-        path = self.snapshot_dir / f"{snapshot.universe_snapshot_id}.json"
-        if path.exists():
-            existing = self.load(snapshot.universe_snapshot_id)
-            if existing != snapshot:
-                raise UniverseSnapshotStoreError(
-                    "universe snapshot identity already has different content"
-                )
-            return existing
-        try:
-            path.write_text(snapshot.model_dump_json(indent=2), encoding="utf-8", newline="\n")
-        except OSError as exc:
-            raise UniverseSnapshotStoreError("failed to write universe snapshot") from exc
-        return snapshot
+            except OSError as exc:
+                raise UniverseSnapshotStoreError("failed to write universe snapshot") from exc
+            return snapshot
 
     def load(self, universe_snapshot_id: str) -> UniverseSnapshot:
         path = self.snapshot_dir / f"{universe_snapshot_id}.json"

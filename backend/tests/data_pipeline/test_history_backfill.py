@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from stratgauge.data_pipeline.data_access import DataAccessDecision
 from stratgauge.data_pipeline.history_backfill import (
     HistoryBackfillRequest,
     HistoryBackfillStatus,
@@ -82,6 +83,45 @@ class HistoryBackfillTests(unittest.TestCase):
         self.assertEqual(report.approved_snapshot_ids, ())
         self.assertEqual(len(report.rejected_snapshot_ids), 1)
         self.assertIn(target.security_id, report.quality_failure_security_ids)
+
+    def test_offline_mode_reuses_exact_snapshot_without_calling_provider(self) -> None:
+        calls = 0
+
+        def fetch(request: DailyBarRequest) -> list[dict[str, str]]:
+            nonlocal calls
+            calls += 1
+            return [_bar("2026-01-02"), _bar("2026-01-05")]
+
+        def unexpected_fetch(_: DailyBarRequest) -> list[dict[str, str]]:
+            raise AssertionError("offline backfill must not call provider")
+
+        with TemporaryDirectory() as directory:
+            market_store = SnapshotStore(directory)
+            backfill_selection_history(
+                _request(),
+                build_history_backfill_targets(_selection()),
+                adapter=AKShareAdapter(fetcher=fetch, clock=lambda: FETCHED_AT),
+                market_store=market_store,
+            )
+            report = backfill_selection_history(
+                _request(),
+                build_history_backfill_targets(_selection()),
+                adapter=AKShareAdapter(
+                    fetcher=unexpected_fetch,
+                    clock=lambda: FETCHED_AT,
+                ),
+                market_store=market_store,
+                remote_allowed=False,
+            )
+
+        self.assertEqual(calls, 1)
+        self.assertTrue(report.ready)
+        self.assertFalse(report.remote_allowed)
+        self.assertEqual(
+            report.target_reports[0].access_plan.decision,
+            DataAccessDecision.CACHE_HIT,
+        )
+
 
     def test_empty_provider_response_is_reported_as_missing_security(self) -> None:
         with TemporaryDirectory() as directory:

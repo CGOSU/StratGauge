@@ -52,6 +52,7 @@ def main() -> int:
             targets,
             adapter=_adapter(arguments.provider),
             market_store=SnapshotStore(arguments.market_root),
+            remote_allowed=not arguments.offline,
         )
         if arguments.output:
             write_history_backfill_report(arguments.output, report)
@@ -127,7 +128,15 @@ def _parse_arguments() -> argparse.Namespace:
         help="explicit CODE.EXCHANGE industry symbol; may be repeated",
     )
     parser.add_argument("--output", type=Path)
-    return parser.parse_args()
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="只读取已批准单票快照；必须同时提供 --sessions-file，不访问日历或行情 provider",
+    )
+    arguments = parser.parse_args()
+    if arguments.offline and arguments.sessions_file is None:
+        parser.error("--offline requires --sessions-file")
+    return arguments
 
 
 def _load_sessions(arguments: argparse.Namespace, selection_date: date) -> tuple[date, ...]:

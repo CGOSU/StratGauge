@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.data_pipeline.store import SnapshotStatus
 from stratgauge.data_sources.base import AdapterError
 from stratgauge.data_sources.tushare_api import query_tushare
@@ -59,33 +60,36 @@ class TushareReferenceStore:
     ) -> TushareReferenceSnapshot:
         if created_at.tzinfo is None or created_at.utcoffset() is None:
             raise TushareReferenceStoreError("created_at must include a timezone")
-        ordered_records = tuple(dict(record) for record in records)
-        payload = {
-            "endpoint": endpoint,
-            "records": ordered_records,
-            "request": dict(sorted(request.items())),
-        }
-        content = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        snapshot = TushareReferenceSnapshot(
-            snapshot_id=f"tushare-reference-{digest[:20]}",
-            endpoint=endpoint,
-            request=dict(sorted(request.items())),
-            content_sha256=digest,
-            raw_path=f"tushare/reference/raw/{digest}.json",
-            created_at=created_at,
-        )
-        manifest_path = self.manifest_dir / f"{snapshot.snapshot_id}.json"
-        if manifest_path.exists():
-            existing = self.load(snapshot.snapshot_id)
-            if existing != snapshot:
-                raise TushareReferenceStoreError(
-                    "Tushare reference snapshot identity already has different content"
-                )
-            return existing
-        _atomic_write_text(self.root / snapshot.raw_path, content)
-        _atomic_write_text(manifest_path, snapshot.model_dump_json(indent=2))
-        return snapshot
+        with local_write_lock(self.root, name="reference"):
+            ordered_records = tuple(dict(record) for record in records)
+            payload = {
+                "endpoint": endpoint,
+                "records": ordered_records,
+                "request": dict(sorted(request.items())),
+            }
+            content = json.dumps(
+                payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            )
+            digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            snapshot = TushareReferenceSnapshot(
+                snapshot_id=f"tushare-reference-{digest[:20]}",
+                endpoint=endpoint,
+                request=dict(sorted(request.items())),
+                content_sha256=digest,
+                raw_path=f"tushare/reference/raw/{digest}.json",
+                created_at=created_at,
+            )
+            manifest_path = self.manifest_dir / f"{snapshot.snapshot_id}.json"
+            if manifest_path.exists():
+                existing = self.load(snapshot.snapshot_id)
+                if existing != snapshot:
+                    raise TushareReferenceStoreError(
+                        "Tushare reference snapshot identity already has different content"
+                    )
+                return existing
+            _atomic_write_text(self.root / snapshot.raw_path, content)
+            _atomic_write_text(manifest_path, snapshot.model_dump_json(indent=2))
+            return snapshot
 
     def load_manifest(self, snapshot_id: str) -> TushareReferenceSnapshot:
         return self.load(snapshot_id)

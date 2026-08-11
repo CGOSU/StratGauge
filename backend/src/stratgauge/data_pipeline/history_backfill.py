@@ -9,9 +9,10 @@ from pathlib import Path
 
 from pydantic import Field, model_validator
 
+from stratgauge.data_pipeline.data_access import DataAccessPlan
 from stratgauge.data_pipeline.ingest import ingest
 from stratgauge.data_pipeline.quality import QualityIssue
-from stratgauge.data_pipeline.store import SnapshotStore
+from stratgauge.data_pipeline.store import SnapshotStore, SnapshotStoreError
 from stratgauge.data_sources.base import AdapterError, DailyBarRequest, MarketDataAdapter
 from stratgauge.domain.models import DomainModel, Exchange, Security, canonical_symbol
 from stratgauge.domain.selections import TdxSelectionImport
@@ -88,6 +89,7 @@ class HistoryBackfillTargetReport(DomainModel):
     missing_sessions: tuple[date, ...] = ()
     quality_errors: tuple[QualityIssue, ...] = ()
     quality_warnings: tuple[QualityIssue, ...] = ()
+    access_plan: DataAccessPlan | None = None
     error: str | None = None
 
     @model_validator(mode="after")
@@ -107,6 +109,7 @@ class HistoryBackfillReport(DomainModel):
 
     report_version: str = HISTORY_BACKFILL_REPORT_VERSION
     provider: str
+    remote_allowed: bool = True
     selection_date: date
     lookback_sessions: int = Field(gt=0)
     history_start_date: date
@@ -171,6 +174,8 @@ def backfill_selection_history(
     *,
     adapter: MarketDataAdapter,
     market_store: SnapshotStore,
+    remote_allowed: bool = True,
+    force_refresh: bool = False,
 ) -> HistoryBackfillReport:
     """Fetch each target and return a report without making rejected data usable."""
 
@@ -190,8 +195,10 @@ def backfill_selection_history(
                 market_store,
                 expected_sessions=required_sessions,
                 expected_security_ids=(target.security.security_id,),
+                remote_allowed=remote_allowed,
+                force_refresh=force_refresh,
             )
-        except AdapterError as exc:
+        except (AdapterError, SnapshotStoreError) as exc:
             target_reports.append(
                 HistoryBackfillTargetReport(
                     target_id=target_id,
@@ -245,6 +252,7 @@ def backfill_selection_history(
                 missing_sessions=missing_sessions,
                 quality_errors=result.quality.errors,
                 quality_warnings=result.quality.warnings,
+                access_plan=result.access_plan,
             )
         )
 
@@ -285,6 +293,7 @@ def backfill_selection_history(
 
     return HistoryBackfillReport(
         provider=adapter.provider,
+        remote_allowed=remote_allowed,
         selection_date=request.selection_date,
         lookback_sessions=request.lookback_sessions,
         history_start_date=required_sessions[0],
