@@ -9,6 +9,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.domain.portfolio import (
     ManualFill,
     ManualOrder,
@@ -34,6 +35,10 @@ class ManualPortfolioStore:
             directory.mkdir(parents=True, exist_ok=True)
 
     def create_order(self, order: ManualOrder) -> ManualOrder:
+        with local_write_lock(self.root):
+            return self._create_order_unlocked(order)
+
+    def _create_order_unlocked(self, order: ManualOrder) -> ManualOrder:
         path = self.order_dir / f"{order.order_id}.json"
         if path.exists():
             existing = self._load_order(order.order_id)
@@ -44,6 +49,10 @@ class ManualPortfolioStore:
         return order
 
     def record_fill(self, fill: ManualFill) -> ManualFill:
+        with local_write_lock(self.root):
+            return self._record_fill_unlocked(fill)
+
+    def _record_fill_unlocked(self, fill: ManualFill) -> ManualFill:
         order = self._load_order(fill.order_id)
         path = self.fill_dir / f"{fill.fill_id}.json"
         if path.exists():
@@ -65,6 +74,10 @@ class ManualPortfolioStore:
         return fill
 
     def write_review(self, review: PortfolioReview) -> PortfolioReview:
+        with local_write_lock(self.root):
+            return self._write_review_unlocked(review)
+
+    def _write_review_unlocked(self, review: PortfolioReview) -> PortfolioReview:
         path = self.review_dir / f"{review.review_id}.json"
         if path.exists():
             existing = self._load_review(review.review_id)

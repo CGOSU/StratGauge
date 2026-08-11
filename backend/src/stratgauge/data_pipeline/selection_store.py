@@ -10,6 +10,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.domain.models import DomainModel
 from stratgauge.domain.selections import (
     ManualSelectionLabel,
@@ -66,6 +67,20 @@ class SelectionImportStore:
             directory.mkdir(parents=True, exist_ok=True)
 
     def create_formula(
+        self,
+        *,
+        name: str,
+        version: str | None = None,
+        description: str | None = None,
+    ) -> SelectionFormula:
+        with local_write_lock(self.root):
+            return self._create_formula_unlocked(
+                name=name,
+                version=version,
+                description=description,
+            )
+
+    def _create_formula_unlocked(
         self,
         *,
         name: str,
@@ -131,6 +146,14 @@ class SelectionImportStore:
         raw_content: bytes,
         parsed: TdxSelectionImport,
     ) -> SelectionImportManifest:
+        with local_write_lock(self.root):
+            return self._write_unlocked(raw_content, parsed)
+
+    def _write_unlocked(
+        self,
+        raw_content: bytes,
+        parsed: TdxSelectionImport,
+    ) -> SelectionImportManifest:
         actual_hash = hashlib.sha256(raw_content).hexdigest()
         if actual_hash != parsed.batch.source_file_sha256:
             raise SelectionStoreError("raw content does not match parsed import hash")
@@ -167,6 +190,14 @@ class SelectionImportStore:
             raise SelectionStoreError(f"selection import is invalid: {batch_id}") from exc
 
     def write_label(self, batch_id: str, label: ManualSelectionLabel) -> ManualSelectionLabel:
+        with local_write_lock(self.root):
+            return self._write_label_unlocked(batch_id, label)
+
+    def _write_label_unlocked(
+        self,
+        batch_id: str,
+        label: ManualSelectionLabel,
+    ) -> ManualSelectionLabel:
         imported = self.load_import(batch_id)
         if not any(
             candidate.candidate_id == label.candidate_id for candidate in imported.candidates
@@ -196,6 +227,10 @@ class SelectionImportStore:
         return label
 
     def write_outcome(self, outcome: SelectionOutcome) -> SelectionOutcome:
+        with local_write_lock(self.root):
+            return self._write_outcome_unlocked(outcome)
+
+    def _write_outcome_unlocked(self, outcome: SelectionOutcome) -> SelectionOutcome:
         imported = self.load_import(outcome.batch_id)
         if not any(
             candidate.candidate_id == outcome.candidate_id for candidate in imported.candidates
@@ -292,6 +327,14 @@ class SelectionImportStore:
     def create_maturity_task(self, task: SelectionMaturityTask) -> SelectionMaturityTask:
         """Create one task or return it idempotently without changing its config."""
 
+        with local_write_lock(self.root):
+            return self._create_maturity_task_unlocked(task)
+
+    def _create_maturity_task_unlocked(
+        self,
+        task: SelectionMaturityTask,
+    ) -> SelectionMaturityTask:
+
         self.load_import(task.batch_id)
         if not self.is_entity_active("batch", task.batch_id):
             raise SelectionStoreError("selection batch is archived")
@@ -308,6 +351,14 @@ class SelectionImportStore:
 
     def save_maturity_task(self, task: SelectionMaturityTask) -> SelectionMaturityTask:
         """Atomically materialize task state while keeping its first config immutable."""
+
+        with local_write_lock(self.root):
+            return self._save_maturity_task_unlocked(task)
+
+    def _save_maturity_task_unlocked(
+        self,
+        task: SelectionMaturityTask,
+    ) -> SelectionMaturityTask:
 
         path = self._maturity_task_path(task.task_id)
         if not path.exists():
@@ -357,6 +408,13 @@ class SelectionImportStore:
 
     def append_maturity_task_event(
         self, event: SelectionMaturityTaskEvent
+    ) -> SelectionMaturityTaskEvent:
+        with local_write_lock(self.root):
+            return self._append_maturity_task_event_unlocked(event)
+
+    def _append_maturity_task_event_unlocked(
+        self,
+        event: SelectionMaturityTaskEvent,
     ) -> SelectionMaturityTaskEvent:
         self._maturity_task_path(event.task_id)
         if not self._maturity_task_path(event.task_id).exists():
@@ -435,14 +493,15 @@ class SelectionImportStore:
         changed_at: datetime,
         reason: str | None = None,
     ) -> SelectionLifecycleEvent:
-        self.load_formula(formula_id)
-        return self._set_entity_status(
-            entity_type="formula",
-            entity_id=formula_id,
-            status=status,
-            changed_at=changed_at,
-            reason=reason,
-        )
+        with local_write_lock(self.root):
+            self.load_formula(formula_id)
+            return self._set_entity_status(
+                entity_type="formula",
+                entity_id=formula_id,
+                status=status,
+                changed_at=changed_at,
+                reason=reason,
+            )
 
     def set_batch_status(
         self,
@@ -452,14 +511,15 @@ class SelectionImportStore:
         changed_at: datetime,
         reason: str | None = None,
     ) -> SelectionLifecycleEvent:
-        self.load_import(batch_id)
-        return self._set_entity_status(
-            entity_type="batch",
-            entity_id=batch_id,
-            status=status,
-            changed_at=changed_at,
-            reason=reason,
-        )
+        with local_write_lock(self.root):
+            self.load_import(batch_id)
+            return self._set_entity_status(
+                entity_type="batch",
+                entity_id=batch_id,
+                status=status,
+                changed_at=changed_at,
+                reason=reason,
+            )
 
     def load_raw(self, batch_id: str) -> bytes:
         manifest = self.load_manifest(batch_id)

@@ -14,6 +14,7 @@ import duckdb
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field
 
+from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.data_pipeline.quality import QualityReport
 from stratgauge.data_sources.base import (
     AdapterResult,
@@ -32,6 +33,27 @@ class SnapshotStatus(StrEnum):
     APPROVED = "approved"
     REJECTED = "rejected"
     SUPERSEDED = "superseded"
+
+
+class SnapshotVerificationReport(BaseModel):
+    """Read-only consistency report for one snapshot storage root."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    checked_manifests: int = Field(ge=0)
+    invalid_manifests: tuple[str, ...] = ()
+    missing_files: tuple[str, ...] = ()
+    catalog_missing: tuple[str, ...] = ()
+    catalog_orphans: tuple[str, ...] = ()
+
+    @property
+    def healthy(self) -> bool:
+        return not (
+            self.invalid_manifests
+            or self.missing_files
+            or self.catalog_missing
+            or self.catalog_orphans
+        )
 
 
 class SnapshotManifest(BaseModel):
@@ -71,9 +93,17 @@ class SnapshotStore:
             self.quality_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
-        self._initialize_catalog()
+        with local_write_lock(self.root):
+            self._initialize_catalog()
 
     def write(
+        self,
+        result: AdapterResult | MarketAdapterResult | AdjustmentFactorAdapterResult,
+    ) -> SnapshotManifest:
+        with local_write_lock(self.root):
+            return self._write_unlocked(result)
+
+    def _write_unlocked(
         self,
         result: AdapterResult | MarketAdapterResult | AdjustmentFactorAdapterResult,
     ) -> SnapshotManifest:
@@ -186,6 +216,15 @@ class SnapshotStore:
         status: SnapshotStatus,
         quality_run_id: str | None = None,
     ) -> SnapshotManifest:
+        with local_write_lock(self.root):
+            return self._update_status_unlocked(snapshot_id, status, quality_run_id)
+
+    def _update_status_unlocked(
+        self,
+        snapshot_id: str,
+        status: SnapshotStatus,
+        quality_run_id: str | None = None,
+    ) -> SnapshotManifest:
         manifest = self.load_manifest(snapshot_id)
         updated = manifest.model_copy(update={"status": status, "quality_run_id": quality_run_id})
         _atomic_write_text(
@@ -196,6 +235,10 @@ class SnapshotStore:
         return updated
 
     def save_quality_report(self, report: QualityReport, quality_run_id: str) -> str:
+        with local_write_lock(self.root):
+            return self._save_quality_report_unlocked(report, quality_run_id)
+
+    def _save_quality_report_unlocked(self, report: QualityReport, quality_run_id: str) -> str:
         path = self.quality_dir / f"{quality_run_id}.json"
         _atomic_write_text(path, report.model_dump_json(indent=2))
         with duckdb.connect(str(self.catalog_path)) as connection:
@@ -217,6 +260,61 @@ class SnapshotStore:
                 ],
             )
         return str(path.relative_to(self.root))
+
+    def verify(self) -> SnapshotVerificationReport:
+        """Check immutable files and the DuckDB catalog without changing them."""
+
+        with local_write_lock(self.root):
+            manifest_ids: set[str] = set()
+            invalid: list[str] = []
+            missing_files: list[str] = []
+            for path in sorted(self.manifest_dir.glob("snapshot-*.json")):
+                snapshot_id = path.stem
+                manifest_ids.add(snapshot_id)
+                try:
+                    manifest = self.load_manifest(snapshot_id)
+                    raw_path = self.root / manifest.raw_path
+                    normalized_path = self.root / manifest.normalized_path
+                    if not raw_path.exists():
+                        missing_files.append(f"{snapshot_id}:raw")
+                    elif (
+                        hashlib.sha256(raw_path.read_bytes()).hexdigest()
+                        != manifest.content_sha256
+                    ):
+                        invalid.append(f"{snapshot_id}:raw_hash")
+                    if not normalized_path.exists():
+                        missing_files.append(f"{snapshot_id}:normalized")
+                    else:
+                        if pl.read_parquet(normalized_path).height != manifest.row_count:
+                            invalid.append(f"{snapshot_id}:row_count")
+                except Exception:
+                    invalid.append(snapshot_id)
+
+            with duckdb.connect(str(self.catalog_path), read_only=True) as connection:
+                catalog_ids = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT snapshot_id FROM snapshot_catalog"
+                    ).fetchall()
+                }
+            return SnapshotVerificationReport(
+                checked_manifests=len(manifest_ids),
+                invalid_manifests=tuple(sorted(invalid)),
+                missing_files=tuple(sorted(missing_files)),
+                catalog_missing=tuple(sorted(manifest_ids - catalog_ids)),
+                catalog_orphans=tuple(sorted(catalog_ids - manifest_ids)),
+            )
+
+    def repair_catalog(self) -> tuple[str, ...]:
+        """Register valid manifests that are missing from the local index."""
+
+        with local_write_lock(self.root):
+            repaired: list[str] = []
+            for path in sorted(self.manifest_dir.glob("snapshot-*.json")):
+                manifest = self.load_manifest(path.stem)
+                self._register_manifest(manifest)
+                repaired.append(manifest.snapshot_id)
+            return tuple(repaired)
 
     def find_approved_adjustment_factor_snapshot(
         self,
