@@ -9,6 +9,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+from stratgauge.data_sources.calendar import CalendarReferenceStore, CalendarSource
 from stratgauge.data_sources.tushare_reference import (
     TushareReferenceClient,
     TushareReferenceStore,
@@ -29,6 +30,7 @@ class CalendarCacheManifest(BaseModel):
     end_date: date
     sessions: tuple[date, ...]
     source_snapshot_ids: tuple[str, ...]
+    source_providers: tuple[str, ...] = ()
     content_sha256: str
     output_path: str
     updated_at: datetime
@@ -46,6 +48,13 @@ class CalendarCacheManifest(BaseModel):
     def validate_sources(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if not value or any(not item.strip() for item in value):
             raise ValueError("calendar cache requires source snapshot IDs")
+        return tuple(dict.fromkeys(item.strip() for item in value))
+
+    @field_validator("source_providers")
+    @classmethod
+    def validate_providers(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not item.strip() for item in value):
+            raise ValueError("calendar cache source providers must not be empty")
         return tuple(dict.fromkeys(item.strip() for item in value))
 
     @field_validator("updated_at")
@@ -103,6 +112,7 @@ class TradeCalendarCache:
         ranges = _missing_ranges(existing, start_date, end_date)
         fetched_sessions: set[date] = set()
         source_snapshot_ids = set(existing.source_snapshot_ids if existing else ())
+        source_providers = set(existing.source_providers if existing else ())
         for range_start, range_end in ranges:
             records = client.trade_calendar_records(
                 start_date=range_start,
@@ -125,6 +135,7 @@ class TradeCalendarCache:
             )
             fetched_sessions.update(sessions)
             source_snapshot_ids.add(source_snapshot.snapshot_id)
+            source_providers.add(client.provider)
 
         covered_start = min(
             (existing.start_date if existing else start_date),
@@ -145,6 +156,109 @@ class TradeCalendarCache:
             end_date=covered_end,
             sessions=tuple(sorted(all_sessions)),
             source_snapshot_ids=tuple(sorted(source_snapshot_ids)),
+            source_providers=tuple(sorted(source_providers)),
+            now=now,
+        )
+        return CalendarCacheResult(
+            manifest=manifest,
+            sessions=manifest.sessions,
+            fetched_ranges=ranges,
+            skipped=False,
+        )
+
+    def ensure_cross_validated(
+        self,
+        *,
+        start_date: date,
+        end_date: date,
+        exchange: str,
+        primary: CalendarSource,
+        secondary: CalendarSource,
+        reference_store: CalendarReferenceStore,
+        now: datetime,
+    ) -> CalendarCacheResult:
+        """Extend the cache only when two independent sources agree."""
+
+        if end_date < start_date:
+            raise CalendarCacheError("calendar cache end_date must not precede start_date")
+        if primary.provider == secondary.provider:
+            raise CalendarCacheError("calendar cache sources must be independent")
+        existing = self._load_existing()
+        if existing is not None and existing.exchange != exchange:
+            raise CalendarCacheError("calendar cache exchange does not match the request")
+
+        ranges = _missing_ranges(existing, start_date, end_date)
+        fetched_sessions: set[date] = set()
+        source_snapshot_ids = set(existing.source_snapshot_ids if existing else ())
+        source_providers = set(existing.source_providers if existing else ())
+        for range_start, range_end in ranges:
+            request = {
+                "exchange": exchange,
+                "start_date": range_start.isoformat(),
+                "end_date": range_end.isoformat(),
+                "is_open": "1",
+            }
+            primary_records = primary.fetch_records(
+                start_date=range_start,
+                end_date=range_end,
+                exchange=exchange,
+            )
+            secondary_records = secondary.fetch_records(
+                start_date=range_start,
+                end_date=range_end,
+                exchange=exchange,
+            )
+            primary_snapshot = reference_store.write(
+                provider=primary.provider,
+                endpoint=primary.endpoint,
+                request=request,
+                records=primary_records,
+                created_at=now,
+            )
+            secondary_snapshot = reference_store.write(
+                provider=secondary.provider,
+                endpoint=secondary.endpoint,
+                request=request,
+                records=secondary_records,
+                created_at=now,
+            )
+            primary_sessions = primary.parse_sessions(primary_records)
+            secondary_sessions = secondary.parse_sessions(secondary_records)
+            if primary_sessions != secondary_sessions:
+                only_primary = tuple(sorted(set(primary_sessions) - set(secondary_sessions)))
+                only_secondary = tuple(sorted(set(secondary_sessions) - set(primary_sessions)))
+                raise CalendarCacheError(
+                    "backup calendar sources disagree for "
+                    f"{range_start.isoformat()}..{range_end.isoformat()}; "
+                    f"primary_only={only_primary}, secondary_only={only_secondary}; "
+                    f"snapshots={primary_snapshot.snapshot_id},{secondary_snapshot.snapshot_id}"
+                )
+            fetched_sessions.update(primary_sessions)
+            source_snapshot_ids.update(
+                (primary_snapshot.snapshot_id, secondary_snapshot.snapshot_id)
+            )
+            source_providers.update((primary.provider, secondary.provider))
+
+        if not ranges and existing is not None:
+            return CalendarCacheResult(
+                manifest=existing,
+                sessions=existing.sessions,
+                fetched_ranges=(),
+                skipped=True,
+            )
+        covered_start = min(
+            (existing.start_date if existing else start_date),
+            start_date,
+        )
+        covered_end = max(existing.end_date if existing else end_date, end_date)
+        all_sessions = set(existing.sessions if existing else ()) | fetched_sessions
+        manifest = self._write(
+            exchange=exchange,
+            start_date=covered_start,
+            end_date=covered_end,
+            sessions=tuple(sorted(all_sessions)),
+            source_snapshot_ids=tuple(sorted(source_snapshot_ids)),
+            source_providers=tuple(sorted(source_providers)),
             now=now,
         )
         return CalendarCacheResult(
@@ -175,6 +289,7 @@ class TradeCalendarCache:
                 end_date=manifest.end_date,
                 sessions=manifest.sessions,
                 source_snapshot_ids=manifest.source_snapshot_ids,
+                source_providers=manifest.source_providers,
             )
             != manifest.content_sha256
         ):
@@ -190,6 +305,7 @@ class TradeCalendarCache:
         sessions: tuple[date, ...],
         source_snapshot_ids: tuple[str, ...],
         now: datetime,
+        source_providers: tuple[str, ...] = (),
     ) -> CalendarCacheManifest:
         if now.tzinfo is None or now.utcoffset() is None:
             raise CalendarCacheError("calendar cache timestamp must include a timezone")
@@ -199,6 +315,7 @@ class TradeCalendarCache:
             end_date=end_date,
             sessions=sessions,
             source_snapshot_ids=source_snapshot_ids,
+            source_providers=source_providers,
         )
         manifest = CalendarCacheManifest(
             cache_id=f"calendar-{digest[:20]}",
@@ -207,6 +324,7 @@ class TradeCalendarCache:
             end_date=end_date,
             sessions=sessions,
             source_snapshot_ids=source_snapshot_ids,
+            source_providers=source_providers,
             content_sha256=digest,
             output_path=str(self.output_path),
             updated_at=now.astimezone(UTC),
@@ -241,6 +359,7 @@ def _content_sha256(
     end_date: date,
     sessions: tuple[date, ...],
     source_snapshot_ids: tuple[str, ...],
+    source_providers: tuple[str, ...] = (),
 ) -> str:
     payload = {
         "end_date": end_date.isoformat(),
@@ -249,6 +368,8 @@ def _content_sha256(
         "source_snapshot_ids": list(source_snapshot_ids),
         "start_date": start_date.isoformat(),
     }
+    if source_providers:
+        payload["source_providers"] = list(source_providers)
     return hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()

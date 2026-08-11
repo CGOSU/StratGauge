@@ -107,6 +107,8 @@ class TushareReferenceStore:
 class TushareReferenceClient:
     """Fetch Tushare reference rows through a narrow provider boundary."""
 
+    provider = "tushare"
+
     def __init__(self, query: ReferenceQuery | None = None) -> None:
         self._query = query or self._query_from_tushare
 

@@ -2,7 +2,7 @@
 
 ## 当前里程碑：阶段 0——可信基础
 
-状态：检查点 1—6 已完成；代码验收通过，阶段 0 退出仍等待 Tushare Pro 主源令牌验证和与 BaoStock 的固定区间交叉校验。
+状态：检查点 1—6 已完成；代码验收通过；Tushare `trade_cal` 原生接口验证仍受 Token 配额阻塞，但 BaoStock + AKShare 已交叉校验并生成可复用交易日历缓存，不再阻塞本地历史补数和行情编排。
 
 ### 目标
 
@@ -198,8 +198,9 @@ corepack pnpm build
 
 - [x] **P1-08 Tushare 主源验证**：通过官方 HTTPS Data API 完成 `000001.SZ` 2024-01-02—2024-01-05 有限区间验证；记录请求区间、原始响应、质量门和失败原因。
 - [x] **P1-09 双源交叉校验**：同一证券、区间和不复权日线口径下，Tushare/BaoStock 均 4 行且交叉校验通过；报告差异，不静默选择结果。
-- [ ] **REF-01 参考接口验证**：沪深主板 `stock_basic` 已验证并生成 3193 条记录（manifest：`tushare-reference-278819ba7c8d5c92fe37`，股票池：`universe-d8b8d8f30a3f50c43fd9`）；`trade_cal` 因当前 Token 限制为 5 次/月仍阻塞，交易日文件尚未生成。
-- [ ] **P1-10 验证收口**：Tushare 主源和 BaoStock 固定区间条件已满足；待 `trade_cal` 参考日历验证完成并复核全量检查后，才把阶段 0 标记为退出。
+- [ ] **REF-01 参考接口验证**：沪深主板 `stock_basic` 已验证并生成 3193 条记录（manifest：`tushare-reference-278819ba7c8d5c92fe37`，股票池：`universe-d8b8d8f30a3f50c43fd9`）；Tushare 原生 `trade_cal` 因当前 Token 限制为 5 次/月仍阻塞，尚未完成主源端点验证。
+- [x] **REF-02 备用交易日历缓存**：BaoStock + AKShare 对 2024-01-01—2026-08-11 交叉返回 631 个交易日且差异为 0；生成 `data/calendars/trade-cal-sse.txt` 及 manifest `calendar-5dc7698e9739a85ac100`，重复执行覆盖范围零网络请求。
+- [ ] **P1-10 验证收口**：Tushare 主源日线和 BaoStock 固定区间条件已满足；备用交易日历已可用；待 Tushare `trade_cal` 原生参考端点配额恢复后完成主源复核，再决定阶段 0 是否最终退出。
 
 ### P1：趋势交易条件胜率与买入价分析
 

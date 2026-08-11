@@ -248,3 +248,10 @@
 - 现象：只按 `list_date`/`delist_date` 过滤，而不限制主数据快照的观察时间，会把今天获取的退市事实带回过去。
 - 修复：`SecurityMasterSnapshot` 保存 `observed_at`；主数据查询同时要求 `effective_date` 和 `known_at`，并拒绝 `effective_date > known_at.date()`。
 - 约束：用户名称覆写只作用于显示层，不修改主数据事实或股票池成员资格。
+
+### 2026-08-11：备用交易日历不能只保存单一来源
+
+- 现象：Tushare `trade_cal` 受 Token 月度频率限制时，直接把 BaoStock 或 AKShare 单独结果写入主缓存，会失去独立来源校验，也容易把备用来源误标成主源。
+- 根因：交易日集合是后续行情同步、入场窗口和持有期计算的共同边界；单一备用源的节假日修订或接口异常无法由缓存自身发现。
+- 修复：`sync_backup_calendar.py` 同时拉取 BaoStock 和 AKShare，先分别保存原始证据，再比较完整交易日集合；不一致时不发布缓存，manifest 明确记录来源提供商和快照 ID。
+- 验证：2024-01-01—2026-08-11 两源均返回 631 个交易日且差异为 0；生成 `data/calendars/trade-cal-sse.txt`，重复执行返回 `skipped=true` 且不再请求网络。

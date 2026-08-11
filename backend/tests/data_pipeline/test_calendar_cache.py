@@ -1,16 +1,40 @@
 import unittest
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import UTC, date, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from stratgauge.data_pipeline.calendar_cache import CalendarCacheError, TradeCalendarCache
+from stratgauge.data_sources.calendar import CalendarReferenceStore
 from stratgauge.data_sources.tushare_reference import (
     TushareReferenceClient,
     TushareReferenceStore,
 )
 
 NOW = datetime(2026, 1, 11, 8, tzinfo=UTC)
+
+
+class _FakeCalendarSource:
+    def __init__(self, provider: str, sessions: tuple[date, ...]) -> None:
+        self.provider = provider
+        self.endpoint = f"{provider}-calendar"
+        self.sessions = sessions
+        self.calls = 0
+
+    def fetch_records(
+        self,
+        *,
+        start_date: date,
+        end_date: date,
+        exchange: str,
+    ) -> tuple[Mapping[str, str], ...]:
+        del start_date, end_date, exchange
+        self.calls += 1
+        return tuple({"session": session.isoformat()} for session in self.sessions)
+
+    def parse_sessions(self, records: Iterable[Mapping[str, str]]) -> tuple[date, ...]:
+        del records
+        return self.sessions
 
 
 class CalendarCacheTests(unittest.TestCase):
@@ -82,6 +106,62 @@ class CalendarCacheTests(unittest.TestCase):
             )
             self.assertTrue(output.exists())
             self.assertTrue(cache.manifest_path.exists())
+
+    def test_cross_validated_cache_is_idempotent(self) -> None:
+        with TemporaryDirectory() as directory:
+            output = Path(directory) / "sessions.txt"
+            cache = TradeCalendarCache(output)
+            primary = _FakeCalendarSource("baostock", (date(2026, 1, 5),))
+            secondary = _FakeCalendarSource("akshare", (date(2026, 1, 5),))
+            result = cache.ensure_cross_validated(
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 1, 5),
+                exchange="SSE",
+                primary=primary,
+                secondary=secondary,
+                reference_store=CalendarReferenceStore(directory),
+                now=NOW,
+            )
+            repeated = cache.ensure_cross_validated(
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 1, 5),
+                exchange="SSE",
+                primary=primary,
+                secondary=secondary,
+                reference_store=CalendarReferenceStore(directory),
+                now=NOW,
+            )
+
+            self.assertEqual(result.sessions, (date(2026, 1, 5),))
+            self.assertEqual(result.manifest.source_providers, ("akshare", "baostock"))
+            self.assertFalse(result.skipped)
+            self.assertTrue(repeated.skipped)
+            self.assertEqual(primary.calls, 1)
+            self.assertEqual(secondary.calls, 1)
+
+    def test_cross_validation_preserves_mismatch_evidence_without_publishing(self) -> None:
+        with TemporaryDirectory() as directory:
+            output = Path(directory) / "sessions.txt"
+            cache = TradeCalendarCache(output)
+            primary = _FakeCalendarSource("baostock", (date(2026, 1, 5),))
+            secondary = _FakeCalendarSource("akshare", (date(2026, 1, 6),))
+
+            with self.assertRaisesRegex(CalendarCacheError, "sources disagree"):
+                cache.ensure_cross_validated(
+                    start_date=date(2026, 1, 1),
+                    end_date=date(2026, 1, 6),
+                    exchange="SSE",
+                    primary=primary,
+                    secondary=secondary,
+                    reference_store=CalendarReferenceStore(directory),
+                    now=NOW,
+                )
+
+            self.assertFalse(output.exists())
+            self.assertEqual(
+                len(list((Path(directory) / "calendar/reference/manifests").glob("*.json"))),
+                2,
+            )
 
     def test_tampered_cache_is_rejected(self) -> None:
         with TemporaryDirectory() as directory:

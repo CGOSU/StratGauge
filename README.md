@@ -259,7 +259,7 @@ cd backend
 PYTHONPATH=src uv run python scripts/queue_selection_maturity_tasks.py \
   --root data/selection \
   --market-root data/selection-market \
-  --calendar-file data/calendars/a-share-sessions.txt \
+  --calendar-file data/calendars/trade-cal-sse.txt \
   --provider tushare \
   --horizon-sessions 10 \
   --position-notional 10000
@@ -296,7 +296,7 @@ GET /v1/selection-batches/{batch_id}/candidates/{candidate_id}/analysis
 cd backend
 PYTHONPATH=src uv run python scripts/sync_tushare_daily.py \
   --session-date 2026-08-10 \
-  --calendar-file data/calendars/a-share-sessions.txt \
+  --calendar-file data/calendars/trade-cal-sse.txt \
   --universe-snapshot-id <approved_universe_snapshot_id>
 ```
 
@@ -309,7 +309,7 @@ cd backend
 PYTHONPATH=src uv run python scripts/backfill_tushare_adjustment_factors.py \
   --start-date 2026-01-02 \
   --end-date 2026-01-10 \
-  --calendar-file data/calendars/a-share-sessions.txt \
+  --calendar-file data/calendars/trade-cal-sse.txt \
   --universe-snapshot-id <approved_universe_snapshot_id>
 ```
 
@@ -334,7 +334,7 @@ PYTHONPATH=src uv run python scripts/split_tdx_dataset.py \
 
 ### 8. 补齐历史行情
 
-特征工程前，用显式交易日历补齐每个候选选股日前的最长回看窗口。未提供 `--sessions-file` 时，脚本从 Tushare `trade_cal` 获取交易日，不使用自然日填充：
+特征工程前，用显式交易日历补齐每个候选选股日前的最长回看窗口。未提供 `--sessions-file` 时，脚本先复用 `data/calendars/trade-cal-sse.txt` 及其 manifest；缓存缺口才请求 Tushare `trade_cal`，不使用自然日填充：
 
 ```bash
 PYTHONPATH=src uv run python scripts/backfill_selection_history.py \
@@ -503,10 +503,16 @@ PYTHONPATH=src uv run python scripts/sync_tushare_calendar.py \
   --start-date 2025-01-01 \
   --end-date 2026-01-05 \
   --root data \
-  --output data/calendars/a-share-sessions.txt
+  --output data/calendars/trade-cal-sse.txt
+# Tushare trade_cal 配额不可用时，使用 BaoStock + AKShare 交叉校验填充同一缓存
+PYTHONPATH=src uv run python scripts/sync_backup_calendar.py \
+  --start-date 2025-01-01 \
+  --end-date 2026-01-05 \
+  --root data \
+  --output data/calendars/trade-cal-sse.txt
 ```
 
-Tushare `daily` 返回的成交量是手、成交额是千元，系统分别转换为股和元。Token 只从 `TUSHARE_TOKEN` 读取，不进入日志或快照。
+备用日历脚本只有在 BaoStock 与 AKShare 的交易日集合完全一致时才发布缓存，并分别保存两个来源的原始响应和快照 ID；重复执行已覆盖范围不会请求网络。该缓存是显式备用来源，不冒充 Tushare `trade_cal`。Tushare `daily` 返回的成交量是手、成交额是千元，系统分别转换为股和元。Token 只从 `TUSHARE_TOKEN` 读取，不进入日志或快照。
 
 股票池必须显式提供证券和已批准来源快照：
 

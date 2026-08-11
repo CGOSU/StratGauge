@@ -387,3 +387,11 @@
 
 - 实际验证：`TUSHARE_TOKEN` 已设置，显式执行 `sync_tushare_calendar.py --start-date 2024-01-01 --end-date 2026-08-11 --exchange SSE --output data/calendars/trade-cal-SSE.txt` 仍返回 Tushare 错误 40203（月度 5 次频率限制），退出码 2，未生成目标日历文件。
 - 结论：REF-01/P1-10 继续保持阻塞；不使用自然日或其他来源伪造交易日历。
+
+### 2026-08-11 备用交易日历缓存
+
+- 完成内容：新增 BaoStock + AKShare 交易日历源、原始响应快照、双源一致性校验和 `sync_backup_calendar.py`；缓存 manifest 记录 `source_providers` 与来源快照 ID，不把备用来源冒充 Tushare `trade_cal`。
+- 实际验证：`cd backend && export PYTHONPATH=src && uv run python scripts/sync_backup_calendar.py --root data --start-date 2024-01-01 --end-date 2026-08-11 --exchange SSE --output data/calendars/trade-cal-sse.txt` 成功生成 631 个交易日，缓存 ID 为 `calendar-5dc7698e9739a85ac100`；BaoStock 与 AKShare 差异为 0。
+- 幂等验证：相同命令再次执行返回 `skipped=true`、`fetched_ranges=[]`、631 个交易日；缓存文件行数为 631。
+- 代码验证：后端 216 项测试通过、1 项环境相关跳过；Ruff format/check、MyPy、备用脚本 `--help` 通过。前端本轮未修改，未重复运行前端检查。
+- 遗留问题：Tushare `trade_cal` 原生接口仍因 40203 未验证；备用缓存已可供历史补数、全市场同步和成熟队列复用。
