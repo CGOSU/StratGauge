@@ -13,6 +13,7 @@ from typing import Any, Literal, cast
 
 from pydantic import Field, field_validator
 
+from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.domain.models import DomainModel, ModelLifecycle
 from stratgauge.features.contract import FeatureSnapshot
 from stratgauge.ml.calibration import CalibratedModel
@@ -104,9 +105,10 @@ class ShadowScoreStore:
         self.report_dir.mkdir(parents=True, exist_ok=True)
 
     def write_score(self, score: ShadowScore) -> ShadowScore:
-        path = self.score_dir / f"{_safe_identifier(score.score_id)}.json"
-        _write_once(path, score.model_dump_json(indent=2).encode("utf-8"), "shadow score")
-        return self.load_score(score.score_id)
+        with local_write_lock(self.root, name="shadow-scores"):
+            path = self.score_dir / f"{_safe_identifier(score.score_id)}.json"
+            _write_once(path, score.model_dump_json(indent=2).encode("utf-8"), "shadow score")
+            return self.load_score(score.score_id)
 
     def load_score(self, score_id: str) -> ShadowScore:
         path = self.score_dir / f"{_safe_identifier(score_id)}.json"
@@ -124,9 +126,10 @@ class ShadowScoreStore:
         return tuple(sorted(scores, key=lambda score: (score.scored_at, score.score_id)))
 
     def write_report(self, report: ShadowScoringReport) -> ShadowScoringReport:
-        path = self.report_dir / f"{_safe_identifier(report.report_id)}.json"
-        _write_once(path, report.model_dump_json(indent=2).encode("utf-8"), "shadow report")
-        return self.load_report(report.report_id)
+        with local_write_lock(self.root, name="shadow-scores"):
+            path = self.report_dir / f"{_safe_identifier(report.report_id)}.json"
+            _write_once(path, report.model_dump_json(indent=2).encode("utf-8"), "shadow report")
+            return self.load_report(report.report_id)
 
     def load_report(self, report_id: str) -> ShadowScoringReport:
         path = self.report_dir / f"{_safe_identifier(report_id)}.json"
@@ -161,6 +164,32 @@ def read_shadow_inputs(content: bytes) -> tuple[ShadowScoringInput, ...]:
     if not inputs:
         raise ShadowScoreError("shadow input contains no rows")
     return tuple(inputs)
+
+
+def serialize_shadow_inputs(inputs: Iterable[ShadowScoringInput]) -> bytes:
+    """Serialize scoring inputs canonically without adding outcome labels."""
+
+    rows = tuple(inputs)
+    if not rows:
+        raise ShadowScoreError("shadow scoring requires at least one input")
+    return b"".join(
+        (
+            json.dumps(
+                row.model_dump(mode="json"),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+        for row in rows
+    )
+
+
+def shadow_input_sha256(inputs: Iterable[ShadowScoringInput]) -> str:
+    """Return the content identity used to audit a shadow scoring batch."""
+
+    return _sha256(serialize_shadow_inputs(inputs))
 
 
 def score_shadow_batch(
