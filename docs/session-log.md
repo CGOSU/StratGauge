@@ -395,3 +395,10 @@
 - 幂等验证：相同命令再次执行返回 `skipped=true`、`fetched_ranges=[]`、631 个交易日；缓存文件行数为 631。
 - 代码验证：后端 216 项测试通过、1 项环境相关跳过；Ruff format/check、MyPy、备用脚本 `--help` 通过。前端本轮未修改，未重复运行前端检查。
 - 遗留问题：Tushare `trade_cal` 原生接口仍因 40203 未验证；备用缓存已可供历史补数、全市场同步和成熟队列复用。
+
+### 2026-08-11 全市场单日行情与复权因子真实验证
+
+- 实际验证：使用备用交易日历、已批准主板股票池 `universe-d8b8d8f30a3f50c43fd9`，执行 `sync_tushare_daily.py --session-date 2026-08-10 --calendar-file data/calendars/trade-cal-sse.txt --universe-snapshot-id universe-d8b8d8f30a3f50c43fd9 --universe-root data --market-root data/market --minimum-coverage 0.90`。
+- 结果：Tushare `daily` 返回 3193/3193 行、覆盖率 100%，快照 `snapshot-844cde11ae0c5b85f937` 已批准；`adj_factor` 返回 3193/3193 行、覆盖率 100%，快照 `snapshot-b42e9d0261edad6fa089` 已批准。
+- 幂等验证：相同命令再次执行，日线和复权因子均返回 `skipped=true`，未重复请求供应商。
+- 遗留问题：尚未为候选批次自动组装特征快照并接入模型批次评分；Tushare `trade_cal` 原生端点仍因 40203 未完成验证。
