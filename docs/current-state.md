@@ -7,7 +7,7 @@
 
 ## 当前目标
 
-- 阶段 0 的实现检查点 1—6 已完成，代码退出验收通过；Tushare `daily` 主源验证和与 BaoStock 的固定区间交叉校验已通过；股票池现限定为沪深主板，已生成 3193 条主板 `stock_basic` 快照；交易日历已由 BaoStock + AKShare 交叉校验并缓存，Tushare `trade_cal` 原生接口仍受当前 Token 的 5 次/月频率限制阻塞。
+- 阶段 0 的实现检查点 1—6 已完成，代码退出验收通过；Tushare `daily` 主源验证和与 BaoStock 的固定区间交叉校验已通过；股票池现限定为沪深主板，已生成 3193 条主板 `stock_basic` 快照；交易日历已由 BaoStock + AKShare 交叉校验并缓存，阶段 0 运行验收不再阻塞。Tushare `trade_cal` 原生端点仅剩供应商溯源补验。
 - 新增无额外数据平台费用的半手动闭环：通达信导出选股结果，系统人工标注，随后用日线跟踪并自动生成结果、统计和机器学习样本。
 
 ## 已知状态
@@ -19,7 +19,7 @@
 
 ## 待处理
 
-- Tushare `daily` 已用 `000001.SZ` 的 2024-01-02—2024-01-05 区间通过质量门，并与 BaoStock 同区间交叉校验通过；`stock_basic` 已生成 `tushare-reference-278819ba7c8d5c92fe37` 和 `universe-d8b8d8f30a3f50c43fd9`，共 3193 条记录，市场均为主板且交易所仅为 SSE/SZSE。2026-08-10 已真实完成全市场日线和复权因子同步，均为 3193/3193、100% 覆盖并通过批准；日线快照为 `snapshot-844cde11ae0c5b85f937`，因子快照为 `snapshot-b42e9d0261edad6fa089`。BaoStock + AKShare 已交叉验证 2024-01-01—2026-08-11，共 631 个交易日，缓存为 `backend/data/calendars/trade-cal-sse.txt`，manifest 为 `calendar-5dc7698e9739a85ac100`；Tushare `trade_cal` 原生请求仍返回 40203。
+- Tushare `daily` 已用 `000001.SZ` 的 2024-01-02—2024-01-05 区间通过质量门，并与 BaoStock 同区间交叉校验通过；`stock_basic` 已生成 `tushare-reference-278819ba7c8d5c92fe37` 和 `universe-d8b8d8f30a3f50c43fd9`，共 3193 条记录，市场均为主板且交易所仅为 SSE/SZSE。2026-08-10 已真实完成全市场日线和复权因子同步，均为 3193/3193、100% 覆盖并通过批准；日线快照为 `snapshot-844cde11ae0c5b85f937`，因子快照为 `snapshot-b42e9d0261edad6fa089`。BaoStock + AKShare 已交叉验证 2024-01-01—2026-08-11，共 631 个交易日，缓存为 `backend/data/calendars/trade-cal-sse.txt`，manifest 为 `calendar-5dc7698e9739a85ac100`；Tushare `trade_cal` 原生端点的供应商溯源请求仍返回 40203，但不影响该备用缓存使用。
 - 已用真实脱敏 `0810.EBK` 和 `081020260810.txt` 样例确认格式：`.EBK` 为 CRLF 七位市场前缀代码；`.txt` 为 GBK 制表符行情表，包含 30 列和 `#数据来源:通达信` 尾行；两份样例的 4 个代码均可解析为 `002167.SZ`、`600593.SH`、`603183.SH`、`603980.SH`，样例文件已加入忽略规则，不进入提交。
 - 当前已有 CLI `mature_tdx_selection.py` 和 Web 一次性成熟操作，新增本地成熟任务账本、事件审计、幂等执行、可恢复超时、有限重试和 `run_selection_maturity_tasks.py` 显式调度入口；JSONL 数据集带 schema 版本，并可由 `split_tdx_dataset.py` 按选股日期生成不可覆盖的 train/validation/test 清单和源文件哈希 manifest；第一版研究参数已冻结为 10 个交易日固定退出、无止盈止损、扣费后净收益胜负、100 股整手和默认 10000 元名义金额，后续用户偏好必须创建新政策版本。
 - 数据管理第一版已完成：公式和导入批次支持 Web 新建/查看、筛选、编辑为新版本、停用/恢复、批次详情、原始文件下载和 JSONL 数据集下载；统计支持公式版本、来源、选股日期范围、最新人工决策、结果政策和生命周期筛选；研究工作台支持手工逐条添加候选，批次按通达信/手工来源筛选；生命周期采用追加式事件，归档批次只读，普通研究工作台默认隐藏归档数据。公式编辑不会原地覆盖历史记录。

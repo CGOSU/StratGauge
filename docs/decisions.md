@@ -308,3 +308,8 @@
 - 决定：Tushare `trade_cal` 配额不可用时，使用 BaoStock `query_trade_dates` 作为填充源、AKShare Sina 交易日列表作为独立交叉校验源；两者交易日集合完全一致后，才写入同一个交易日历缓存。
 - 证据：两个来源分别保存原始响应和内容寻址快照，缓存 manifest 记录 `source_providers` 与快照 ID；来源不一致时保留证据但不发布文本日历。
 - 约束：备用缓存明确标记为 `baostock`/`akshare`，不冒充 Tushare `trade_cal`；缓存覆盖范围内重复运行不访问网络，缺口仍按显式来源策略处理。
+
+### 2026-08-11：备用交易日历满足运行验收，官方端点验证不再阻塞
+
+- 决定：将 BaoStock + AKShare 完整一致的交易日历视为运行时可用的正式备用缓存；阶段 0 不因 Tushare `trade_cal` 单一供应商端点的配额限制继续阻塞。
+- 区分：Tushare `trade_cal` 验证仍保留为供应商溯源补验，不能把备用快照标成 Tushare 来源，但该补验不影响历史行情、全市场同步或成熟队列使用已批准日历。
