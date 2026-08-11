@@ -9,6 +9,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from stratgauge.data_pipeline.data_access import DataAccessPlan, build_data_access_plan
 from stratgauge.data_pipeline.quality import check_adjustment_factors, quality_run_id
 from stratgauge.data_pipeline.store import SnapshotManifest, SnapshotStatus, SnapshotStore
 from stratgauge.data_pipeline.universe import UniverseSnapshot
@@ -39,6 +40,7 @@ class AdjustmentFactorBackfillSessionResult(BaseModel):
     snapshot_id: str | None = None
     skipped: bool = False
     error: str | None = None
+    access_plan: DataAccessPlan | None = None
 
 
 class AdjustmentFactorBackfillReport(BaseModel):
@@ -70,6 +72,7 @@ class AdjustmentFactorSessionSyncResult(BaseModel):
     expected_securities: int = Field(ge=1)
     actual_securities: int = Field(ge=0)
     coverage: Decimal = Field(ge=0, le=1)
+    access_plan: DataAccessPlan
     skipped: bool = False
 
 
@@ -151,6 +154,7 @@ def sync_adjustment_factor_sessions(
                 source_daily_snapshot_id=synced.source_daily_snapshot_id,
                 snapshot_id=synced.snapshot_id,
                 skipped=synced.skipped,
+                access_plan=synced.access_plan,
             )
         )
 
@@ -209,10 +213,21 @@ def sync_adjustment_factor_session(
         universe_snapshot_id=universe.universe_snapshot_id,
         source_daily_snapshot_id=source_daily_snapshot_id,
     )
+    access_plan = build_data_access_plan(
+        request_kind="adjustment_factor",
+        provider=adapter.provider,
+        cache_key=(
+            f"adjustment_factor|{adapter.provider}|{session_date.isoformat()}|"
+            f"{universe.universe_snapshot_id}|{source_daily_snapshot_id}"
+        ),
+        local_snapshot_id=existing.snapshot_id if existing is not None else None,
+        remote_allowed=True,
+    )
     if existing is not None:
         return _result_from_manifest(
             existing,
             expected_securities=len(expected_security_ids),
+            access_plan=access_plan,
             skipped=True,
         )
 
@@ -243,6 +258,7 @@ def sync_adjustment_factor_session(
         manifest,
         expected_securities=len(expected_security_ids),
         actual_securities=len({factor.security_id for factor in fetched.factors}),
+        access_plan=access_plan,
         skipped=False,
     )
 
@@ -252,6 +268,7 @@ def _result_from_manifest(
     *,
     expected_securities: int,
     actual_securities: int | None = None,
+    access_plan: DataAccessPlan,
     skipped: bool,
 ) -> AdjustmentFactorSessionSyncResult:
     if manifest.source_daily_snapshot_id is None:
@@ -270,5 +287,6 @@ def _result_from_manifest(
         expected_securities=expected_securities,
         actual_securities=actual,
         coverage=coverage,
+        access_plan=access_plan,
         skipped=skipped,
     )

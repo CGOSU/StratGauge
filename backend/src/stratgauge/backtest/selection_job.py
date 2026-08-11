@@ -10,6 +10,7 @@ from stratgauge.backtest.selection_outcomes import (
     evaluate_selection_outcome,
     validate_selection_tracking_policy,
 )
+from stratgauge.data_pipeline.data_access import DataAccessPlan, build_data_access_plan
 from stratgauge.data_pipeline.ingest import ingest
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.data_pipeline.store import SnapshotStatus, SnapshotStore
@@ -29,6 +30,7 @@ class SelectionOutcomeJobResult:
     rejected_candidates: tuple[tuple[str, str], ...]
     market_snapshot_ids: tuple[str, ...]
     retryable_rejections: tuple[tuple[str, str], ...] = ()
+    access_plans: tuple[DataAccessPlan, ...] = ()
 
 
 def run_selection_outcome_job(
@@ -61,6 +63,7 @@ def run_selection_outcome_job(
     rejected: list[tuple[str, str]] = []
     retryable_rejections: list[tuple[str, str]] = []
     market_snapshot_ids: list[str] = []
+    access_plans: list[DataAccessPlan] = []
     for candidate in imported.candidates:
         if maturity_task_id is not None:
             existing = selection_store.find_outcome_for_task(
@@ -106,6 +109,7 @@ def run_selection_outcome_job(
             rejected.append((candidate.candidate_id, reason))
             retryable_rejections.append((candidate.candidate_id, reason))
             continue
+        access_plans.append(ingested.access_plan)
         if not ingested.quality.approved:
             rejected.append((candidate.candidate_id, "market_snapshot_quality_rejected"))
             continue
@@ -129,6 +133,7 @@ def run_selection_outcome_job(
         rejected_candidates=tuple(rejected),
         market_snapshot_ids=tuple(market_snapshot_ids),
         retryable_rejections=tuple(retryable_rejections),
+        access_plans=tuple(access_plans),
     )
 
 
@@ -180,6 +185,16 @@ def run_selection_outcome_snapshot_job(
         for bar in market_store.load_bars(manifest.snapshot_id)
     )
     source_snapshot_ids = tuple(manifest.snapshot_id for manifest in ordered_manifests)
+    access_plans = tuple(
+        build_data_access_plan(
+            request_kind=manifest.request_kind,
+            provider=manifest.provider,
+            cache_key=f"snapshot:{manifest.snapshot_id}",
+            local_snapshot_id=manifest.snapshot_id,
+            remote_allowed=False,
+        )
+        for manifest in ordered_manifests
+    )
     outcomes: list[SelectionOutcome] = []
     rejected: list[tuple[str, str]] = []
     for candidate in imported.candidates:
@@ -206,6 +221,7 @@ def run_selection_outcome_snapshot_job(
         outcomes=tuple(outcomes),
         rejected_candidates=tuple(rejected),
         market_snapshot_ids=source_snapshot_ids,
+        access_plans=access_plans,
     )
 
 

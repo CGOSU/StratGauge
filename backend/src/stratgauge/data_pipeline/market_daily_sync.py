@@ -7,6 +7,11 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from stratgauge.data_pipeline.data_access import (
+    DataAccessDecision,
+    DataAccessPlan,
+    build_data_access_plan,
+)
 from stratgauge.data_pipeline.quality import check_bars, quality_run_id
 from stratgauge.data_pipeline.store import SnapshotManifest, SnapshotStatus, SnapshotStore
 from stratgauge.data_pipeline.universe import UniverseSnapshot
@@ -30,6 +35,7 @@ class MarketSessionSyncResult(BaseModel):
     expected_securities: int = Field(ge=1)
     actual_securities: int = Field(ge=0)
     coverage: Decimal = Field(ge=0, le=1)
+    access_plan: DataAccessPlan
     skipped: bool = False
 
 
@@ -57,10 +63,22 @@ def sync_market_session(
         session_date=session_date,
         universe_snapshot_id=universe.universe_snapshot_id,
     )
-    if existing is not None:
+    access_plan = build_data_access_plan(
+        request_kind="market_daily",
+        provider=adapter.provider,
+        cache_key=(
+            f"market_daily|{adapter.provider}|{session_date.isoformat()}|"
+            f"{universe.universe_snapshot_id}"
+        ),
+        local_snapshot_id=existing.snapshot_id if existing is not None else None,
+        remote_allowed=True,
+    )
+    if access_plan.decision is DataAccessDecision.CACHE_HIT:
+        assert existing is not None
         return _result_from_manifest(
             existing,
             expected_securities=len(expected_security_ids),
+            access_plan=access_plan,
             skipped=True,
         )
 
@@ -90,6 +108,7 @@ def sync_market_session(
         manifest,
         expected_securities=len(expected_security_ids),
         actual_securities=len({bar.security_id for bar in fetched.bars}),
+        access_plan=access_plan,
         skipped=False,
     )
 
@@ -127,6 +146,7 @@ def _result_from_manifest(
     *,
     expected_securities: int,
     actual_securities: int | None = None,
+    access_plan: DataAccessPlan,
     skipped: bool,
 ) -> MarketSessionSyncResult:
     actual = actual_securities if actual_securities is not None else manifest.row_count
@@ -142,5 +162,6 @@ def _result_from_manifest(
         expected_securities=expected_securities,
         actual_securities=actual,
         coverage=coverage,
+        access_plan=access_plan,
         skipped=skipped,
     )

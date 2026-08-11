@@ -19,6 +19,7 @@ from stratgauge.data_pipeline.quality import QualityReport
 from stratgauge.data_sources.base import (
     AdapterResult,
     AdjustmentFactorAdapterResult,
+    DailyBarRequest,
     MarketAdapterResult,
 )
 from stratgauge.domain.models import AdjustmentFactor, DailyBar
@@ -74,6 +75,7 @@ class SnapshotManifest(BaseModel):
     request_kind: str = "security_daily"
     universe_snapshot_id: str | None = None
     source_daily_snapshot_id: str | None = None
+    request_sha256: str | None = None
 
 
 class SnapshotStore:
@@ -107,10 +109,11 @@ class SnapshotStore:
         self,
         result: AdapterResult | MarketAdapterResult | AdjustmentFactorAdapterResult,
     ) -> SnapshotManifest:
+        request_payload = result.request.model_dump(mode="json")
         payload = {
             "provider": result.provider,
             "adapter_version": result.adapter_version,
-            "request": result.request.model_dump(mode="json"),
+            "request": request_payload,
             "records": [_json_safe(record) for record in result.raw_records],
         }
         canonical_payload = json.dumps(
@@ -157,6 +160,7 @@ class SnapshotStore:
             request_kind=result.request.request_kind,
             universe_snapshot_id=getattr(result.request, "universe_snapshot_id", None),
             source_daily_snapshot_id=getattr(result.request, "source_daily_snapshot_id", None),
+            request_sha256=_canonical_sha256(request_payload),
         )
         _atomic_write_text(
             manifest_path,
@@ -261,6 +265,15 @@ class SnapshotStore:
             )
         return str(path.relative_to(self.root))
 
+    def load_quality_report(self, quality_run_id: str) -> QualityReport:
+        path = self.quality_dir / f"{quality_run_id}.json"
+        if not path.exists():
+            raise SnapshotStoreError(f"quality report does not exist: {quality_run_id}")
+        try:
+            return QualityReport.model_validate_json(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise SnapshotStoreError(f"quality report is invalid: {quality_run_id}") from exc
+
     def verify(self) -> SnapshotVerificationReport:
         """Check immutable files and the DuckDB catalog without changing them."""
 
@@ -354,6 +367,27 @@ class SnapshotStore:
                 return manifest
         return None
 
+    def find_approved_security_snapshot(
+        self,
+        *,
+        provider: str,
+        request: DailyBarRequest,
+    ) -> SnapshotManifest | None:
+        """Find an approved single-security snapshot with the exact request."""
+
+        request_sha256 = _canonical_sha256(request.model_dump(mode="json"))
+        for manifest in self.list_manifests(SnapshotStatus.APPROVED):
+            if manifest.request_kind != request.request_kind or manifest.provider != provider:
+                continue
+            if manifest.request_sha256 == request_sha256:
+                return manifest
+            if (
+                manifest.request_sha256 is None
+                and _raw_request_sha256(manifest, self.root) == request_sha256
+            ):
+                return manifest
+        return None
+
     def list_manifests(self, status: SnapshotStatus | None = None) -> tuple[SnapshotManifest, ...]:
         query = "SELECT snapshot_id FROM snapshot_catalog"
         parameters: list[str] = []
@@ -384,7 +418,8 @@ class SnapshotStore:
                     created_at VARCHAR NOT NULL,
                     request_kind VARCHAR NOT NULL DEFAULT 'security_daily',
                     universe_snapshot_id VARCHAR,
-                    source_daily_snapshot_id VARCHAR
+                    source_daily_snapshot_id VARCHAR,
+                    request_sha256 VARCHAR
                 )
                 """
             )
@@ -398,6 +433,9 @@ class SnapshotStore:
             connection.execute(
                 "ALTER TABLE snapshot_catalog "
                 "ADD COLUMN IF NOT EXISTS source_daily_snapshot_id VARCHAR"
+            )
+            connection.execute(
+                "ALTER TABLE snapshot_catalog ADD COLUMN IF NOT EXISTS request_sha256 VARCHAR"
             )
             connection.execute(
                 """
@@ -420,8 +458,8 @@ class SnapshotStore:
                 INSERT OR REPLACE INTO snapshot_catalog
                 (snapshot_id, provider, adapter_version, start_date, end_date, row_count,
                  content_sha256, raw_path, normalized_path, status, quality_run_id, created_at,
-                 request_kind, universe_snapshot_id, source_daily_snapshot_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 request_kind, universe_snapshot_id, source_daily_snapshot_id, request_sha256)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     manifest.snapshot_id,
@@ -439,6 +477,7 @@ class SnapshotStore:
                     manifest.request_kind,
                     manifest.universe_snapshot_id,
                     manifest.source_daily_snapshot_id,
+                    manifest.request_sha256,
                 ],
             )
 
@@ -451,6 +490,25 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, (date, datetime)):
         return value.isoformat()
     return str(value) if not isinstance(value, (str, int, float, bool, type(None))) else value
+
+
+def _canonical_sha256(value: Any) -> str:
+    encoded = json.dumps(
+        _json_safe(value),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _raw_request_sha256(manifest: SnapshotManifest, root: Path) -> str | None:
+    try:
+        payload = json.loads((root / manifest.raw_path).read_text(encoding="utf-8"))
+        request = payload["request"]
+        return _canonical_sha256(request)
+    except (OSError, KeyError, TypeError, ValueError):
+        return None
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
