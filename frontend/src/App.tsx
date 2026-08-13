@@ -1265,8 +1265,10 @@ function AppSidebar({
             <button
               type="button"
               className={`app-nav-item${activeRoute === route ? ' app-nav-item--active' : ''}`}
+              aria-label={appRouteLabels[route]}
               aria-current={activeRoute === route ? 'page' : undefined}
               key={route}
+              title={appRouteLabels[route]}
               onClick={() => onNavigate(route)}
             >
               <Icon className="app-nav-icon" aria-hidden="true" />
@@ -1280,8 +1282,10 @@ function AppSidebar({
       <button
         type="button"
         className={`app-nav-item${activeRoute === 'import' ? ' app-nav-item--active' : ''}`}
+        aria-label={appRouteLabels.import}
         aria-current={activeRoute === 'import' ? 'page' : undefined}
         onClick={() => onNavigate('import')}
+        title={appRouteLabels.import}
       >
         <Upload className="app-nav-icon" aria-hidden="true" />
         <span>导入数据</span>
@@ -1289,8 +1293,10 @@ function AppSidebar({
       <button
         type="button"
         className={`app-nav-item${activeRoute === 'settings' ? ' app-nav-item--active' : ''}`}
+        aria-label={appRouteLabels.settings}
         aria-current={activeRoute === 'settings' ? 'page' : undefined}
         onClick={() => onNavigate('settings')}
+        title={appRouteLabels.settings}
       >
         <Settings2 className="app-nav-icon" aria-hidden="true" />
         <span>设置</span>
@@ -1431,7 +1437,7 @@ function MainBoardMarketSyncPanel({ apiBase }: { apiBase: string }) {
           {syncResult.sessions.map((session) => (
             <div className="market-sync-result-row" key={session.session_date}>
               <strong>{session.session_date}</strong>
-              <span className={session.market_status === 'approved' ? 'market-profit' : 'market-loss'}>{session.market_status === 'approved' ? '已批准' : '未批准'}</span>
+              <span className={session.market_status === 'approved' ? 'market-confirmed' : session.market_status === 'rejected' ? 'market-error' : 'market-pending'}>{session.market_status === 'approved' ? '已批准' : session.market_status === 'pending' ? '待处理' : '未批准'}</span>
               <span>{session.skipped ? '已有快照，已跳过' : '本次请求'}</span>
             </div>
           ))}
@@ -1452,8 +1458,8 @@ function WorkbenchMarketEvidenceView({ market }: { market: WorkbenchMarketEviden
   }
   return (
     <div className="workbench-market-grid">
-      <div><span>当前价</span><strong>{formatPrice(market.close)}</strong></div>
-      <div><span>涨跌幅</span><strong className={Number(market.change_percent ?? 0) >= 0 ? 'market-profit' : 'market-loss'}>{formatPercent(market.change_percent)}</strong></div>
+      <div><span>当前价</span><strong className="market-value">{formatPrice(market.close)}</strong></div>
+      <div><span>涨跌幅</span><strong className={`market-value market-change ${Number(market.change_percent ?? 0) >= 0 ? 'market-profit' : 'market-loss'}`}>{formatPercent(market.change_percent)}</strong></div>
       <div><span>交易日</span><strong>{market.session_date ?? '—'}</strong></div>
       <div><span>快照</span><strong>{market.snapshot_id ?? '—'}</strong></div>
     </div>
@@ -1579,7 +1585,7 @@ function WorkbenchAnnotationPanel({
           <legend>操作意图</legend>
           <div className="drawer-choice-row drawer-choice-row--wide">
             {(['discard', 'watch', 'prepare_buy'] as AnnotationDecision[]).map((value) => (
-              <button type="button" className={`drawer-choice${decision === value ? ' is-selected' : ''}`} key={value} onClick={() => setDecision(value)}>
+              <button type="button" className={`drawer-choice drawer-choice--${value}${decision === value ? ' is-selected' : ''}`} key={value} onClick={() => setDecision(value)}>
                 {annotationDecisionLabels[value]}
               </button>
             ))}
@@ -1696,8 +1702,8 @@ function WorkbenchTradePanel({
         <fieldset disabled={busy}>
           <legend>方向</legend>
           <div className="drawer-choice-row drawer-choice-row--wide">
-            <button type="button" className={`drawer-choice${side === 'buy' ? ' is-selected' : ''}`} disabled={signal.confirmed_buy} onClick={() => setSide('buy')}>确认买入</button>
-            <button type="button" className={`drawer-choice${side === 'sell' ? ' is-selected' : ''}`} onClick={() => setSide('sell')}>确认卖出</button>
+            <button type="button" className={`drawer-choice drawer-choice--buy${side === 'buy' ? ' is-selected' : ''}`} disabled={signal.confirmed_buy} onClick={() => setSide('buy')}>确认买入</button>
+            <button type="button" className={`drawer-choice drawer-choice--sell${side === 'sell' ? ' is-selected' : ''}`} onClick={() => setSide('sell')}>确认卖出</button>
           </div>
           {side === 'sell' && (
             <label className="drawer-field">
@@ -1897,7 +1903,7 @@ function WorkbenchSignalTable({
           <span className="workbench-stock-cell"><strong>{signal.candidate.symbol}</strong><small>{signal.candidate.name ?? '未提供名称'}</small></span>
           <span className="workbench-table-cell"><strong>{signal.batch.formula_name}</strong><small>{signal.batch.formula_version ?? '未版本化'}</small></span>
           <span className="workbench-table-cell"><strong>{signal.batch.selection_date}</strong><small>{formatManagementDate(signal.batch.exported_at)}</small></span>
-          <span className="workbench-table-cell"><strong>{formatPrice(signal.market.close)}</strong><small className={Number(signal.market.change_percent ?? 0) >= 0 ? 'market-profit' : 'market-loss'}>{formatPercent(signal.market.change_percent)}</small></span>
+          <span className="workbench-table-cell"><strong className="market-value">{formatPrice(signal.market.close)}</strong><small className={`market-change ${Number(signal.market.change_percent ?? 0) >= 0 ? 'market-profit' : 'market-loss'}`}>{formatPercent(signal.market.change_percent)}</small></span>
           <span className="workbench-table-cell"><strong>{signal.latest_annotation ? `${'★'.repeat(signal.latest_annotation.overall_score)}${'☆'.repeat(5 - signal.latest_annotation.overall_score)}` : '—'}</strong><small>{signal.latest_annotation ? annotationOutlookLabels[signal.latest_annotation.outlook] : '未判断'}</small></span>
           <span className="workbench-table-status"><span className={`workbench-status workbench-status--${signal.review_state}`}>{workbenchReviewLabel(signal.review_state)}</span>{signal.confirmed_buy && <span className="workbench-status workbench-status--bought">已买入</span>}</span>
         </button>
@@ -2048,7 +2054,7 @@ function WorkbenchWorkspace({
     ['观察中', summary.watching_count, 'review'],
     ['准备买入', summary.preparing_count, 'profit'],
     ['已判断', summary.reviewed_count, 'neutral'],
-    ['当前已买入', summary.confirmed_buy_count, 'loss'],
+    ['当前已买入', summary.confirmed_buy_count, 'confirmed'],
   ] as Array<[string, number, string]> : []
 
   return (
@@ -2056,7 +2062,7 @@ function WorkbenchWorkspace({
       {pageError && <div className="workbench-page-error" role="alert">{pageError}</div>}
       {(route === 'workbench' || route === 'signals') && summary && (
         <div className="workbench-kpi-grid">
-          {summaryCards.map(([label, value, tone]) => <article className={`workbench-kpi workbench-kpi--${tone}`} key={label}><span>{label}</span><strong>{value}</strong></article>)}
+          {summaryCards.map(([label, value, tone]) => <article className={`workbench-kpi workbench-kpi--${tone}`} key={label}><span>{label}</span><strong className="workbench-kpi-value">{value}</strong></article>)}
         </div>
       )}
       {route === 'workbench' && (

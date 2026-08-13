@@ -529,3 +529,9 @@
 - 后续修复：主板行情同步不再只从最后快照向后补。现在以目标日期向前最近 10 个自然日为检查窗口，逐日检查同一主板股票池的批准快照，发现缺失工作日就补同步；因此即使 13 号已同步、12 号遗漏，也能再次点击同步发现并补回 12 号。目标日期已有快照时仍返回已跳过明细。
 - 实际验证：后端目标 Ruff、MyPy、工作台/组合 API 测试 8 项；前端 typecheck、build、lint；`git diff --check` 均通过。
 - 遗留问题：真实 Tushare 网络同步尚未执行；未执行 add/commit/push。
+
+### 2026-08-13 前端视觉收敛收尾
+
+- 完成内容：完成浅色金融研究台 token、中文系统字体、字号/字重/行高/间距、卡片/表格/Drawer 和 A 股红涨绿跌、独立错误、蓝色信息、琥珀待处理等语义收敛；补充导航 aria-label/title、数字样式 hook 和 confirmed KPI 状态。
+- 实际验证：`cd frontend && corepack pnpm typecheck`、`corepack pnpm lint`、`corepack pnpm build`、`git diff --check` 均通过；Python CSS 变量扫描 used=103/defined=130、undefined=[]；权重仅 500/600/700；未发现外部字体、渐变或玻璃拟态。Vite 本地 5175 返回 HTTP 200；Chrome headless 在 390/1024/1440 视口检查无页面级横向溢出，字体为中文系统栈，body 为 14px。
+- 说明：无后端 API 时页面显示既有 JSON 错误提示，属于数据服务不可用，不是本次视觉改造引入的业务变更；浏览器 automation 因禁止访问 localhost 未使用。未执行 git add/commit/push。
