@@ -592,7 +592,7 @@ StratGauge 的核心不是“自动买卖”，而是把一次收盘后选股变
 
 导入器也支持通达信 `.EBK` 和行情表 `.txt` 选股结果：`.EBK` 使用七位市场编码；行情表使用 GBK/GB18030 的制表符列、`代码`/`名称(4)`/`涨幅%` 表头和通达信来源尾行。行情表的代码市场命名空间按通达信格式映射 `0/3` 深市、`6` 沪市、`4/8` 北市；普通 CSV 仍必须显式提供交易所，不会泛化猜测。
 
-前端包含“研究工作台”和“数据管理”两个入口：研究工作台负责通达信导入、手动添加候选、追加人工评审、记录候选实际买入和成熟；数据管理负责新建/查看公式和导入批次、按状态/来源筛选、按公式版本/日期/人工决策/结果政策查看统计、下载原始文件和 JSONL 数据集及追加归档/恢复事件，不执行硬删除。四类机器学习数据集由 `backend/scripts/export_selection_ml_datasets.py` 显式生成，再由 `backend/scripts/prepare_selection_training_dataset.py` 按用途转换为训练标签和时间切分；可通过 `backend/scripts/train_selection_label_baseline.py` 运行只读常数标签基线，但不会自动注册、评分或晋升模型。
+前端包含“研究工作台”和“数据管理”两个入口：研究工作台负责通达信导入、手动添加候选、追加人工评审、记录候选实际买入和成熟；数据管理负责新建/查看公式和导入批次、按状态/来源筛选、按公式版本/日期/人工决策/结果政策查看统计、下载原始文件和 JSONL 数据集及追加归档/恢复事件，不执行硬删除。四类机器学习数据集由 `backend/scripts/export_selection_ml_datasets.py` 显式生成，再由 `backend/scripts/prepare_selection_training_dataset.py` 按用途转换为训练标签和时间切分；可通过 `backend/scripts/train_selection_label_baseline.py` 运行只读常数标签基线，再通过 `backend/scripts/join_selection_training_features.py` 连接显式点时特征；不会自动注册、评分或晋升模型。
 
 前端：
 

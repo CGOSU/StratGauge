@@ -32,7 +32,7 @@ from stratgauge.backtest.selection_ml_datasets import (
 from stratgauge.domain.models import DomainModel
 from stratgauge.domain.selections import SelectionOutcomeStatus
 
-TRAINING_LABEL_DATASET_SCHEMA_VERSION = "selection-training-label-dataset-v1"
+TRAINING_LABEL_DATASET_SCHEMA_VERSION = "selection-training-label-dataset-v2"
 TRAINING_LABEL_SPLIT_MANIFEST_VERSION = "selection-training-label-split-v1"
 TRAINING_LABEL_READINESS_REPORT_VERSION = "selection-training-label-readiness-v1"
 
@@ -100,6 +100,7 @@ class SelectionTrainingLabelRow(DomainModel):
     observation_date: date
     label_available_at: datetime
     target: TrainingLabel
+    observation_at: datetime | None = None
     tracking_policy_id: str | None = None
     outcome_policy_id: str | None = None
     window_sessions: int | None = Field(default=None, gt=0)
@@ -135,11 +136,11 @@ class SelectionTrainingLabelRow(DomainModel):
             raise ValueError("source_row_sha256 must be a lowercase SHA-256 digest")
         return normalized
 
-    @field_validator("label_available_at")
+    @field_validator("label_available_at", "observation_at")
     @classmethod
-    def validate_label_available_at(cls, value: datetime) -> datetime:
-        if value.tzinfo is None or value.utcoffset() is None:
-            raise ValueError("label_available_at must include a timezone")
+    def validate_label_times(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("training label timestamps must include a timezone")
         return value
 
     @field_validator("source_snapshot_ids")
@@ -157,6 +158,11 @@ class SelectionTrainingLabelRow(DomainModel):
             raise ValueError("training label contract does not match purpose")
         if self.target not in allowed_labels_for(self.purpose):
             raise ValueError("training label does not match purpose")
+        if self.observation_at is not None:
+            if self.observation_at.date() < self.observation_date:
+                raise ValueError("observation_at cannot precede observation_date")
+            if self.label_available_at < self.observation_at:
+                raise ValueError("label_available_at cannot precede observation_at")
         if self.label_available_at.date() < self.observation_date:
             raise ValueError("label_available_at cannot precede observation_date")
         if self.purpose is TrainingDatasetPurpose.CANDIDATE_SUCCESS:
@@ -703,6 +709,10 @@ def _prepare_annotation_decision_labels(
                 "annotation decision annotation_recorded_at",
             ),
             target=TrainingLabel(row.decision.value),
+            observation_at=_parse_aware_datetime(
+                row.annotation_reviewed_at,
+                "annotation decision annotation_reviewed_at",
+            ),
             sample_identity={"annotation_id": row.annotation_id},
         )
         for row in rows
@@ -758,6 +768,7 @@ def _prepare_buy_timing_labels(
                 observation_date=row.annotation_reviewed_at.date(),
                 label_available_at=label_available_at,
                 target=target,
+                observation_at=row.annotation_reviewed_at,
                 window_sessions=row.window_sessions,
                 sample_identity={"annotation_id": row.annotation_id},
             )
@@ -808,6 +819,11 @@ def _prepare_sell_timing_labels(
                 observation_date=row.exposure_session,
                 label_available_at=row.evaluated_at,
                 target=target,
+                observation_at=datetime.combine(
+                    row.exposure_session,
+                    datetime.min.time(),
+                    tzinfo=row.evaluated_at.tzinfo,
+                ),
                 window_sessions=row.window_sessions,
                 sample_identity={
                     "candidate_id": row.candidate_id,
@@ -842,6 +858,7 @@ def _label_row(
     observation_date: date,
     label_available_at: datetime,
     target: TrainingLabel,
+    observation_at: datetime | None = None,
     sample_identity: dict[str, str | int],
     tracking_policy_id: str | None = None,
     outcome_policy_id: str | None = None,
@@ -865,6 +882,7 @@ def _label_row(
         symbol=symbol,
         observation_date=observation_date,
         label_available_at=label_available_at,
+        observation_at=observation_at,
         target=target,
         tracking_policy_id=tracking_policy_id,
         outcome_policy_id=outcome_policy_id,

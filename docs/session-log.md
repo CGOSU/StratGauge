@@ -465,4 +465,6 @@
 - 实际验证：新增训练数据集测试 6 项；后端完整 `unittest discover` 256 项通过、1 项跳过；Ruff 和 MyPy 通过；训练准备 CLI `--help` 通过。
 - 完成内容：新增 `training_label_baseline.py` 与 `train_selection_label_baseline.py`，支持四用途独立的 `constant_label_distribution` 基线；人工决策三分类，其余用途二分类；输出模型、指标、逐行预测和 manifest。
 - 实际验证：新增基线测试 6 项；后端完整 `unittest discover` 262 项通过、1 项跳过；Ruff、MyPy 和基线 CLI `--help` 通过。
-- 遗留问题：基线仍未接入特征 join、LightGBM、校准、模型注册和影子评分；下一项为 SG-ML-02C。
+- 完成内容：新增 `training_feature_join.py` 与 `join_selection_training_features.py`，用途标签升级为 v2 并保留精确 `observation_at`；显式快照按证券/观察日/评审时点选择唯一安全最新特征，未来、特征集不一致和歧义快照失败，purged 标签不连接。
+- 实际验证：新增特征连接测试 5 项；后端完整 `unittest discover` 267 项通过、1 项跳过；Ruff 和 MyPy 通过；特征连接 CLI `--help` 通过。
+- 遗留问题：用途基线尚未消费特征值，模型注册和影子评分仍未接入；下一项为 SG-ML-02D。
