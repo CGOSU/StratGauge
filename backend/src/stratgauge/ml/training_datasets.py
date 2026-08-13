@@ -443,7 +443,7 @@ def audit_training_label_split(
         )
     train_targets = {row.target for row in split.train_rows}
     if len(train_targets) < 2:
-        blockers.append("training labels do not contain at least two target classes")
+        blockers.append("training labels do not contain at least two classes")
     if duplicate_sample_count:
         blockers.append(f"prepared split contains {duplicate_sample_count} duplicate sample IDs")
     if duplicate_source_row_count:
@@ -615,14 +615,14 @@ def _prepare_candidate_success_labels(
     skipped_unlabeled_row_count = 0
     filtered_policy_row_count = 0
     for row in rows:
+        if row.outcome_status not in _COMPLETED_OUTCOME_STATUSES:
+            skipped_unlabeled_row_count += 1
+            continue
         if (
             resolved_tracking_policy_id is not None
             and row.tracking_policy_id != resolved_tracking_policy_id
         ):
             filtered_policy_row_count += 1
-            continue
-        if row.outcome_status not in _COMPLETED_OUTCOME_STATUSES:
-            skipped_unlabeled_row_count += 1
             continue
         if row.tracking_policy_id is None or row.outcome_policy_id is None:
             raise ValueError("candidate success row lacks outcome policy lineage")

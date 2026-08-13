@@ -287,7 +287,8 @@ corepack pnpm build
 
 - [x] **SG-ML-02A 训练标签契约与时间切分**：新增四种用途独立的训练标签契约、源行哈希、稳定样本 ID、标签可见时间和显式 `purged` 分区；新增 `prepare_selection_training_dataset.py` 输出 train/validation/test/purged JSONL、manifest 和准入报告。
   - 验收：候选成功率、人工决策、买入择时、卖出择时不混用标签；未成熟标签不进入训练；跨时间边界才可见的标签进入 `purged`；重复样本、错误 schema、缺少交易证据和不可覆盖输出均有测试。
-- [ ] **SG-ML-02B 基线训练接入四种标签**：扩展常数基线训练入口，按训练契约读取四种标签并生成独立模型类型、manifest 和评估证据；不自动接入模型晋升。
+- [x] **SG-ML-02B 基线训练接入四种标签**：新增 `constant_label_distribution` 多分类/二分类基线及 `train_selection_label_baseline.py`，按训练契约读取四种标签并生成独立模型、manifest、指标和逐行预测；`purged` 永不进入训练/评估，不自动注册或晋升。
+- [ ] **SG-ML-02C 特征与标签按用途连接**：为四类训练标签建立不泄漏的特征快照 join，拒绝评审后特征、未来成交特征和跨用途标签混入。
 
 ### 明确不做
 

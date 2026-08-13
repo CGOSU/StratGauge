@@ -463,4 +463,6 @@
 - 实际验证：后端完整 `unittest discover` 250 项通过、1 项跳过；本轮新增后端测试覆盖 4 个机器学习数据集行为；后端源代码 MyPy 通过；前端 `pnpm typecheck`、`pnpm build` 通过；`git diff --check` 通过。29 个后端 CLI 的 `--help` 逐一执行通过。
 - 完成内容：新增 `training_datasets.py` 与 `prepare_selection_training_dataset.py`，冻结四种训练标签契约、源行哈希、稳定样本 ID、标签可见时间和 `purged` 分区；四类数据集不再共享标签字段。
 - 实际验证：新增训练数据集测试 6 项；后端完整 `unittest discover` 256 项通过、1 项跳过；Ruff 和 MyPy 通过；训练准备 CLI `--help` 通过。
-- 遗留问题：四类训练标签已完成准备和准入审计，但尚未接入基线训练；下一项为 SG-ML-02B。
+- 完成内容：新增 `training_label_baseline.py` 与 `train_selection_label_baseline.py`，支持四用途独立的 `constant_label_distribution` 基线；人工决策三分类，其余用途二分类；输出模型、指标、逐行预测和 manifest。
+- 实际验证：新增基线测试 6 项；后端完整 `unittest discover` 262 项通过、1 项跳过；Ruff、MyPy 和基线 CLI `--help` 通过。
+- 遗留问题：基线仍未接入特征 join、LightGBM、校准、模型注册和影子评分；下一项为 SG-ML-02C。
