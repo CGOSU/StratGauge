@@ -358,6 +358,21 @@
 - 决定：实际买入通过候选关联的原子订单/成交接口记录；人工评审历史不被修改。
 - 原因：保留判断变化轨迹，避免未来标注覆盖历史样本，并明确区分研究排除、人工判断和真实交易事实。
 
+### 2026-08-11：四用途特征 LightGBM 先独立训练，不复用旧二分类运营契约
+
+- 决定：新增 `train_selection_feature_lightgbm.py`，只接受 `selection-purpose-feature-dataset-v1` 的已验证连接目录；候选成功率、买入择时和卖出择时使用二分类，人工决策使用三分类。
+- 决定：LightGBM 只在 train 分区拟合，validation/test 分区评估；`purged`、连接失败、用途/标签契约不一致、分区或血缘哈希不一致时阻断；输出模型文本、模型元数据、指标、预测和不可覆盖 manifest，明确 `calibrated=false`。
+- 原因：现有 `lightgbm_training.py`、校准、注册和影子评分均绑定旧的 `selection-feature-dataset-v1`、`win/loss` 与 `tracking_policy_id` 契约，直接复用会混淆四类模型的用途、标签和模型身份。
+- 约束：本切片不自动校准、注册、晋升、影子评分或交易；下一步必须先定义支持三分类/二分类的用途感知校准与运营血缘，再接入模型注册和 shadow。
+
+### 2026-08-11：四用途 LightGBM 校准独立于旧候选成功率运营契约
+
+- 决定：新增 `calibrate_selection_feature_probabilities.py` 与独立 `feature_lightgbm_isotonic` 契约；不复用旧校准器的 `tracking_policy_id`、二分类 `win/loss` 或旧模型 manifest 结构。
+- 决定：二分类用途只拟合正类 one-dimensional PAVA 并由补集恢复负类；人工决策三分类对每一类执行 one-vs-rest PAVA，再将输出归一化为显式类别分布。
+- 决定：校准只读取已验证的用途特征 LightGBM 目录，校验模型、运行工件、指标、预测和 manifest 的哈希、用途/标签契约、类别、特征列、分区计数及 `purged` 排除；validation 用于拟合，test 只应用和评估。
+- 决定：校准时间必须不早于被消费预测的标签可用时间；校准结果不可覆盖，保持 `calibrated=true` 但不自动注册、晋升、影子评分或交易。
+- 原因：四类模型的标签空间和特征血缘不同，直接套用旧候选成功率校准会造成模型身份混淆或把 test/未来标签带入校准；独立契约可以在后续定义用途感知模型运营之前保留安全边界。
+
 ### 2026-08-11：机器学习数据集按用途分离
 
 - 决定：模型 1 使用候选成功率数据集；模型 2 使用逐次人工评审数据集；模型 3 使用评审到实际买入的显式交易日窗口；模型 4 使用持仓 session 暴露到后续卖出的显式交易日窗口。

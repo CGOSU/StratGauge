@@ -2,8 +2,8 @@
   "mode": "auto",
   "architect": {
     "provider": "openai-codex",
-    "model": "gpt-5.6-sol",
-    "thinkingLevel": "xhigh"
+    "model": "gpt-5.6-terra",
+    "thinkingLevel": "max"
   },
   "developer-test": {
     "provider": "openai-codex",

@@ -289,7 +289,9 @@ corepack pnpm build
   - 验收：候选成功率、人工决策、买入择时、卖出择时不混用标签；未成熟标签不进入训练；跨时间边界才可见的标签进入 `purged`；重复样本、错误 schema、缺少交易证据和不可覆盖输出均有测试。
 - [x] **SG-ML-02B 基线训练接入四种标签**：新增 `constant_label_distribution` 多分类/二分类基线及 `train_selection_label_baseline.py`，按训练契约读取四种标签并生成独立模型、manifest、指标和逐行预测；`purged` 永不进入训练/评估，不自动注册或晋升。
 - [x] **SG-ML-02C 特征与标签按用途连接**：新增 `selection-purpose-feature-dataset-v1` 和 `join_selection_training_features.py`；显式传入快照，按证券/观察日/评审时点选择安全最新快照，拒绝未来快照、特征集不一致和同一安全时点歧义；`purged` 标签不连接。
-- [ ] **SG-ML-02D 用途特征基线接入**：让 `constant_label_distribution` 基线读取用途特征数据集并校验特征/标签血缘；继续保持四类模型、评估和注册边界独立。
+- [x] **SG-ML-02D 用途特征基线接入**：新增用途特征连接 manifest、原始标签分区和血缘校验；`train_selection_feature_baseline.py` 只接受完整连接，运行独立 `constant_label_distribution` 特征基线并保留四类模型、评估和注册边界。
+- [x] **SG-ML-02E 四用途 LightGBM 候选接入**：新增 `train_selection_feature_lightgbm.py`；从已验证用途特征 split 读取完整血缘，候选成功率/买入择时/卖出择时使用二分类，人工决策使用三分类；仅 train 拟合、validation/test 评估，`purged` 和失败连接阻断；输出未校准模型与不可覆盖证据，不自动校准、注册、晋升或交易。
+- [x] **SG-ML-02F 四用途概率校准接入**：新增 `calibrate_selection_feature_probabilities.py`；二分类只校准正类并取补集，三分类按 one-vs-rest PAVA 校准后归一化；只用 validation 拟合，test 隔离评估；校验模型、指标、预测、manifest 哈希及完整特征血缘，校准时间不得早于标签可用时间；输出不可覆盖且不自动注册、晋升、影子评分或交易。
 
 ### 明确不做
 

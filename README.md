@@ -396,7 +396,7 @@ PYTHONPATH=src uv run python scripts/validate_walk_forward.py \
 
 折 JSON 必须由研究配置显式提供；最终测试期只计数、不参与折验证。`--outcomes` 可选，提供后按候选/选股日关联 `selection-dataset-v2` 的客观结果：未解决样本不进入执行率分母，缺少净收益或名义金额时对应收益/换手指标保持为空；不提供时仍只生成概率指标和标签清除审计。
 
-对 LightGBM 预测进行概率校准时，只使用 validation 预测拟合 PAVA Isotonic，test 预测保持隔离：
+对旧候选成功率 LightGBM 预测进行概率校准时，只使用 validation 预测拟合 PAVA Isotonic，test 预测保持隔离：
 
 ```bash
 PYTHONPATH=src uv run python scripts/calibrate_selection_probabilities.py \
@@ -406,7 +406,17 @@ PYTHONPATH=src uv run python scripts/calibrate_selection_probabilities.py \
   --calibrated-at 2026-10-02T18:00:00+08:00
 ```
 
-默认至少需要 100 个 validation 样本和两类标签；输出显式记录 `calibrated=true`、校准日期、适用日期、模型版本和源哈希。校准结果当前不进入 Web、推荐或自动晋升。
+四用途特征 LightGBM 使用独立校准入口。候选成功率、买入择时和卖出择时只校准正类并取补集；人工决策按 one-vs-rest 校准三类后归一化：
+
+```bash
+PYTHONPATH=src uv run python scripts/calibrate_selection_feature_probabilities.py \
+  --input-dir data/ml-models/annotation-decision-lightgbm \
+  --output-dir data/ml-models/annotation-decision-calibration \
+  --calibrated-at 2026-10-02T18:00:00+08:00 \
+  --minimum-validation-samples 100
+```
+
+两个入口都只用 validation 拟合、test 隔离评估；用途特征入口会校验模型、指标、预测、manifest 哈希、标签契约、特征列和标签可用时间。输出显式记录 `calibrated=true`，当前不进入 Web、推荐、注册、影子评分或自动晋升。
 
 模型注册会复制模型、评估报告和训练 manifest，并校验 SHA-256；LightGBM 注册时 `--model` 指向 `model.json`，另用 `--runtime-artifact model.txt` 保存可执行工件；生命周期只能人工追加，不能自动晋升：
 
@@ -592,7 +602,7 @@ StratGauge 的核心不是“自动买卖”，而是把一次收盘后选股变
 
 导入器也支持通达信 `.EBK` 和行情表 `.txt` 选股结果：`.EBK` 使用七位市场编码；行情表使用 GBK/GB18030 的制表符列、`代码`/`名称(4)`/`涨幅%` 表头和通达信来源尾行。行情表的代码市场命名空间按通达信格式映射 `0/3` 深市、`6` 沪市、`4/8` 北市；普通 CSV 仍必须显式提供交易所，不会泛化猜测。
 
-前端包含“研究工作台”和“数据管理”两个入口：研究工作台负责通达信导入、手动添加候选、追加人工评审、记录候选实际买入和成熟；数据管理负责新建/查看公式和导入批次、按状态/来源筛选、按公式版本/日期/人工决策/结果政策查看统计、下载原始文件和 JSONL 数据集及追加归档/恢复事件，不执行硬删除。四类机器学习数据集由 `backend/scripts/export_selection_ml_datasets.py` 显式生成，再由 `backend/scripts/prepare_selection_training_dataset.py` 按用途转换为训练标签和时间切分；可通过 `backend/scripts/train_selection_label_baseline.py` 运行只读常数标签基线，再通过 `backend/scripts/join_selection_training_features.py` 连接显式点时特征；不会自动注册、评分或晋升模型。
+前端包含“研究工作台”和“数据管理”两个入口：研究工作台负责通达信导入、手动添加候选、追加人工评审、记录候选实际买入和成熟；数据管理负责新建/查看公式和导入批次、按状态/来源筛选、按公式版本/日期/人工决策/结果政策查看统计、下载原始文件和 JSONL 数据集及追加归档/恢复事件，不执行硬删除。四类机器学习数据集由 `backend/scripts/export_selection_ml_datasets.py` 显式生成，再由 `backend/scripts/prepare_selection_training_dataset.py` 按用途转换为训练标签和时间切分；可通过 `backend/scripts/train_selection_label_baseline.py` 运行只读常数标签基线，再通过 `backend/scripts/join_selection_training_features.py` 连接显式点时特征，最后可用 `backend/scripts/train_selection_feature_baseline.py` 或可选依赖 `backend/scripts/train_selection_feature_lightgbm.py` 校验特征/标签血缘并运行用途特征模型；不会自动注册、评分或晋升模型。
 
 前端：
 

@@ -31,7 +31,10 @@
 - 2026-08-11 完成人工评审重构：新增追加式 `SelectionAnnotation`，综合评分/观点/当前决策为必填，位置/形态/量价/板块标签使用 `selection-annotation-taxonomy-v1` 固定词表；新增独立候选排除事件、观察池状态投影、候选关联的原子订单与成交接口；旧 `ManualSelectionLabel` 保留为只读兼容数据。
 - 2026-08-11 完成训练标签契约和时间切分：新增 `training_datasets.py` 与 `prepare_selection_training_dataset.py`，四类数据集分离为独立目标；未成熟/未来不可见标签进入 `purged` 或跳过统计，保留源行哈希和稳定样本 ID。
 - 2026-08-11 完成四类标签常数基线：新增 `constant_label_distribution` 和 `train_selection_label_baseline.py`；人工决策支持三分类，其余用途独立二分类；只使用 train 类别分布，分别评估 validation/test，`purged` 永不消费；尚未接入模型注册。
-- 2026-08-11 完成用途特征与标签连接：新增 `training_feature_join.py` 和 `join_selection_training_features.py`；只消费调用方显式提供的特征快照，按证券/观察日/评审时点选择唯一安全最新快照，未来或歧义快照进入失败报告，`purged` 标签不连接；下一项为用途特征基线接入。
+- 2026-08-11 完成用途特征与标签连接：新增 `training_feature_join.py` 和 `join_selection_training_features.py`；只消费调用方显式提供的特征快照，按证券/观察日/评审时点选择唯一安全最新快照，未来或歧义快照进入失败报告，`purged` 标签不连接；输出同时保留原始标签分区、标签 split manifest、准入报告和连接 manifest，供后续血缘校验。
+- 2026-08-11 完成 SG-ML-02D 用途特征基线：新增 `training_feature_baseline.py` 和 `train_selection_feature_baseline.py`；严格校验用途、标签契约、特征集、特征列、样本 ID、源哈希、分区哈希、标签切分证据和连接失败；完整连接后使用 train 标签分布运行独立 `constant_label_distribution`，validation/test 评估，`purged` 永不消费；尚未自动注册、校准、晋升或接入交易。
+- 2026-08-11 完成 SG-ML-02E 四用途 LightGBM 候选接入：新增 `training_feature_lightgbm.py` 和 `train_selection_feature_lightgbm.py`；复用已验证的用途特征 split，二分类用途使用 binary，人工决策使用 multiclass；仅 train 拟合，validation/test 评估，模型身份绑定用途/标签契约/特征连接 manifest/标签血缘，默认环境仍不加载可选依赖；尚未自动校准、注册、晋升、影子评分或接入交易。
+- 2026-08-11 完成 SG-ML-02F 四用途概率校准：新增 `isotonic.py`、`training_feature_lightgbm_calibration.py` 和 `calibrate_selection_feature_probabilities.py`；二分类正类取补集，三分类 one-vs-rest PAVA 后归一化；只用 validation 拟合、test 隔离评估，读取时校验模型/指标/预测/manifest 哈希、用途/标签契约/特征列/分区和 `purged` 证据，校准时间不得早于标签可用时间；旧二分类校准已复用共享 PAVA 并保留兼容入口；尚未自动注册、晋升、影子评分或接入交易。
 - 2026-08-11 完成多用途机器学习数据集底座：保留候选成功率数据集，新增逐评审人工判断数据集、T+1/T+3/T+5/T+10 未来表现及最大涨幅/回撤/目标达成字段、买入择时数据集和持仓 session 级卖出择时数据集；所有择时数据集使用显式交易日历和评估截止时间，未成熟标签保持为空；新增 `export_selection_ml_datasets.py`。
 - 2026-08-11 全面更新技术与使用文档：新增 `docs/使用文档.md`，逐项说明 34 个后端 CLI 的 input、HTTP API 请求参数和前端表单字段；新增行情远程拉取/本地缓存决策表，明确日历缺口、全市场批准快照、单票 provider 模式、因子补齐和 approved-snapshots 重放的不同边界；重写 `docs/系统规格说明.md` 以匹配当前代码实现，并在 README 增加文档入口。
 - 2026-08-11 完成前端体验收口：研究、数据管理和持仓工作区的 API 错误提示统一为可关闭的吸顶提示；所有日期/日期时间字段统一使用 `CalendarInput`，提供日历按钮、清空操作、键盘焦点反馈和统计日期范围约束；删除旧的重复错误 JSX 和日期专用样式。前端类型检查和生产构建通过，桌面与 390px 移动视口实测无横向溢出。

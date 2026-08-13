@@ -84,6 +84,9 @@ class TrainingFeatureJoinTests(unittest.TestCase):
 
             self.assertEqual(result.report.failure_count, 0)
             self.assertEqual(result.report.purged_row_count, 1)
+            self.assertEqual(len(result.label_train_rows), 2)
+            self.assertEqual(len(result.label_validation_rows), 1)
+            self.assertEqual(len(result.purged_rows), 1)
             self.assertEqual(
                 result.report.joined_feature_snapshot_ids,
                 ("feature-latest", "feature-train-second", "feature-validation"),
@@ -200,6 +203,11 @@ class TrainingFeatureJoinTests(unittest.TestCase):
             output = Path(directory) / "joined"
             write_training_feature_split(output, result)
             self.assertTrue((output / "train.jsonl").exists())
+            self.assertTrue((output / "label-train.jsonl").exists())
+            self.assertTrue((output / "label-validation.jsonl").exists())
+            self.assertTrue((output / "label-test.jsonl").exists())
+            self.assertTrue((output / "label-split-manifest.json").exists())
+            self.assertTrue((output / "label-readiness.json").exists())
             with self.assertRaises(FileExistsError):
                 write_training_feature_split(output, result)
 

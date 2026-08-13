@@ -467,4 +467,10 @@
 - 实际验证：新增基线测试 6 项；后端完整 `unittest discover` 262 项通过、1 项跳过；Ruff、MyPy 和基线 CLI `--help` 通过。
 - 完成内容：新增 `training_feature_join.py` 与 `join_selection_training_features.py`，用途标签升级为 v2 并保留精确 `observation_at`；显式快照按证券/观察日/评审时点选择唯一安全最新特征，未来、特征集不一致和歧义快照失败，purged 标签不连接。
 - 实际验证：新增特征连接测试 5 项；后端完整 `unittest discover` 267 项通过、1 项跳过；Ruff 和 MyPy 通过；特征连接 CLI `--help` 通过。
-- 遗留问题：用途基线尚未消费特征值，模型注册和影子评分仍未接入；下一项为 SG-ML-02D。
+- 完成内容：完成 SG-ML-02D；`training_feature_join.py` 为每个用途保存不可覆盖的连接 manifest、原始标签分区、标签 split manifest 和 readiness；新增 `training_feature_baseline.py` 与 `train_selection_feature_baseline.py`，严格校验用途/标签契约、特征集与列、样本 ID、源哈希、分区哈希和连接失败后，使用 train 标签分布运行独立特征基线。
+- 实际验证：后端完整 `unittest discover` 273 项通过、1 项跳过；Ruff、MyPy 通过；全部后端 CLI 的 `--help` 通过；`git diff --check` 通过。
+- 完成内容：完成 SG-ML-02E；新增 `training_feature_lightgbm.py` 与 `train_selection_feature_lightgbm.py`。训练入口只消费已验证用途特征 split，候选成功率/买入择时/卖出择时使用 binary，人工决策使用 multiclass；固定单线程配置，仅 train 拟合，validation/test 评估，`purged` 和连接失败阻断，模型/预测/评估/manifest 输出不可覆盖且绑定完整用途血缘。
+- 实际验证：新增 LightGBM mock 测试 4 项；后端完整 `unittest discover` 277 项通过、1 项跳过；源代码 MyPy（83 个文件）、Ruff、全部 CLI `--help` 和 `git diff --check` 通过；`uv run --extra ml` 可加载 LightGBM 4.7.0。
+- 完成内容：完成 SG-ML-02F；新增共享无依赖 `isotonic.py`、用途感知 `training_feature_lightgbm_calibration.py` 和 `calibrate_selection_feature_probabilities.py`。二分类只校准正类并取补集，人工决策三分类按 one-vs-rest PAVA 后归一化；只用 validation 拟合，test 隔离评估；读取训练输出时校验模型/运行工件/指标/预测/manifest 哈希、用途、标签契约、特征列、分区计数和 `purged` 证据，校准时间不得早于预测标签可用时间；旧二分类校准复用共享 PAVA 且回归保持兼容。
+- 实际验证：新增用途校准测试 4 项；后端完整 `unittest discover` 281 项通过、1 项跳过；源代码 MyPy（85 个文件）、目标脚本 MyPy、Ruff 和全部相关 CLI 帮助通过；`uv run --extra ml` 实际三分类 LightGBM 训练、输出读取和校准写入通过；`git diff --check` 通过。
+- 遗留问题：四用途校准尚未接入模型注册、影子评分、推荐工作台或批次自动接入；后续需先扩展注册/影子契约以表达用途、标签空间和校准工件血缘。

@@ -16,6 +16,7 @@ from pydantic import Field, field_validator
 
 from stratgauge.domain.models import DomainModel
 from stratgauge.ml.evaluation import ModelEvaluationEvidence
+from stratgauge.ml.isotonic import IsotonicBin, apply_isotonic_bin, fit_isotonic_bins
 
 CALIBRATION_VERSION = "selection-calibration-v1"
 LIGHTGBM_REPORT_VERSION = "selection-lightgbm-v1"
@@ -324,51 +325,20 @@ def write_calibration_result(output_dir: str | Path, result: CalibrationResult) 
         raise
 
 
-@dataclass
-class _IsotonicBlock:
-    lower_probability: Decimal
-    upper_probability: Decimal
-    positive_count: int
-    sample_count: int
-
-    @property
-    def calibrated_probability(self) -> Decimal:
-        return Decimal(self.positive_count) / Decimal(self.sample_count)
-
-
 def _fit_isotonic(rows: Sequence[CalibrationPrediction]) -> tuple[IsotonicCalibrationBin, ...]:
-    blocks: list[_IsotonicBlock] = []
-    for row in sorted(rows, key=lambda item: (item.predicted_probability, item.candidate_id)):
-        blocks.append(
-            _IsotonicBlock(
-                lower_probability=row.predicted_probability,
-                upper_probability=row.predicted_probability,
-                positive_count=int(row.label == "win"),
-                sample_count=1,
-            )
-        )
-        while len(blocks) >= 2 and (
-            blocks[-2].calibrated_probability > blocks[-1].calibrated_probability
-        ):
-            right = blocks.pop()
-            left = blocks.pop()
-            blocks.append(
-                _IsotonicBlock(
-                    lower_probability=left.lower_probability,
-                    upper_probability=right.upper_probability,
-                    positive_count=left.positive_count + right.positive_count,
-                    sample_count=left.sample_count + right.sample_count,
-                )
-            )
+    bins = fit_isotonic_bins(
+        tuple(row.predicted_probability for row in rows),
+        tuple(row.label == "win" for row in rows),
+    )
     return tuple(
         IsotonicCalibrationBin(
-            lower_probability=block.lower_probability,
-            upper_probability=block.upper_probability,
-            calibrated_probability=block.calibrated_probability,
-            sample_count=block.sample_count,
-            positive_count=block.positive_count,
+            lower_probability=item.lower_probability,
+            upper_probability=item.upper_probability,
+            calibrated_probability=item.calibrated_probability,
+            sample_count=item.sample_count,
+            positive_count=item.positive_count,
         )
-        for block in blocks
+        for item in bins
     )
 
 
@@ -376,13 +346,18 @@ def _calibrated_prediction(
     row: CalibrationPrediction,
     bins: Sequence[IsotonicCalibrationBin],
 ) -> CalibratedPrediction:
-    calibrated = next(
-        (
-            item.calibrated_probability
+    calibrated = apply_isotonic_bin(
+        row.predicted_probability,
+        tuple(
+            IsotonicBin(
+                lower_probability=item.lower_probability,
+                upper_probability=item.upper_probability,
+                calibrated_probability=item.calibrated_probability,
+                sample_count=item.sample_count,
+                positive_count=item.positive_count,
+            )
             for item in bins
-            if row.predicted_probability <= item.upper_probability
         ),
-        bins[-1].calibrated_probability,
     )
     return CalibratedPrediction(
         split=row.split,
