@@ -14,6 +14,8 @@ from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.domain.models import DomainModel
 from stratgauge.domain.selections import (
     ManualSelectionLabel,
+    SelectionAnnotation,
+    SelectionCandidateExclusion,
     SelectionFormula,
     SelectionLifecycleEvent,
     SelectionLifecycleStatus,
@@ -48,6 +50,8 @@ class SelectionImportStore:
         self.import_dir = self.root / "tdx" / "imports"
         self.manifest_dir = self.root / "tdx" / "manifests"
         self.label_dir = self.root / "tdx" / "labels"
+        self.annotation_dir = self.root / "tdx" / "annotations"
+        self.exclusion_dir = self.root / "tdx" / "exclusions"
         self.outcome_dir = self.root / "tdx" / "outcomes"
         self.formula_dir = self.root / "tdx" / "formulas"
         self.lifecycle_dir = self.root / "tdx" / "lifecycle"
@@ -58,6 +62,8 @@ class SelectionImportStore:
             self.import_dir,
             self.manifest_dir,
             self.label_dir,
+            self.annotation_dir,
+            self.exclusion_dir,
             self.outcome_dir,
             self.formula_dir,
             self.lifecycle_dir,
@@ -225,6 +231,128 @@ class SelectionImportStore:
                 raise SelectionStoreError(f"selection label is invalid: {label_id}") from exc
         _atomic_write_text(path, label.model_dump_json(indent=2))
         return label
+
+    def write_annotation(
+        self,
+        batch_id: str,
+        annotation: SelectionAnnotation,
+    ) -> SelectionAnnotation:
+        with local_write_lock(self.root):
+            return self._write_annotation_unlocked(batch_id, annotation)
+
+    def _write_annotation_unlocked(
+        self,
+        batch_id: str,
+        annotation: SelectionAnnotation,
+    ) -> SelectionAnnotation:
+        imported = self.load_import(batch_id)
+        if not any(
+            candidate.candidate_id == annotation.candidate_id for candidate in imported.candidates
+        ):
+            raise SelectionStoreError(
+                f"candidate does not belong to selection batch: {annotation.candidate_id}"
+            )
+        path = self.annotation_dir / f"{annotation.annotation_id}.json"
+        if path.exists():
+            try:
+                existing = SelectionAnnotation.model_validate_json(path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                raise SelectionStoreError(
+                    f"selection annotation is invalid: {annotation.annotation_id}"
+                ) from exc
+            if existing != annotation:
+                raise SelectionStoreError(
+                    "selection annotation identity already has different content"
+                )
+            return existing
+        _atomic_write_text(path, annotation.model_dump_json(indent=2))
+        return annotation
+
+    def list_annotations(self, candidate_id: str) -> tuple[SelectionAnnotation, ...]:
+        annotations: list[SelectionAnnotation] = []
+        try:
+            for path in sorted(self.annotation_dir.glob("annotation-*.json")):
+                annotation = SelectionAnnotation.model_validate_json(
+                    path.read_text(encoding="utf-8")
+                )
+                if annotation.candidate_id == candidate_id:
+                    annotations.append(annotation)
+        except Exception as exc:
+            raise SelectionStoreError("selection annotation is invalid") from exc
+        return tuple(sorted(annotations, key=lambda item: (item.recorded_at, item.annotation_id)))
+
+    def latest_annotation(
+        self,
+        candidate_id: str,
+        *,
+        recorded_before: datetime | None = None,
+    ) -> SelectionAnnotation | None:
+        annotations = self.list_annotations(candidate_id)
+        if recorded_before is not None:
+            annotations = tuple(item for item in annotations if item.recorded_at <= recorded_before)
+        return annotations[-1] if annotations else None
+
+    def write_exclusion(
+        self,
+        batch_id: str,
+        exclusion: SelectionCandidateExclusion,
+    ) -> SelectionCandidateExclusion:
+        with local_write_lock(self.root):
+            return self._write_exclusion_unlocked(batch_id, exclusion)
+
+    def _write_exclusion_unlocked(
+        self,
+        batch_id: str,
+        exclusion: SelectionCandidateExclusion,
+    ) -> SelectionCandidateExclusion:
+        imported = self.load_import(batch_id)
+        if not any(
+            candidate.candidate_id == exclusion.candidate_id for candidate in imported.candidates
+        ):
+            raise SelectionStoreError(
+                f"candidate does not belong to selection batch: {exclusion.candidate_id}"
+            )
+        path = self.exclusion_dir / f"{exclusion.exclusion_id}.json"
+        if path.exists():
+            try:
+                existing = SelectionCandidateExclusion.model_validate_json(
+                    path.read_text(encoding="utf-8")
+                )
+            except Exception as exc:
+                raise SelectionStoreError(
+                    f"selection exclusion is invalid: {exclusion.exclusion_id}"
+                ) from exc
+            if existing != exclusion:
+                raise SelectionStoreError(
+                    "selection exclusion identity already has different content"
+                )
+            return existing
+        _atomic_write_text(path, exclusion.model_dump_json(indent=2))
+        return exclusion
+
+    def list_exclusions(self, candidate_id: str) -> tuple[SelectionCandidateExclusion, ...]:
+        exclusions: list[SelectionCandidateExclusion] = []
+        try:
+            for path in sorted(self.exclusion_dir.glob("exclusion-*.json")):
+                exclusion = SelectionCandidateExclusion.model_validate_json(
+                    path.read_text(encoding="utf-8")
+                )
+                if exclusion.candidate_id == candidate_id:
+                    exclusions.append(exclusion)
+        except Exception as exc:
+            raise SelectionStoreError("selection exclusion is invalid") from exc
+        return tuple(sorted(exclusions, key=lambda item: (item.recorded_at, item.exclusion_id)))
+
+    def latest_exclusion(
+        self,
+        candidate_id: str,
+        *,
+        recorded_before: datetime | None = None,
+    ) -> SelectionCandidateExclusion | None:
+        exclusions = self.list_exclusions(candidate_id)
+        if recorded_before is not None:
+            exclusions = tuple(item for item in exclusions if item.recorded_at <= recorded_before)
+        return exclusions[-1] if exclusions else None
 
     def write_outcome(self, outcome: SelectionOutcome) -> SelectionOutcome:
         with local_write_lock(self.root):

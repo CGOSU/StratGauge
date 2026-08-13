@@ -8,6 +8,10 @@ from stratgauge.data_pipeline.tdx_import import import_tdx_export
 from stratgauge.domain.selections import (
     ManualSelectionDecision,
     ManualSelectionLabel,
+    SelectionAnnotation,
+    SelectionAnnotationDecision,
+    SelectionAnnotationOutlook,
+    SelectionCandidateExclusion,
     SelectionLifecycleStatus,
     SelectionOutcome,
     SelectionOutcomeStatus,
@@ -155,6 +159,74 @@ class SelectionImportStoreTests(unittest.TestCase):
 
             with self.assertRaisesRegex(SelectionStoreError, "freeze deadline"):
                 store.write_label(parsed.batch.batch_id, label)
+
+    def test_annotations_are_append_only_and_latest_is_point_in_time(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SelectionImportStore(directory)
+            parsed = parsed_import()
+            store.write(CONTENT, parsed)
+            candidate_id = parsed.candidates[0].candidate_id
+            first = SelectionAnnotation(
+                annotation_id="annotation-first",
+                candidate_id=candidate_id,
+                reviewed_at=datetime(2026, 1, 5, 15, 10, tzinfo=UTC),
+                recorded_at=datetime(2026, 1, 5, 15, 10, 1, tzinfo=UTC),
+                overall_score=3,
+                outlook=SelectionAnnotationOutlook.NEUTRAL,
+                decision=SelectionAnnotationDecision.WATCH,
+                note="先观察",
+            )
+            second = first.model_copy(
+                update={
+                    "annotation_id": "annotation-second",
+                    "reviewed_at": datetime(2026, 1, 6, 10, tzinfo=UTC),
+                    "recorded_at": datetime(2026, 1, 6, 10, 1, tzinfo=UTC),
+                    "overall_score": 4,
+                    "outlook": SelectionAnnotationOutlook.BULLISH,
+                    "decision": SelectionAnnotationDecision.PREPARE_BUY,
+                }
+            )
+
+            self.assertEqual(store.write_annotation(parsed.batch.batch_id, first), first)
+            self.assertEqual(store.write_annotation(parsed.batch.batch_id, second), second)
+            self.assertEqual(store.list_annotations(candidate_id), (first, second))
+            self.assertEqual(
+                store.latest_annotation(
+                    candidate_id,
+                    recorded_before=datetime(2026, 1, 6, tzinfo=UTC),
+                ),
+                first,
+            )
+            self.assertEqual(store.latest_annotation(candidate_id), second)
+            self.assertEqual(store.write_annotation(parsed.batch.batch_id, first), first)
+
+    def test_exclusion_is_separate_from_annotation_and_requires_a_reason(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SelectionImportStore(directory)
+            parsed = parsed_import()
+            store.write(CONTENT, parsed)
+            exclusion = SelectionCandidateExclusion(
+                exclusion_id="exclusion-first",
+                candidate_id=parsed.candidates[0].candidate_id,
+                excluded_at=datetime(2026, 1, 6, 9, tzinfo=UTC),
+                recorded_at=datetime(2026, 1, 6, 9, 1, tzinfo=UTC),
+                reason="导出代码无法复核",
+            )
+
+            self.assertEqual(
+                store.write_exclusion(parsed.batch.batch_id, exclusion),
+                exclusion,
+            )
+            self.assertEqual(store.list_exclusions(exclusion.candidate_id), (exclusion,))
+            self.assertEqual(store.latest_exclusion(exclusion.candidate_id), exclusion)
+            with self.assertRaises(ValueError):
+                SelectionCandidateExclusion(
+                    exclusion_id="exclusion-invalid",
+                    candidate_id=exclusion.candidate_id,
+                    excluded_at=exclusion.excluded_at,
+                    recorded_at=exclusion.recorded_at,
+                    reason=" ",
+                )
 
     def test_outcomes_are_content_addressed_and_listed(self) -> None:
         with TemporaryDirectory() as directory:
