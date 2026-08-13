@@ -25,6 +25,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 type HealthState = 'checking' | 'online' | 'offline'
 type Decision = 'buy_candidate' | 'watch' | 'pass' | 'invalid'
+type AnnotationOutlook = 'bullish' | 'neutral' | 'bearish'
+type AnnotationDecision = 'discard' | 'watch' | 'prepare_buy'
+type ReviewState = 'unreviewed' | 'discarded' | 'watching' | 'preparing'
+type AnnotationTag = string
 type OutcomeStatus = 'win' | 'loss' | 'flat' | 'no_entry' | 'unresolved'
 type Workspace = 'research' | 'management' | 'portfolio'
 type LifecycleStatus = 'active' | 'archived'
@@ -72,6 +76,30 @@ type Label = {
   note: string | null
 }
 
+type Annotation = {
+  annotation_id: string
+  candidate_id: string
+  reviewed_at: string
+  recorded_at: string
+  overall_score: number
+  outlook: AnnotationOutlook
+  decision: AnnotationDecision
+  position_tags: AnnotationTag[]
+  pattern_tags: AnnotationTag[]
+  price_volume_tags: AnnotationTag[]
+  sector_tags: AnnotationTag[]
+  taxonomy_version: string
+  note: string | null
+}
+
+type Exclusion = {
+  exclusion_id: string
+  candidate_id: string
+  excluded_at: string
+  recorded_at: string
+  reason: string
+}
+
 type Candidate = {
   candidate_id: string
   batch_id: string
@@ -93,6 +121,12 @@ type ManualCandidateDraft = {
 type CandidateView = {
   candidate: Candidate
   labels: Label[]
+  annotations: Annotation[]
+  exclusions: Exclusion[]
+  latest_annotation: Annotation | null
+  latest_exclusion: Exclusion | null
+  review_state: ReviewState
+  excluded: boolean
   outcomes: Outcome[]
 }
 
@@ -363,6 +397,29 @@ const exchangeLabels: Record<Exchange, string> = {
   SZ: '深圳 SZ',
   BJ: '北京 BJ',
 }
+
+const annotationOutlookLabels: Record<AnnotationOutlook, string> = {
+  bullish: '看好',
+  neutral: '一般',
+  bearish: '不看好',
+}
+
+const annotationDecisionLabels: Record<AnnotationDecision, string> = {
+  discard: '放弃',
+  watch: '继续观察',
+  prepare_buy: '准备买入',
+}
+
+const annotationTagGroups: Array<{
+  key: 'position_tags' | 'pattern_tags' | 'price_volume_tags' | 'sector_tags'
+  label: string
+  options: Array<[string, string]>
+}> = [
+  { key: 'position_tags', label: '位置', options: [['low', '低位'], ['mid', '中位'], ['high', '高位'], ['support', '支撑附近'], ['resistance', '压力附近'], ['new_high', '阶段新高']] },
+  { key: 'pattern_tags', label: '形态', options: [['trend_continuation', '趋势延续'], ['breakout', '突破'], ['pullback', '回踩'], ['consolidation', '横盘整理'], ['reversal', '反转'], ['pattern_break', '形态破坏']] },
+  { key: 'price_volume_tags', label: '量价', options: [['price_up_volume_up', '价涨量增'], ['price_up_volume_down', '价涨量缩'], ['price_down_volume_up', '价跌量增'], ['price_down_volume_down', '价跌量缩'], ['volume_breakout', '放量突破'], ['volume_pullback', '缩量回踩']] },
+  { key: 'sector_tags', label: '板块环境', options: [['sector_strong', '板块强势'], ['sector_rotation', '板块轮动'], ['sector_leader', '板块龙头'], ['sector_following', '板块跟涨'], ['sector_weak', '板块弱势'], ['stock_independent', '个股独立']] },
+]
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init)
@@ -981,7 +1038,14 @@ function App() {
   const [loadingBatches, setLoadingBatches] = useState(true)
   const [loadingBatch, setLoadingBatch] = useState(false)
   const [loadingMaturityTasks, setLoadingMaturityTasks] = useState(false)
-  const [labelingId, setLabelingId] = useState<string | null>(null)
+  const [annotationCandidateId, setAnnotationCandidateId] = useState<string | null>(null)
+  const [annotationReviewedAt, setAnnotationReviewedAt] = useState('')
+  const [annotationScore, setAnnotationScore] = useState('3')
+  const [annotationOutlook, setAnnotationOutlook] = useState<AnnotationOutlook>('neutral')
+  const [annotationDecision, setAnnotationDecision] = useState<AnnotationDecision>('watch')
+  const [annotationTags, setAnnotationTags] = useState<Record<string, string[]>>({})
+  const [annotationNote, setAnnotationNote] = useState('')
+  const [annotationBusy, setAnnotationBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const batchesLoadStarted = useRef(false)
   const formulasLoadStarted = useRef(false)
@@ -1328,31 +1392,65 @@ function App() {
     }
   }
 
-  async function labelCandidate(candidateId: string, decision: Decision) {
-    if (!selectedBatchId) {
+  function openAnnotation(candidateId: string) {
+    setAnnotationCandidateId(candidateId)
+    setAnnotationReviewedAt(new Date().toISOString().slice(0, 16))
+    setAnnotationScore('3')
+    setAnnotationOutlook('neutral')
+    setAnnotationDecision('watch')
+    setAnnotationTags({})
+    setAnnotationNote('')
+  }
+
+  function closeAnnotation() {
+    if (!annotationBusy) {
+      setAnnotationCandidateId(null)
+    }
+  }
+
+  function toggleAnnotationTag(group: string, tag: string) {
+    setAnnotationTags((current) => {
+      const values = current[group] ?? []
+      return {
+        ...current,
+        [group]: values.includes(tag) ? values.filter((item) => item !== tag) : [...values, tag],
+      }
+    })
+  }
+
+  async function submitAnnotation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedBatchId || !annotationCandidateId) {
       return
     }
-    setLabelingId(`${candidateId}:${decision}`)
+    setAnnotationBusy(true)
     setError(null)
     try {
       const result = await requestJson<BatchView>(
-        `${apiBase}/v1/selection-batches/${encodeURIComponent(selectedBatchId)}/labels`,
+        `${apiBase}/v1/selection-batches/${encodeURIComponent(selectedBatchId)}/annotations`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            candidate_id: candidateId,
-            decision,
-            labeled_at: new Date().toISOString(),
-            note: notes[candidateId]?.trim() || null,
+            candidate_id: annotationCandidateId,
+            reviewed_at: toShanghaiDateTime(annotationReviewedAt),
+            overall_score: Number(annotationScore),
+            outlook: annotationOutlook,
+            decision: annotationDecision,
+            position_tags: annotationTags.position_tags ?? [],
+            pattern_tags: annotationTags.pattern_tags ?? [],
+            price_volume_tags: annotationTags.price_volume_tags ?? [],
+            sector_tags: annotationTags.sector_tags ?? [],
+            note: annotationNote.trim() || null,
           }),
         },
       )
       setSelectedBatch(result)
+      setAnnotationCandidateId(null)
     } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : '保存标注失败。')
+      setError(reason instanceof Error ? reason.message : '保存人工评审失败。')
     } finally {
-      setLabelingId(null)
+      setAnnotationBusy(false)
     }
   }
 
@@ -1979,7 +2077,8 @@ function App() {
           <p className="empty-copy">选择一个批次后查看候选股票。</p>
         ) : (
           <div className="candidate-list">
-            {selectedBatch.candidates.map(({ candidate, labels, outcomes }) => {
+            {selectedBatch.candidates.map((candidateView) => {
+              const { candidate, labels, outcomes } = candidateView
               const label = latestLabel(labels)
               const outcome = latestOutcome(outcomes)
               return (
@@ -2000,8 +2099,20 @@ function App() {
                   </div>
                   <div className="candidate-actions">
                     <div className="badge-row">
-                      <Badge variant={label ? 'secondary' : 'outline'} className={`decision-badge decision-badge--${label?.decision ?? 'unlabeled'}`}>
-                        {label ? decisionLabel(label.decision) : '未标注'}
+                      <Badge variant={candidateView.latest_annotation ? 'secondary' : 'outline'}>
+                        {candidateView.latest_annotation
+                          ? `${annotationDecisionLabels[candidateView.latest_annotation.decision]} · ${candidateView.latest_annotation.overall_score}分`
+                          : label
+                            ? `旧标签：${decisionLabel(label.decision)}`
+                            : '未评审'}
+                      </Badge>
+                      {candidateView.latest_annotation && (
+                        <Badge variant="outline">
+                          {annotationOutlookLabels[candidateView.latest_annotation.outlook]}
+                        </Badge>
+                      )}
+                      <Badge variant={candidateView.excluded ? 'outline' : 'secondary'}>
+                        {candidateView.excluded ? '已排除' : reviewStateLabel(candidateView.review_state)}
                       </Badge>
                       <Badge variant={outcome ? 'secondary' : 'outline'} className={`outcome-badge outcome-badge--${outcome?.status ?? 'pending'}`}>
                         {outcome ? outcomeLabel(outcome.status) : '结果待跟踪'}
@@ -2052,23 +2163,19 @@ function App() {
                       placeholder="备注（可选）"
                       aria-label={`${candidate.symbol} 的标注备注`}
                     />
-                    <div className="decision-buttons" aria-label={`${candidate.symbol} 标注操作`}>
-                      {(['buy_candidate', 'watch', 'pass', 'invalid'] as Decision[]).map((decision) => (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="secondary-button"
-                          type="button"
-                          key={decision}
-                          disabled={labelingId !== null}
-                          data-saving={labelingId === `${candidate.candidate_id}:${decision}`}
-                          title={decisionDescription(decision)}
-                          aria-label={`${candidate.symbol}：${decisionLabel(decision)}。${decisionDescription(decision)}`}
-                          onClick={() => void labelCandidate(candidate.candidate_id, decision)}
-                        >
-                          {decisionLabel(decision)}
-                        </Button>
-                      ))}
+                    <div className="decision-buttons" aria-label={`${candidate.symbol} 人工评审操作`}>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        type="button"
+                        disabled={annotationBusy || candidateView.excluded}
+                        onClick={() => openAnnotation(candidate.candidate_id)}
+                      >
+                        {candidateView.latest_annotation ? '新增评审' : '开始评审'}
+                      </Button>
+                      {candidateView.annotations.length > 0 && (
+                        <span className="form-hint">已评审 {candidateView.annotations.length} 次</span>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -2077,6 +2184,87 @@ function App() {
           </div>
         )}
       </Card>
+
+      <Dialog open={annotationCandidateId !== null} onOpenChange={(open) => !open && closeAnnotation()}>
+        <DialogContent className="annotation-dialog">
+          <DialogHeader>
+            <DialogTitle>新增人工评审</DialogTitle>
+            <DialogDescription>
+              {selectedBatch?.candidates.find((item) => item.candidate.candidate_id === annotationCandidateId)?.candidate.symbol ?? '候选股票'}
+              。每次提交都会追加历史，不会覆盖之前的评审。
+            </DialogDescription>
+          </DialogHeader>
+          <form className="annotation-form" onSubmit={submitAnnotation}>
+            <div className="annotation-form-grid">
+              <div className="field">
+                <Label htmlFor="annotation-reviewed-at">评审时间（北京时间）</Label>
+                <CalendarInput
+                  id="annotation-reviewed-at"
+                  type="datetime-local"
+                  value={annotationReviewedAt}
+                  onChange={setAnnotationReviewedAt}
+                  required
+                />
+              </div>
+              <div className="field">
+                <Label htmlFor="annotation-score">综合评分（1～5）</Label>
+                <select id="annotation-score" className="native-select" value={annotationScore} onChange={(event) => setAnnotationScore(event.target.value)}>
+                  {[1, 2, 3, 4, 5].map((score) => <option key={score} value={score}>{score} 分</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <Label htmlFor="annotation-outlook">观点</Label>
+                <select id="annotation-outlook" className="native-select" value={annotationOutlook} onChange={(event) => setAnnotationOutlook(event.target.value as AnnotationOutlook)}>
+                  {Object.entries(annotationOutlookLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <Label htmlFor="annotation-decision">当前决策</Label>
+                <select id="annotation-decision" className="native-select" value={annotationDecision} onChange={(event) => setAnnotationDecision(event.target.value as AnnotationDecision)}>
+                  {Object.entries(annotationDecisionLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="annotation-tag-groups">
+              {annotationTagGroups.map((group) => (
+                <fieldset className="annotation-tag-group" key={group.key}>
+                  <legend>{group.label}</legend>
+                  <div className="annotation-tag-options">
+                    {group.options.map(([value, text]) => {
+                      const checked = annotationTags[group.key]?.includes(value) ?? false
+                      return (
+                        <label className="annotation-tag-option" key={value}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleAnnotationTag(group.key, value)}
+                          />
+                          <span>{text}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </fieldset>
+              ))}
+            </div>
+            <div className="field">
+              <Label htmlFor="annotation-note">自由备注（可选）</Label>
+              <textarea
+                id="annotation-note"
+                className="annotation-note"
+                value={annotationNote}
+                onChange={(event) => setAnnotationNote(event.target.value)}
+                placeholder="记录当时为什么这样判断"
+                rows={3}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" disabled={annotationBusy} onClick={closeAnnotation}>取消</Button>
+              <Button type="submit" disabled={annotationBusy}>{annotationBusy ? '保存中…' : '保存评审'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Card className="mature-panel panel" aria-labelledby="mature-title">
         <div className="section-heading maturity-section-heading">
@@ -3279,6 +3467,16 @@ function decisionLabel(decision: Decision): string {
     invalid: '无效',
   }
   return labels[decision]
+}
+
+function reviewStateLabel(state: ReviewState): string {
+  const labels: Record<ReviewState, string> = {
+    unreviewed: '未评审',
+    discarded: '已放弃',
+    watching: '观察中',
+    preparing: '准备买入',
+  }
+  return labels[state]
 }
 
 function decisionDescription(decision: Decision): string {
