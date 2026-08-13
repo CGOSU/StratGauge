@@ -23,6 +23,7 @@ from stratgauge.api.model_scores import (
     ModelScoreService,
 )
 from stratgauge.api.portfolio import (
+    CandidateTradeRequest,
     ManualFillRequest,
     ManualOrderRequest,
     PortfolioApiError,
@@ -237,6 +238,29 @@ def create_app(
     @app.post("/v1/manual-fills", response_model=ManualFill, status_code=201)
     def record_manual_fill(request: ManualFillRequest) -> ManualFill:
         return portfolio.record_fill(request)
+
+    @app.post(
+        "/v1/selection-candidate-trades",
+        response_model=tuple[ManualOrder, ManualFill],
+        status_code=201,
+    )
+    def record_selection_candidate_trade(
+        request: CandidateTradeRequest,
+    ) -> tuple[ManualOrder, ManualFill]:
+        if request.filled_at < request.ordered_at:
+            raise PortfolioApiError(
+                "PORTFOLIO_TRADE_REJECTED",
+                "成交时间不能早于下单时间。",
+                422,
+            )
+        candidate = selections.get_candidate(request.selection_candidate_id)
+        if candidate.local_code != request.local_code or candidate.exchange != request.exchange:
+            raise PortfolioApiError(
+                "PORTFOLIO_TRADE_REJECTED",
+                "实际买入的证券必须与候选证券一致。",
+                422,
+            )
+        return portfolio.record_candidate_trade(request)
 
     @app.post("/v1/portfolio-reviews", response_model=PortfolioReview, status_code=201)
     def write_portfolio_review(request: PortfolioReviewRequest) -> PortfolioReview:

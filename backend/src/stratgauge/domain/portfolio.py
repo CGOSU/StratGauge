@@ -28,6 +28,7 @@ class ManualOrder(DomainModel):
     limit_price: Decimal | None = Field(default=None, gt=0)
     strategy_version_id: str | None = None
     recommendation_id: str | None = None
+    selection_candidate_id: str | None = None
     note: str | None = None
 
     @field_validator("order_id")
@@ -57,7 +58,7 @@ class ManualOrder(DomainModel):
             raise ValueError("portfolio decimal must be finite")
         return result
 
-    @field_validator("strategy_version_id", "recommendation_id", "note")
+    @field_validator("strategy_version_id", "recommendation_id", "selection_candidate_id", "note")
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
         return None if value is None else value.strip() or None

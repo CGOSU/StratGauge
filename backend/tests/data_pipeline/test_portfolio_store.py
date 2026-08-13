@@ -50,6 +50,56 @@ class PortfolioStoreTests(unittest.TestCase):
             self.assertEqual(store.write_review(review), review)
             self.assertEqual(store.list_reviews(symbol="000001.SZ"), (review,))
 
+    def test_candidate_trade_writes_order_and_fill_atomically_and_is_idempotent(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = ManualPortfolioStore(directory)
+            order = ManualOrder(
+                order_id="order-candidate",
+                security=_security(),
+                side=ManualOrderSide.BUY,
+                ordered_at=datetime(2026, 1, 5, 15, tzinfo=UTC),
+                quantity=Decimal("100"),
+                selection_candidate_id="candidate-1",
+            )
+            fill = ManualFill(
+                fill_id="fill-candidate",
+                order_id=order.order_id,
+                filled_at=datetime(2026, 1, 6, 10, tzinfo=UTC),
+                quantity=Decimal("100"),
+                price=Decimal("10"),
+            )
+
+            first = store.record_order_and_fill(order, fill)
+            second = store.record_order_and_fill(order, fill)
+
+            self.assertEqual(first, (order, fill))
+            self.assertEqual(second, first)
+            self.assertEqual(len(store.list_orders()), 1)
+            self.assertEqual(len(store.list_fills()), 1)
+            self.assertEqual(store.positions()[0].quantity, Decimal("100"))
+
+    def test_candidate_trade_rejects_partial_existing_record(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = ManualPortfolioStore(directory)
+            order = ManualOrder(
+                order_id="order-partial",
+                security=_security(),
+                side=ManualOrderSide.BUY,
+                ordered_at=datetime(2026, 1, 5, tzinfo=UTC),
+                quantity=Decimal("100"),
+            )
+            store.create_order(order)
+            fill = ManualFill(
+                fill_id="fill-partial",
+                order_id=order.order_id,
+                filled_at=datetime(2026, 1, 6, 10, tzinfo=UTC),
+                quantity=Decimal("100"),
+                price=Decimal("10"),
+            )
+
+            with self.assertRaisesRegex(PortfolioStoreError, "partial"):
+                store.record_order_and_fill(order, fill)
+
     def test_sell_cannot_exceed_position_or_order_quantity(self) -> None:
         with TemporaryDirectory() as directory:
             store = ManualPortfolioStore(directory)

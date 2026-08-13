@@ -41,6 +41,7 @@ class ManualOrderRequest(BaseModel):
     limit_price: Decimal | None = Field(default=None, gt=0)
     strategy_version_id: str | None = None
     recommendation_id: str | None = None
+    selection_candidate_id: str | None = None
     note: str | None = None
 
     @field_validator("local_code")
@@ -56,6 +57,39 @@ class ManualOrderRequest(BaseModel):
     def require_aware_ordered_at(cls, value: datetime) -> datetime:
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("ordered_at must include a timezone")
+        return value
+
+
+class CandidateTradeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    order_id: str = Field(min_length=1)
+    fill_id: str = Field(min_length=1)
+    selection_candidate_id: str = Field(min_length=1)
+    local_code: str
+    exchange: Exchange
+    name: str | None = None
+    ordered_at: datetime
+    filled_at: datetime
+    quantity: Decimal = Field(gt=0)
+    price: Decimal = Field(gt=0)
+    commission: Decimal = Field(default=Decimal("0"), ge=0)
+    stamp_duty: Decimal = Field(default=Decimal("0"), ge=0)
+    note: str | None = None
+
+    @field_validator("local_code")
+    @classmethod
+    def normalize_local_code(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if len(normalized) != 6 or not normalized.isascii() or not normalized.isdigit():
+            raise ValueError("local_code must contain exactly six digits")
+        return normalized
+
+    @field_validator("ordered_at", "filled_at")
+    @classmethod
+    def require_aware_trade_time(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("trade timestamps must include a timezone")
         return value
 
 
@@ -130,6 +164,7 @@ class PortfolioService:
             limit_price=request.limit_price,
             strategy_version_id=request.strategy_version_id,
             recommendation_id=request.recommendation_id,
+            selection_candidate_id=request.selection_candidate_id,
             note=request.note,
         )
         try:
@@ -143,6 +178,42 @@ class PortfolioService:
             return self._store.record_fill(fill)
         except PortfolioStoreError as exc:
             raise PortfolioApiError("PORTFOLIO_FILL_REJECTED", str(exc), 409) from exc
+
+    def record_candidate_trade(
+        self, request: CandidateTradeRequest
+    ) -> tuple[ManualOrder, ManualFill]:
+        if request.filled_at < request.ordered_at:
+            raise PortfolioApiError("PORTFOLIO_TRADE_REJECTED", "成交时间不能早于下单时间。", 422)
+        symbol = canonical_symbol(request.local_code, request.exchange)
+        order = ManualOrder(
+            order_id=request.order_id,
+            security=Security(
+                security_id=f"portfolio-{symbol}",
+                local_code=request.local_code,
+                symbol=symbol,
+                exchange=request.exchange,
+                name=request.name,
+            ),
+            side=ManualOrderSide.BUY,
+            ordered_at=request.ordered_at,
+            quantity=request.quantity,
+            selection_candidate_id=request.selection_candidate_id,
+            note=request.note,
+        )
+        fill = ManualFill(
+            fill_id=request.fill_id,
+            order_id=request.order_id,
+            filled_at=request.filled_at,
+            quantity=request.quantity,
+            price=request.price,
+            commission=request.commission,
+            stamp_duty=request.stamp_duty,
+            note=request.note,
+        )
+        try:
+            return self._store.record_order_and_fill(order, fill)
+        except PortfolioStoreError as exc:
+            raise PortfolioApiError("PORTFOLIO_TRADE_REJECTED", str(exc), 409) from exc
 
     def write_review(self, request: PortfolioReviewRequest) -> PortfolioReview:
         review = PortfolioReview(**request.model_dump())

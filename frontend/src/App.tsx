@@ -277,6 +277,7 @@ type ManualOrder = {
   quantity: string
   limit_price: string | null
   recommendation_id: string | null
+  selection_candidate_id: string | null
 }
 
 type ManualFill = {
@@ -1046,6 +1047,15 @@ function App() {
   const [annotationTags, setAnnotationTags] = useState<Record<string, string[]>>({})
   const [annotationNote, setAnnotationNote] = useState('')
   const [annotationBusy, setAnnotationBusy] = useState(false)
+  const [tradeCandidateId, setTradeCandidateId] = useState<string | null>(null)
+  const [tradeOrderId, setTradeOrderId] = useState('')
+  const [tradeFillId, setTradeFillId] = useState('')
+  const [tradeOrderedAt, setTradeOrderedAt] = useState('')
+  const [tradeFilledAt, setTradeFilledAt] = useState('')
+  const [tradeQuantity, setTradeQuantity] = useState('100')
+  const [tradePrice, setTradePrice] = useState('')
+  const [tradeNote, setTradeNote] = useState('')
+  const [tradeBusy, setTradeBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const batchesLoadStarted = useRef(false)
   const formulasLoadStarted = useRef(false)
@@ -1392,8 +1402,8 @@ function App() {
     }
   }
 
-  function openAnnotation(candidateId: string) {
-    setAnnotationCandidateId(candidateId)
+  function openAnnotation(candidateView: CandidateView) {
+    setAnnotationCandidateId(candidateView.candidate.candidate_id)
     setAnnotationReviewedAt(new Date().toISOString().slice(0, 16))
     setAnnotationScore('3')
     setAnnotationOutlook('neutral')
@@ -1416,6 +1426,64 @@ function App() {
         [group]: values.includes(tag) ? values.filter((item) => item !== tag) : [...values, tag],
       }
     })
+  }
+
+  function openCandidateTrade(candidateView: CandidateView) {
+    const now = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16)
+    setTradeCandidateId(candidateView.candidate.candidate_id)
+    setTradeOrderId(`order-${Date.now()}`)
+    setTradeFillId(`fill-${Date.now()}`)
+    setTradeOrderedAt(now)
+    setTradeFilledAt(now)
+    setTradeQuantity('100')
+    setTradePrice(candidateView.candidate.source_fields['现价'] ?? '')
+    setTradeNote('')
+  }
+
+  function closeCandidateTrade() {
+    if (!tradeBusy) {
+      setTradeCandidateId(null)
+    }
+  }
+
+  async function submitCandidateTrade(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!tradeCandidateId) {
+      return
+    }
+    const candidateView = selectedBatch?.candidates.find(
+      (item) => item.candidate.candidate_id === tradeCandidateId,
+    )
+    if (!candidateView) {
+      return
+    }
+    setTradeBusy(true)
+    setError(null)
+    try {
+      await requestJson<[ManualOrder, { order_id: string }]>(`${apiBase}/v1/selection-candidate-trades`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: tradeOrderId.trim(),
+          fill_id: tradeFillId.trim(),
+          selection_candidate_id: tradeCandidateId,
+          local_code: candidateView.candidate.local_code,
+          exchange: candidateView.candidate.exchange,
+          name: candidateView.candidate.name,
+          ordered_at: toShanghaiDateTime(tradeOrderedAt),
+          filled_at: toShanghaiDateTime(tradeFilledAt),
+          quantity: tradeQuantity,
+          price: tradePrice,
+          note: tradeNote.trim() || null,
+        }),
+      })
+      setTradeCandidateId(null)
+      setWorkspace('portfolio')
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '保存实际买入失败。')
+    } finally {
+      setTradeBusy(false)
+    }
   }
 
   async function submitAnnotation(event: FormEvent<HTMLFormElement>) {
@@ -2168,10 +2236,19 @@ function App() {
                         variant="default"
                         size="sm"
                         type="button"
-                        disabled={annotationBusy || candidateView.excluded}
-                        onClick={() => openAnnotation(candidate.candidate_id)}
+                        disabled={annotationBusy || tradeBusy || candidateView.excluded}
+                        onClick={() => openAnnotation(candidateView)}
                       >
                         {candidateView.latest_annotation ? '新增评审' : '开始评审'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        type="button"
+                        disabled={annotationBusy || tradeBusy || candidateView.excluded}
+                        onClick={() => openCandidateTrade(candidateView)}
+                      >
+                        记录实际买入
                       </Button>
                       {candidateView.annotations.length > 0 && (
                         <span className="form-hint">已评审 {candidateView.annotations.length} 次</span>
@@ -2261,6 +2338,53 @@ function App() {
             <DialogFooter>
               <Button type="button" variant="outline" disabled={annotationBusy} onClick={closeAnnotation}>取消</Button>
               <Button type="submit" disabled={annotationBusy}>{annotationBusy ? '保存中…' : '保存评审'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={tradeCandidateId !== null} onOpenChange={(open) => !open && closeCandidateTrade()}>
+        <DialogContent className="annotation-dialog">
+          <DialogHeader>
+            <DialogTitle>记录实际买入</DialogTitle>
+            <DialogDescription>
+              这会同时写入关联候选的真实订单和成交，不会修改人工评审历史。
+            </DialogDescription>
+          </DialogHeader>
+          <form className="annotation-form" onSubmit={submitCandidateTrade}>
+            <div className="annotation-form-grid">
+              <div className="field">
+                <Label htmlFor="trade-order-id">订单 ID</Label>
+                <Input id="trade-order-id" value={tradeOrderId} onChange={(event) => setTradeOrderId(event.target.value)} required />
+              </div>
+              <div className="field">
+                <Label htmlFor="trade-fill-id">成交 ID</Label>
+                <Input id="trade-fill-id" value={tradeFillId} onChange={(event) => setTradeFillId(event.target.value)} required />
+              </div>
+              <div className="field">
+                <Label htmlFor="trade-ordered-at">下单时间（北京时间）</Label>
+                <CalendarInput id="trade-ordered-at" type="datetime-local" value={tradeOrderedAt} onChange={setTradeOrderedAt} required />
+              </div>
+              <div className="field">
+                <Label htmlFor="trade-filled-at">成交时间（北京时间）</Label>
+                <CalendarInput id="trade-filled-at" type="datetime-local" value={tradeFilledAt} onChange={setTradeFilledAt} required />
+              </div>
+              <div className="field">
+                <Label htmlFor="trade-quantity">成交数量</Label>
+                <Input id="trade-quantity" type="number" min="1" value={tradeQuantity} onChange={(event) => setTradeQuantity(event.target.value)} required />
+              </div>
+              <div className="field">
+                <Label htmlFor="trade-price">成交价</Label>
+                <Input id="trade-price" type="number" min="0.0001" step="0.0001" value={tradePrice} onChange={(event) => setTradePrice(event.target.value)} required />
+              </div>
+            </div>
+            <div className="field">
+              <Label htmlFor="trade-note">备注（可选）</Label>
+              <textarea id="trade-note" className="annotation-note" value={tradeNote} onChange={(event) => setTradeNote(event.target.value)} rows={3} />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" disabled={tradeBusy} onClick={closeCandidateTrade}>取消</Button>
+              <Button type="submit" disabled={tradeBusy}>{tradeBusy ? '保存中…' : '保存订单与成交'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

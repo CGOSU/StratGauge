@@ -48,6 +48,47 @@ class ManualPortfolioStore:
         _atomic_write(path, order.model_dump_json(indent=2))
         return order
 
+    def record_order_and_fill(
+        self,
+        order: ManualOrder,
+        fill: ManualFill,
+    ) -> tuple[ManualOrder, ManualFill]:
+        with local_write_lock(self.root):
+            return self._record_order_and_fill_unlocked(order, fill)
+
+    def _record_order_and_fill_unlocked(
+        self,
+        order: ManualOrder,
+        fill: ManualFill,
+    ) -> tuple[ManualOrder, ManualFill]:
+        if fill.order_id != order.order_id:
+            raise PortfolioStoreError("fill must reference the submitted order")
+        if order.side is not ManualOrderSide.BUY:
+            raise PortfolioStoreError("atomic candidate trade only supports buy orders")
+        if fill.filled_at < order.ordered_at:
+            raise PortfolioStoreError("fill cannot precede order")
+        if fill.quantity > order.quantity:
+            raise PortfolioStoreError("fill exceeds order quantity")
+        order_path = self.order_dir / f"{order.order_id}.json"
+        fill_path = self.fill_dir / f"{fill.fill_id}.json"
+        existing_order = self._load_order(order.order_id) if order_path.exists() else None
+        existing_fill = self._load_fill(fill.fill_id) if fill_path.exists() else None
+        if existing_order is not None and existing_order != order:
+            raise PortfolioStoreError("order identity already has different content")
+        if existing_fill is not None and existing_fill != fill:
+            raise PortfolioStoreError("fill identity already has different content")
+        if existing_order is not None and existing_fill is not None:
+            return existing_order, existing_fill
+        if existing_order is not None or existing_fill is not None:
+            raise PortfolioStoreError("atomic candidate trade has a partial existing record")
+        _atomic_write(order_path, order.model_dump_json(indent=2))
+        try:
+            _atomic_write(fill_path, fill.model_dump_json(indent=2))
+        except Exception:
+            order_path.unlink(missing_ok=True)
+            raise
+        return order, fill
+
     def record_fill(self, fill: ManualFill) -> ManualFill:
         with local_write_lock(self.root):
             return self._record_fill_unlocked(fill)
