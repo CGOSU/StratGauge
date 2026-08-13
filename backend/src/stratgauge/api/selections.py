@@ -17,7 +17,9 @@ from stratgauge.backtest.selection_analysis import (
     analyze_selection_candidate,
 )
 from stratgauge.backtest.selection_dataset import (
+    build_annotation_dataset,
     build_selection_dataset,
+    serialize_annotation_dataset,
     serialize_selection_dataset,
 )
 from stratgauge.backtest.selection_job import run_selection_outcome_job
@@ -500,6 +502,19 @@ class SelectionService:
                     "SELECTION_BATCH_NOT_FOUND", "选股批次不存在。", 404
                 ) from exc
             raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+
+    def export_annotation_dataset(self, batch_id: str) -> bytes:
+        try:
+            rows = build_annotation_dataset(self._store, batch_id)
+            return serialize_annotation_dataset(rows).encode("utf-8")
+        except SelectionStoreError as exc:
+            if "does not exist" in str(exc):
+                raise SelectionApiError(
+                    "SELECTION_BATCH_NOT_FOUND", "选股批次不存在。", 404
+                ) from exc
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+        except ValueError as exc:
+            raise SelectionApiError("SELECTION_ANNOTATION_DATASET_INVALID", str(exc), 422) from exc
 
     def list_observation_pool(
         self,

@@ -406,6 +406,22 @@ def create_app(
         )
 
     @app.get(
+        "/v1/data-management/batches/{batch_id}/annotation-dataset",
+        response_class=Response,
+    )
+    def download_managed_batch_annotation_dataset(batch_id: str) -> Response:
+        content = selections.export_annotation_dataset(batch_id)
+        return Response(
+            content=content,
+            media_type="application/x-ndjson",
+            headers={
+                "Content-Disposition": (
+                    f"attachment; filename=selection-annotations-{quote(batch_id)}.jsonl"
+                )
+            },
+        )
+
+    @app.get(
         "/v1/data-management/batches/{batch_id}",
         response_model=SelectionManagedBatchDetailView,
     )

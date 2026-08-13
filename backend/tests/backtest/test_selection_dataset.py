@@ -1,15 +1,23 @@
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from stratgauge.backtest.selection_dataset import build_selection_dataset, write_selection_dataset
+from stratgauge.backtest.selection_dataset import (
+    build_annotation_dataset,
+    build_selection_dataset,
+    read_annotation_dataset,
+    write_selection_dataset,
+)
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.data_pipeline.tdx_import import import_tdx_export
 from stratgauge.domain.selections import (
     ManualSelectionDecision,
     ManualSelectionLabel,
+    SelectionAnnotation,
+    SelectionAnnotationDecision,
+    SelectionAnnotationOutlook,
     SelectionOutcome,
     SelectionOutcomeStatus,
 )
@@ -85,6 +93,71 @@ class SelectionDatasetTests(unittest.TestCase):
             self.assertEqual(rows[0].net_return, "0.09")
             self.assertEqual(rows[0].outcome_policy_id, "outcome-fixed-10-net-positive-v1")
             self.assertEqual(rows[0].source_snapshot_ids, ("snapshot-1",))
+
+    def test_annotation_dataset_keeps_each_review_and_does_not_use_prior_outcome(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SelectionImportStore(directory)
+            imported = import_tdx_export(
+                CONTENT,
+                selection_date=EXPORTED_AT.date(),
+                exported_at=EXPORTED_AT,
+                imported_at=IMPORTED_AT,
+                formula_name="公式 A",
+            )
+            store.write(CONTENT, imported)
+            candidate_id = imported.candidates[0].candidate_id
+            store.write_annotation(
+                imported.batch.batch_id,
+                SelectionAnnotation(
+                    annotation_id="annotation-before-outcome",
+                    candidate_id=candidate_id,
+                    reviewed_at=datetime(2026, 1, 5, 15, 10, tzinfo=UTC),
+                    recorded_at=datetime(2026, 1, 5, 15, 11, tzinfo=UTC),
+                    overall_score=3,
+                    outlook=SelectionAnnotationOutlook.NEUTRAL,
+                    decision=SelectionAnnotationDecision.WATCH,
+                ),
+            )
+            store.write_annotation(
+                imported.batch.batch_id,
+                SelectionAnnotation(
+                    annotation_id="annotation-after-outcome",
+                    candidate_id=candidate_id,
+                    reviewed_at=datetime(2026, 1, 12, 18, tzinfo=UTC),
+                    recorded_at=datetime(2026, 1, 12, 18, 1, tzinfo=UTC),
+                    overall_score=4,
+                    outlook=SelectionAnnotationOutlook.BULLISH,
+                    decision=SelectionAnnotationDecision.PREPARE_BUY,
+                ),
+            )
+            outcome = SelectionOutcome(
+                candidate_id=candidate_id,
+                batch_id=imported.batch.batch_id,
+                selection_date=EXPORTED_AT.date(),
+                status=SelectionOutcomeStatus.WIN,
+                evaluated_at=datetime(2026, 1, 10, 17, tzinfo=UTC),
+                horizon_sessions=5,
+                entry_session=date(2026, 1, 6),
+                exit_session=date(2026, 1, 10),
+                entry_price=Decimal("10"),
+                exit_price=Decimal("11"),
+                gross_return=Decimal("0.1"),
+                net_return=Decimal("0.09"),
+                reason="fixed_horizon",
+                tracking_policy_id="policy-v1",
+                source_snapshot_ids=("snapshot-1",),
+            )
+            store.write_outcome(outcome)
+
+            rows = build_annotation_dataset(store, imported.batch.batch_id)
+
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(rows[0].annotation_id, "annotation-before-outcome")
+            self.assertEqual(rows[0].outcome_status, SelectionOutcomeStatus.WIN)
+            self.assertEqual(rows[1].annotation_id, "annotation-after-outcome")
+            self.assertIsNone(rows[1].outcome_status)
+            content = "".join(f"{row.model_dump_json()}\n" for row in rows).encode()
+            self.assertEqual(len(read_annotation_dataset(content)), 2)
 
     def test_dataset_writer_does_not_overwrite(self) -> None:
         with TemporaryDirectory() as directory:

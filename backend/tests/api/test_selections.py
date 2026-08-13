@@ -388,6 +388,38 @@ class SelectionApiTests(unittest.TestCase):
         self.assertEqual(after_archive.status_code, 422)
         self.assertEqual(after_archive.json()["error"]["code"], "SELECTION_BATCH_ARCHIVED")
 
+    def test_annotation_dataset_endpoint_is_point_in_time_and_versioned(self) -> None:
+        imported = self.client.post(
+            "/v1/selection-batches",
+            json={
+                "content_base64": base64.b64encode(CONTENT).decode(),
+                "selection_date": "2026-01-05",
+                "exported_at": "2026-01-05T15:05:00+08:00",
+                "formula_name": "趋势选股",
+            },
+        ).json()
+        batch_id = imported["batch"]["batch_id"]
+        candidate_id = imported["candidates"][0]["candidate"]["candidate_id"]
+        annotation = self.client.post(
+            f"/v1/selection-batches/{batch_id}/annotations",
+            json={
+                "candidate_id": candidate_id,
+                "reviewed_at": "2026-01-05T15:10:00+08:00",
+                "overall_score": 4,
+                "outlook": "bullish",
+                "decision": "prepare_buy",
+            },
+        )
+        self.assertEqual(annotation.status_code, 200)
+
+        response = self.client.get(f"/v1/data-management/batches/{batch_id}/annotation-dataset")
+
+        self.assertEqual(response.status_code, 200)
+        row = json.loads(response.content.decode().strip())
+        self.assertEqual(row["schema_version"], "selection-annotation-dataset-v1")
+        self.assertEqual(row["overall_score"], 4)
+        self.assertEqual(row["outcome_status"], None)
+
     def test_management_stats_filter_by_batch_label_and_tracking_policy(self) -> None:
         formula = self.client.post(
             "/v1/formulas",
