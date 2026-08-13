@@ -8,6 +8,13 @@
 
 ## 已确认决策
 
+### 2026-08-11：仓库根目录统一编排前后端开发服务
+
+- 决定：新增根目录 `start.py` 作为跨平台开发入口，使用 Python 标准库和 `subprocess` 参数数组并发启动后端 `uv run uvicorn stratgauge.api.app:app --reload --app-dir src` 与前端 `corepack pnpm dev`；Windows 提供 `start.cmd` 双击入口。
+- 决定：启动器固定服务工作目录和仓库相对路径，转发带 `[backend]`/`[frontend]` 前缀的日志，传播启动/运行失败的非零退出码；不安装依赖、不打开浏览器、不复制 Vite 参数或配置。
+- 决定：退出、Ctrl+C 或窗口终止时清理两个服务及其子进程；Windows 使用 Job Object/进程树清理，POSIX 使用独立进程组；后端工作目录保持为 `backend/` 以保留 `backend/data` 默认路径。
+- 原因：减少开发者手工开两个终端时的路径和 `src` 导入错误，同时不引入 shell 后台语法或第三方进程管理依赖。
+
 ### 2026-08-11：技术规格与使用文档分工，并显式记录行情缓存边界
 
 - 决定：`docs/系统规格说明.md` 只维护当前实现的产品边界、模块职责、数据契约、缓存策略、成熟模式和 API 路由索引；`docs/使用文档.md` 维护可执行命令、每个 CLI/API/UI input 的字段规则和操作排错。

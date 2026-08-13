@@ -8,6 +8,12 @@
 
 ## 会话
 
+### 2026-08-11 统一启动器
+
+- 完成内容：新增根目录 `start.py` 和 Windows `start.cmd`；统一并发启动 backend Uvicorn 与 frontend Vite，固定工作目录和命令，日志使用 `[backend]`/`[frontend]` 前缀；启动/运行失败传播非零状态，Ctrl+C/终止时清理 Uvicorn reload、pnpm、Vite 及其子进程。新增 `backend/tests/test_start_launcher.py` 5 项测试。
+- 实际验证：`uv run ruff check ../start.py tests/test_start_launcher.py` 通过；`uv run mypy ../start.py tests/test_start_launcher.py` 通过；`uv run python -m unittest tests.test_start_launcher -v` 5 项通过；Windows 端到端健康检查中后端 `/healthz` 和前端 `http://[::1]:5173/` 均返回 200，退出后 8000 和 5173 端口均释放；`py_compile`、`git diff --check` 通过。
+- 说明：Windows 真实终止返回系统相关非零码 `149`，但两个服务均已清理；前端 Vite 在本机绑定 IPv6 loopback，因此健康检查使用 `[::1]`，用户文档保留 Vite 输出的 `localhost` 地址。未执行 git add/commit/push。
+
 ### 2026-08-09
 
 - 完成内容：将 8 份英文规格文档和路线图翻译、合并为 `docs/系统规格说明.md`；将 `AGENTS2.md` 的项目说明和开发规范合并进 `README.md`；删除已合并的英文规格文件和 `AGENTS2.md`。

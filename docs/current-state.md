@@ -28,6 +28,7 @@
 
 ## 最近一次更新
 
+- 2026-08-11 新增仓库根目录统一启动入口：`uv run --project backend python start.py`，Windows 可双击 `start.cmd`。启动器并发运行后端 Uvicorn（固定使用 `--app-dir src`）和前端 `corepack pnpm dev`，带服务日志前缀，并在服务失败、Ctrl+C 或窗口终止时清理进程树；Windows 真实健康检查确认后端 `/healthz` 和前端首页返回 200，退出后 8000/5173 端口均释放。启动器不自动安装依赖或打开浏览器。后端启动器测试 5 项通过，Ruff/MyPy 通过。
 - 2026-08-11 完成人工评审重构：新增追加式 `SelectionAnnotation`，综合评分/观点/当前决策为必填，位置/形态/量价/板块标签使用 `selection-annotation-taxonomy-v1` 固定词表；新增独立候选排除事件、观察池状态投影、候选关联的原子订单与成交接口；旧 `ManualSelectionLabel` 保留为只读兼容数据。
 - 2026-08-11 完成训练标签契约和时间切分：新增 `training_datasets.py` 与 `prepare_selection_training_dataset.py`，四类数据集分离为独立目标；未成熟/未来不可见标签进入 `purged` 或跳过统计，保留源行哈希和稳定样本 ID。
 - 2026-08-11 完成四类标签常数基线：新增 `constant_label_distribution` 和 `train_selection_label_baseline.py`；人工决策支持三分类，其余用途独立二分类；只使用 train 类别分布，分别评估 validation/test，`purged` 永不消费；尚未接入模型注册。

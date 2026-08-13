@@ -43,7 +43,17 @@ StratGauge 是一款个人 A 股策略助手：把现有的手工选股、买入
 
 ## 本地开发
 
-后端要求 Python 3.12–3.14 和 `uv`：
+后端要求 Python 3.12–3.14 和 `uv`；前端要求 Node.js、Corepack 和项目声明的 `pnpm@11.18.0`。首次使用请分别在 `backend/` 和 `frontend/` 安装已有依赖，不要由启动器自动安装依赖。
+
+推荐在仓库根目录一键启动前后端：
+
+```bash
+uv run --project backend python start.py
+```
+
+Windows 也可以双击仓库根目录的 `start.cmd`。启动器会并发运行后端 Uvicorn 和前端 Vite，并为输出添加 `[backend]`、`[frontend]` 前缀；默认地址为后端 `http://127.0.0.1:8000`、前端 `http://localhost:5173`。按 `Ctrl+C`（Windows 控制台也可使用终止操作）退出时会清理 Uvicorn reload、pnpm 和 Vite 子进程。启动失败或任一服务非零退出时，另一个服务会停止，启动器返回非零退出码。
+
+常见失败：未安装 `uv`、Corepack/pnpm 或前端依赖时，启动器不会自动安装；请按项目现有安装步骤补齐后重试。若需要分别排错，可使用以下命令：
 
 ```bash
 cd backend
@@ -52,7 +62,7 @@ PYTHONPATH=src uv run python -m unittest discover -s tests -v
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy src tests
-PYTHONPATH=src uv run uvicorn stratgauge.api.app:app --reload
+uv run uvicorn stratgauge.api.app:app --reload --app-dir src
 ```
 
 显式进行真实数据源验证时（需要网络，不属于默认测试）：
@@ -155,19 +165,27 @@ PYTHONPATH=src uv run python scripts/transition_strategy.py \
 
 ### 1. 启动服务
 
-后端和前端需要分别启动。开发环境可以使用两个终端：
+首选从仓库根目录统一启动：
+
+```bash
+uv run --project backend python start.py
+```
+
+Windows 可双击 `start.cmd`。两个服务的日志分别带 `[backend]` 和 `[frontend]` 前缀；默认地址为 `http://127.0.0.1:8000` 与 `http://localhost:5173`。按 `Ctrl+C` 退出会清理后端 reload、前端 pnpm/Vite 及其子进程；服务启动失败或运行失败时会停止另一个服务并返回非零退出码。启动器不自动安装依赖，也不自动打开浏览器。
+
+需要隔离排错时，在两个终端分别运行：
 
 ```bash
 # 终端一
 cd backend
-PYTHONPATH=src uv run uvicorn stratgauge.api.app:app --reload
+uv run uvicorn stratgauge.api.app:app --reload --app-dir src
 
 # 终端二
 cd frontend
 corepack pnpm dev
 ```
 
-打开 Vite 输出的本地地址。默认数据写入 `backend/data/selection` 和
+若出现导入错误，确认后端命令包含 `--app-dir src`；若出现 `uv`、Corepack/pnpm 或前端依赖错误，请按安装章节补齐已有依赖后重试。打开 Vite 输出的本地地址。默认数据写入 `backend/data/selection` 和
 `backend/data/selection-market`；这些运行数据已被 Git 忽略，不应提交到仓库。
 
 ### 2. 搜索时间点证券主数据
