@@ -578,6 +578,17 @@ class SelectionService:
                 ) from exc
             raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
 
+    def get_candidate(self, candidate_id: str) -> SelectionCandidate:
+        try:
+            for manifest in self._store.list_manifests(include_archived=True):
+                imported = self._store.load_import(manifest.batch_id)
+                for candidate in imported.candidates:
+                    if candidate.candidate_id == candidate_id:
+                        return candidate
+        except SelectionStoreError as exc:
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+        raise SelectionApiError("SELECTION_CANDIDATE_NOT_FOUND", "候选股票不存在。", 404)
+
     def import_batch(self, request: SelectionImportRequest) -> SelectionBatchView:
         content = _decode_base64(request.content_base64)
         try:
