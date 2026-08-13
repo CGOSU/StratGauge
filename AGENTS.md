@@ -14,6 +14,75 @@
 
 是一个把个人选股和买卖策略自动化、用历史数据与机器学习评估胜率和风险，并由用户手动决策交易的 A 股 AI 策略助手
 
+## 自动角色编排
+
+当用户请求包含“实现、开发、修复、重构、迁移或完整交付”时，自动按以下顺序执行。
+
+### 阶段一：架构分析
+
+首先调用 `architect` Agent。
+
+等待架构师返回 `ARCHITECT_HANDOFF`。
+
+如果 `status` 是 `BLOCKED` 或 `NEEDS_USER_INPUT`，立即停止自动流程，向用户说明阻塞原因和待确认问题。
+
+只有当 `ARCHITECT_HANDOFF.status = READY_FOR_IMPLEMENTATION` 时，才能进入开发测试阶段。
+
+### 阶段二：开发和测试
+
+把架构师的交接结果完整传递给 `test-engineer` Agent。
+
+开发测试工程师必须：
+
+- 按架构范围实施最小代码修改；
+- 补充针对性测试；
+- 执行真实验证命令；
+- 输出 `TEST_HANDOFF`；
+- 不覆盖其他协作者已有的未提交改动。
+
+如果 `TEST_HANDOFF.status = FAIL`：
+
+- 将失败命令、真实输出和失败原因返回给 `test-engineer`；
+- 最多自动修复和重试两轮；
+- 两轮后仍失败时停止流程并向用户报告。
+
+如果 `TEST_HANDOFF.status = BLOCKED`，停止流程并向用户询问。
+
+只有当 `TEST_HANDOFF.status = PASS` 时，才能进入文档收尾阶段。
+
+### 阶段三：文档和发布收尾
+
+把以下内容传递给 `docs-release-engineer` Agent：
+
+- 架构师交接结果；
+- 测试交接结果；
+- 当前 `git diff`；
+- 已执行的验证命令；
+- 验证命令的真实结果。
+
+文档收尾工程师负责：
+
+- 更新 README、技术文档、使用文档和变更摘要；
+- 核对版本号；
+- 执行 `git status`、`git diff --stat` 和 `git diff --check`；
+- 核对文档链接、命令、路径和版本信息；
+- 输出提交范围和建议提交信息；
+- 默认不执行 `git add`、`git commit` 或 `git push`。
+
+### 总体约束
+
+- 三个 Agent 必须按顺序运行，不要并行修改同一个工作区。
+- `architect` 只负责分析，不负责实现。
+- `test-engineer` 只负责实现和验证，不负责发布文档。
+- `docs-release-engineer` 不修改业务代码。
+- 任一阶段遇到关键歧义、权限问题或阻塞，都必须停止并询问用户。
+- 不得跳过架构交接、测试验证和收尾检查。
+- 只记录真实执行过的命令和结果。
+- 用户只要求分析时，只调用 `architect`。
+- 用户只要求修复测试问题时，可直接调用 `test-engineer`。
+- 用户只要求更新文档时，可直接调用 `docs-release-engineer`。
+- 除非用户明确要求，不执行提交和推送。
+
 ## 运行环境与命令约定
 
 - 初始化时检测到的宿主系统：Windows (`win32`)，CPU 架构：`x64`。

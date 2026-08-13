@@ -226,7 +226,7 @@ def _column_indexes(headers: tuple[str, ...]) -> _ColumnIndexes:
     return _ColumnIndexes(
         code=code,
         exchange=_find_header(headers, _EXCHANGE_HEADERS),
-        name=_find_header(headers, _NAME_HEADERS),
+        name=_find_name_header(headers),
     )
 
 
@@ -234,7 +234,8 @@ def _is_tdx_table(headers: tuple[str, ...], indexes: _ColumnIndexes) -> bool:
     if indexes.exchange is not None or indexes.code != 0:
         return False
     normalized = {_normalize_header(header) for header in headers}
-    return "名称(4)" in normalized and "涨幅%" in normalized
+    has_versioned_name_header = any(re.fullmatch(r"名称\(\d+\)", header) for header in normalized)
+    return has_versioned_name_header and "涨幅%" in normalized
 
 
 def _parse_tdx_table_security(value: str, line_number: int) -> str:
@@ -258,6 +259,16 @@ def _find_header(headers: tuple[str, ...], candidates: frozenset[str]) -> int | 
     normalized_candidates = {_normalize_header(candidate) for candidate in candidates}
     for index, header in enumerate(headers):
         if header in normalized_candidates:
+            return index
+    return None
+
+
+def _find_name_header(headers: tuple[str, ...]) -> int | None:
+    name = _find_header(headers, _NAME_HEADERS)
+    if name is not None:
+        return name
+    for index, header in enumerate(headers):
+        if re.fullmatch(r"名称\(\d+\)", header):
             return index
     return None
 

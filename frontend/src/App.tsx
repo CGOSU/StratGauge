@@ -1,6 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
-import { Archive, Database, Download, LayoutDashboard, Pencil, Plus, RotateCcw, WalletCards } from 'lucide-react'
+import {
+  Archive,
+  CalendarDays,
+  Database,
+  Download,
+  LayoutDashboard,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Upload,
+  WalletCards,
+  X,
+} from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -382,12 +394,120 @@ function toShanghaiDateTime(value: string): string {
   return `${value}:00+08:00`
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`
+  }
+  const units = ['KB', 'MB', 'GB']
+  let size = bytes
+  let unitIndex = -1
+  do {
+    size /= 1024
+    unitIndex += 1
+  } while (size >= 1024 && unitIndex < units.length - 1)
+  return `${size.toFixed(unitIndex === 0 || size >= 10 ? 0 : 1)} ${units[unitIndex]}`
+}
+
 function latestLabel(labels: Label[]): Label | null {
   return labels.length === 0 ? null : labels[labels.length - 1]
 }
 
 function latestOutcome(outcomes: Outcome[]): Outcome | null {
   return outcomes.length === 0 ? null : outcomes[outcomes.length - 1]
+}
+
+type CalendarInputProps = {
+  id: string
+  type?: 'date' | 'datetime-local'
+  value: string
+  onChange: (value: string) => void
+  required?: boolean
+  disabled?: boolean
+  min?: string
+  max?: string
+  'aria-describedby'?: string
+}
+
+function CalendarInput({
+  id,
+  type = 'date',
+  value,
+  onChange,
+  required = false,
+  disabled = false,
+  min,
+  max,
+  'aria-describedby': ariaDescribedBy,
+}: CalendarInputProps) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const isDateTime = type === 'datetime-local'
+  const pickerLabel = isDateTime ? '打开日期和时间选择器' : '打开日期选择器'
+
+  function openPicker() {
+    const input = inputRef.current
+    if (!input) {
+      return
+    }
+    input.focus()
+    try {
+      input.showPicker?.()
+    } catch {
+      return
+    }
+  }
+
+  function clearValue() {
+    onChange('')
+    inputRef.current?.focus()
+  }
+
+  return (
+    <div className="calendar-input">
+      <Input
+        ref={inputRef}
+        id={id}
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        required={required}
+        disabled={disabled}
+        min={min}
+        max={max}
+        aria-describedby={ariaDescribedBy}
+      />
+      {!required && value && (
+        <button
+          type="button"
+          className="calendar-input-clear"
+          aria-label={isDateTime ? '清空日期和时间' : '清空日期'}
+          disabled={disabled}
+          onClick={clearValue}
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      )}
+      <button
+        type="button"
+        className="calendar-input-trigger"
+        aria-label={pickerLabel}
+        disabled={disabled}
+        onClick={openPicker}
+      >
+        <CalendarDays className="h-4 w-4" aria-hidden="true" />
+      </button>
+    </div>
+  )
+}
+
+function ErrorAlert({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  return (
+    <Alert variant="destructive" className="sticky-alert">
+      <AlertDescription>{message}</AlertDescription>
+      <Button type="button" variant="link" size="sm" onClick={onDismiss}>
+        关闭
+      </Button>
+    </Alert>
+  )
 }
 
 function CandidateAnalysisPanel({ analysis }: { analysis: CandidateAnalysis }) {
@@ -692,39 +812,71 @@ function PortfolioWorkspace({ apiBase }: { apiBase: string }) {
         </div>
         <Badge variant="secondary">只读汇总</Badge>
       </div>
-      {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+      {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
       <div className="portfolio-entry-grid">
-        <form className="portfolio-entry-form" onSubmit={createOrder}>
+        <form className="portfolio-entry-form" onSubmit={createOrder} aria-busy={ledgerBusy}>
           <h3>录入订单</h3>
-          <Input value={orderCode} onChange={(event) => setOrderCode(event.target.value)} placeholder="六位代码" required />
-          <select value={orderExchange} onChange={(event) => setOrderExchange(event.target.value as Exchange)} aria-label="订单交易所">
-            <option value="SZ">SZ</option><option value="SH">SH</option><option value="BJ">BJ</option>
-          </select>
-          <select value={orderSide} onChange={(event) => setOrderSide(event.target.value as 'buy' | 'sell')} aria-label="订单方向">
-            <option value="buy">买入</option><option value="sell">卖出</option>
-          </select>
-          <Input type="number" min="1" value={orderQuantity} onChange={(event) => setOrderQuantity(event.target.value)} placeholder="数量" required />
-          <Button type="submit" size="sm" disabled={ledgerBusy}>保存订单</Button>
+          <div className="field">
+            <Label htmlFor="order-code">证券代码</Label>
+            <Input id="order-code" value={orderCode} onChange={(event) => setOrderCode(event.target.value)} placeholder="六位代码" required />
+          </div>
+          <div className="field">
+            <Label htmlFor="order-exchange">交易所</Label>
+            <select id="order-exchange" className="native-select" value={orderExchange} onChange={(event) => setOrderExchange(event.target.value as Exchange)}>
+              <option value="SZ">SZ</option><option value="SH">SH</option><option value="BJ">BJ</option>
+            </select>
+          </div>
+          <div className="field">
+            <Label htmlFor="order-side">订单方向</Label>
+            <select id="order-side" className="native-select" value={orderSide} onChange={(event) => setOrderSide(event.target.value as 'buy' | 'sell')}>
+              <option value="buy">买入</option><option value="sell">卖出</option>
+            </select>
+          </div>
+          <div className="field">
+            <Label htmlFor="order-quantity">数量</Label>
+            <Input id="order-quantity" type="number" min="1" value={orderQuantity} onChange={(event) => setOrderQuantity(event.target.value)} required />
+          </div>
+          <Button type="submit" size="sm" disabled={ledgerBusy}>{ledgerBusy ? '保存中…' : '保存订单'}</Button>
         </form>
-        <form className="portfolio-entry-form" onSubmit={createFill}>
+        <form className="portfolio-entry-form" onSubmit={createFill} aria-busy={ledgerBusy}>
           <h3>录入成交</h3>
-          <Input value={fillOrderId} onChange={(event) => setFillOrderId(event.target.value)} placeholder="订单 ID" required />
-          <Input type="number" min="1" value={fillQuantity} onChange={(event) => setFillQuantity(event.target.value)} placeholder="数量" required />
-          <Input type="number" min="0.0001" step="0.0001" value={fillPrice} onChange={(event) => setFillPrice(event.target.value)} placeholder="成交价" required />
-          <Button type="submit" size="sm" disabled={ledgerBusy}>保存成交</Button>
+          <div className="field">
+            <Label htmlFor="fill-order-id">订单 ID</Label>
+            <Input id="fill-order-id" value={fillOrderId} onChange={(event) => setFillOrderId(event.target.value)} required />
+          </div>
+          <div className="field">
+            <Label htmlFor="fill-quantity">成交数量</Label>
+            <Input id="fill-quantity" type="number" min="1" value={fillQuantity} onChange={(event) => setFillQuantity(event.target.value)} required />
+          </div>
+          <div className="field">
+            <Label htmlFor="fill-price">成交价</Label>
+            <Input id="fill-price" type="number" min="0.0001" step="0.0001" value={fillPrice} onChange={(event) => setFillPrice(event.target.value)} required />
+          </div>
+          <Button type="submit" size="sm" disabled={ledgerBusy}>{ledgerBusy ? '保存中…' : '保存成交'}</Button>
         </form>
-        <form className="portfolio-entry-form" onSubmit={createReview}>
+        <form className="portfolio-entry-form" onSubmit={createReview} aria-busy={ledgerBusy}>
           <h3>添加复盘</h3>
-          <Input value={reviewSymbol} onChange={(event) => setReviewSymbol(event.target.value)} placeholder="代码.交易所" required />
-          <Input value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} placeholder="复盘内容" required />
-          <Button type="submit" size="sm" disabled={ledgerBusy}>保存复盘</Button>
+          <div className="field">
+            <Label htmlFor="review-symbol">证券标识</Label>
+            <Input id="review-symbol" value={reviewSymbol} onChange={(event) => setReviewSymbol(event.target.value)} placeholder="代码.交易所" required />
+          </div>
+          <div className="field">
+            <Label htmlFor="review-note">复盘内容</Label>
+            <Input id="review-note" value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} required />
+          </div>
+          <Button type="submit" size="sm" disabled={ledgerBusy}>{ledgerBusy ? '保存中…' : '保存复盘'}</Button>
         </form>
       </div>
       <Card className="panel portfolio-master-search">
         <div className="section-heading"><h3>证券主数据搜索</h3><Badge variant="outline">时间点查询</Badge></div>
         <form className="portfolio-search-form" onSubmit={searchMaster}>
           <Input value={masterQuery} onChange={(event) => setMasterQuery(event.target.value)} placeholder="代码、名称、行业或控制人" />
-          <Input type="date" value={masterEffectiveDate} onChange={(event) => setMasterEffectiveDate(event.target.value)} required />
+          <CalendarInput
+            id="master-effective-date"
+            value={masterEffectiveDate}
+            onChange={setMasterEffectiveDate}
+            required
+          />
           <Button type="submit" size="sm" disabled={masterBusy}>{masterBusy ? '搜索中…' : '搜索'}</Button>
         </form>
         {masterResults.length > 0 && (
@@ -978,6 +1130,13 @@ function App() {
     }
   }
 
+  function clearSelectedFile() {
+    setFile(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
   async function importSelection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!file || !selectionDate || !exportedAt || !selectedFormulaId) {
@@ -999,10 +1158,7 @@ function App() {
         }),
       })
       await loadBatches(result.batch.batch_id)
-      setFile(null)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
+      clearSelectedFile()
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : '导入失败。')
     } finally {
@@ -1378,14 +1534,7 @@ function App() {
         </div>
       </Card>
 
-      {error && (
-        <Alert variant="destructive" className="alert">
-          <AlertDescription>{error}</AlertDescription>
-          <Button type="button" variant="link" size="sm" onClick={() => setError(null)}>
-            关闭
-          </Button>
-        </Alert>
-      )}
+      {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
 
       <section className="research-layout" aria-label="通达信选股研究工作区">
         <Card className="import-panel panel">
@@ -1449,21 +1598,20 @@ function App() {
                   </div>
                   <div className="field">
                     <Label htmlFor="manual-selection-date">选股日期</Label>
-                    <Input
+                    <CalendarInput
                       id="manual-selection-date"
-                      type="date"
                       value={manualSelectionDate}
-                      onChange={(event) => setManualSelectionDate(event.target.value)}
+                      onChange={setManualSelectionDate}
                       required
                     />
                   </div>
                   <div className="field">
                     <Label htmlFor="manual-recorded-at">记录时间（北京时间）</Label>
-                    <Input
+                    <CalendarInput
                       id="manual-recorded-at"
                       type="datetime-local"
                       value={manualRecordedAt}
-                      onChange={(event) => setManualRecordedAt(event.target.value)}
+                      onChange={setManualRecordedAt}
                       required
                     />
                     <small>提交时会带上 +08:00 时区。</small>
@@ -1608,32 +1756,67 @@ function App() {
           <form className="import-form" onSubmit={importSelection}>
             <div className="field">
               <Label htmlFor="selection-file">通达信导出文件</Label>
-              <Input
-                ref={fileInputRef}
-                id="selection-file"
-                type="file"
-                accept=".ebk,.EBK,.csv,.tsv,.txt,text/csv,text/plain"
-                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-              />
-              <small>{file ? file.name : '支持 .EBK 或 UTF-8 / GB18030 的 CSV、TSV、TXT'}</small>
+              <div className={`file-upload${file ? ' file-upload--selected' : ''}`}>
+                <div className="file-upload-icon" aria-hidden="true">
+                  <Upload className="h-5 w-5" />
+                </div>
+                <div className="file-upload-copy" aria-live="polite">
+                  <strong>{file ? file.name : '选择通达信导出文件'}</strong>
+                  <small>
+                    {file ? `${formatFileSize(file.size)} · 已准备导入` : '支持 .EBK、CSV、TSV、TXT'}
+                  </small>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={file ? 'outline' : 'default'}
+                  className="file-upload-action"
+                  disabled={busy}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {file ? '更换文件' : '选择文件'}
+                </Button>
+                {file && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="file-upload-clear"
+                    aria-label={`清除已选文件 ${file.name}`}
+                    disabled={busy}
+                    onClick={clearSelectedFile}
+                  >
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                )}
+                <Input
+                  ref={fileInputRef}
+                  id="selection-file"
+                  type="file"
+                  className="file-upload-input"
+                  accept=".ebk,.EBK,.csv,.tsv,.txt,text/csv,text/plain"
+                  aria-describedby="selection-file-help"
+                  onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                />
+              </div>
+              <small id="selection-file-help">文件导入后会保留原始内容证据，建议使用收盘后导出的文件。</small>
             </div>
             <div className="field">
               <Label htmlFor="selection-date">选股日期</Label>
-              <Input
+              <CalendarInput
                 id="selection-date"
-                type="date"
                 value={selectionDate}
-                onChange={(event) => setSelectionDate(event.target.value)}
+                onChange={setSelectionDate}
                 required
               />
             </div>
             <div className="field">
               <Label htmlFor="exported-at">导出时间（北京时间）</Label>
-              <Input
+              <CalendarInput
                 id="exported-at"
                 type="datetime-local"
                 value={exportedAt}
-                onChange={(event) => setExportedAt(event.target.value)}
+                onChange={setExportedAt}
                 required
               />
             </div>
@@ -1694,9 +1877,9 @@ function App() {
                   aria-pressed={batch.batch_id === selectedBatchId}
                 >
                   <span>
-                    <strong>{batch.formula_name}</strong>
+                    <strong className="batch-date">{batch.selection_date}</strong>
                     <small>
-                      {batch.selection_date} · {sourceLabel(batch.source)} · {batch.source_filename ?? '未记录文件名'}
+                      {batch.formula_name} · {sourceLabel(batch.source)} · {batch.source_filename ?? '未记录文件名'}
                     </small>
                   </span>
                   <span className="batch-count">{batch.candidate_count} 只</span>
@@ -1716,7 +1899,7 @@ function App() {
           <div className="section-heading-actions">
             {selectedBatch && (
               <span className="section-meta">
-                {selectedBatch.batch.formula_name} · {selectedBatch.batch.selection_date}
+                <strong>{selectedBatch.batch.selection_date}</strong> · {selectedBatch.batch.formula_name}
               </span>
             )}
             <Button
@@ -1733,6 +1916,37 @@ function App() {
             </Button>
           </div>
         </div>
+        <aside className="decision-guide" aria-labelledby="decision-guide-title">
+          <div className="decision-guide-heading">
+            <div>
+              <p className="eyebrow">先看这里</p>
+              <h3 id="decision-guide-title">标记代表什么？</h3>
+            </div>
+            <span>当天标记，下一交易日前完成；实际成交另记。</span>
+          </div>
+          <div className="decision-guide-grid ">
+            <div>
+              <Badge className="decision-badge--buy_candidate">候选</Badge>
+              <p>明天优先复核</p>
+            </div>
+            <div>
+              <Badge className="decision-badge--watch">观察</Badge>
+              <p>暂时不买，继续跟踪</p>
+            </div>
+            <div>
+              <Badge className="decision-badge--pass">放弃</Badge>
+              <p>本次不考虑</p>
+            </div>
+            <div>
+              <Badge className="decision-badge--invalid">无效</Badge>
+              <p>代码或数据无效</p>
+            </div>
+          </div>
+          <p className="decision-guide-callout">
+            <strong>明天不买、后天才买：</strong>
+            今天标“观察”；实际成交时到持仓台账记录时间和价格。
+          </p>
+        </aside>
         {recommendationWorkbench && <RecommendationWorkbenchPanel data={recommendationWorkbench} />}
         {selectedStats && !loadingBatch && (
           <div className="stats-strip" aria-label="批次统计">
@@ -1848,6 +2062,8 @@ function App() {
                           key={decision}
                           disabled={labelingId !== null}
                           data-saving={labelingId === `${candidate.candidate_id}:${decision}`}
+                          title={decisionDescription(decision)}
+                          aria-label={`${candidate.symbol}：${decisionLabel(decision)}。${decisionDescription(decision)}`}
                           onClick={() => void labelCandidate(candidate.candidate_id, decision)}
                         >
                           {decisionLabel(decision)}
@@ -1906,11 +2122,11 @@ function App() {
           </div>
           <div className="field">
             <Label htmlFor="evaluated-at">评估时间（北京时间）</Label>
-            <Input
+            <CalendarInput
               id="evaluated-at"
               type="datetime-local"
               value={evaluatedAt}
-              onChange={(event) => setEvaluatedAt(event.target.value)}
+              onChange={setEvaluatedAt}
               disabled={maturityTaskAction !== null}
               required
             />
@@ -2424,14 +2640,7 @@ function DataManagementWorkspace({
         </div>
       </div>
 
-      {error && (
-        <Alert variant="destructive" className="alert">
-          <AlertDescription>{error}</AlertDescription>
-          <Button type="button" variant="link" size="sm" onClick={() => setError(null)}>
-            关闭
-          </Button>
-        </Alert>
-      )}
+      {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
 
       <Card className="management-stats-panel panel" aria-labelledby="management-stats-title">
         <div className="section-heading">
@@ -2462,20 +2671,22 @@ function DataManagementWorkspace({
           </div>
           <div className="field">
             <Label htmlFor="stats-date-from">选股日期起</Label>
-            <Input
+            <CalendarInput
               id="stats-date-from"
-              type="date"
               value={statsDateFrom}
-              onChange={(event) => setStatsDateFrom(event.target.value)}
+              onChange={setStatsDateFrom}
+              max={statsDateTo || undefined}
+              aria-describedby="stats-date-help"
             />
           </div>
           <div className="field">
             <Label htmlFor="stats-date-to">选股日期止</Label>
-            <Input
+            <CalendarInput
               id="stats-date-to"
-              type="date"
               value={statsDateTo}
-              onChange={(event) => setStatsDateTo(event.target.value)}
+              onChange={setStatsDateTo}
+              min={statsDateFrom || undefined}
+              aria-describedby="stats-date-help"
             />
           </div>
           <div className="field">
@@ -2511,6 +2722,9 @@ function DataManagementWorkspace({
             </select>
           </div>
         </div>
+        <p id="stats-date-help" className="form-hint">
+          日期可留空；选择起止日期后，结束日期不能早于开始日期。
+        </p>
         {statsLoading && !stats ? (
           <div className="management-loading" aria-label="统计加载中">
             <Skeleton />
@@ -2693,8 +2907,8 @@ function DataManagementWorkspace({
                       <article className="management-record" key={item.batch.batch_id}>
                         <div className="management-record-heading">
                           <div>
-                            <strong>{item.batch.formula_name}</strong>
-                            <span>{item.batch.selection_date}</span>
+                            <strong>{item.batch.selection_date}</strong>
+                            <span>{item.batch.formula_name}</span>
                           </div>
                           <div className="management-badge-group">
                             <Badge
@@ -2804,7 +3018,9 @@ function DataManagementWorkspace({
                       {sourceLabel(selectedBatch.view.batch.source)} ·{' '}
                       {selectedBatch.view.batch.source_filename ?? '未记录原始文件名'}
                     </strong>
-                    <span>{selectedBatch.view.batch.formula_name} · {selectedBatch.view.batch.selection_date}</span>
+                    <span>
+                      <strong>{selectedBatch.view.batch.selection_date}</strong> · {selectedBatch.view.batch.formula_name}
+                    </span>
                   </div>
                   <div className="management-record-actions">
                     <Button asChild type="button" size="sm" variant="outline">
@@ -3063,6 +3279,16 @@ function decisionLabel(decision: Decision): string {
     invalid: '无效',
   }
   return labels[decision]
+}
+
+function decisionDescription(decision: Decision): string {
+  const descriptions: Record<Decision, string> = {
+    buy_candidate: '列入下一交易日优先复核，不代表已经买入。',
+    watch: '暂时不买，后续实际成交请记录到持仓台账。',
+    pass: '本次不考虑买入。',
+    invalid: '数据或代码无效，不作为有效研究样本。',
+  }
+  return descriptions[decision]
 }
 
 export default App

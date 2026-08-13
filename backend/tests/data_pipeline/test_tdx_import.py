@@ -60,6 +60,28 @@ class TdxImportTests(unittest.TestCase):
         self.assertEqual(imported.candidates[0].name, "东方锆业")
         self.assertEqual(imported.candidates[0].source_fields["涨幅%"], "3.31")
 
+    def test_imports_tongdaxin_gbk_quote_table_with_name_header_version_five(self) -> None:
+        content = (
+            "代码\t名称(5)\t涨幅%\t现价\t\n"
+            "002773\t康弘药业\t0.70\t23.02\t\n"
+            "603061\t金海通\t-0.16\t319.48\t\n"
+            "#数据来源:通达信\r\n"
+        ).encode("gb18030")
+
+        imported = import_tdx_export(
+            content,
+            selection_date=EXPORTED_AT.date(),
+            exported_at=EXPORTED_AT,
+            imported_at=IMPORTED_AT,
+            formula_name="公式 A",
+        )
+
+        self.assertEqual(
+            [candidate.symbol for candidate in imported.candidates],
+            ["002773.SZ", "603061.SH"],
+        )
+        self.assertEqual(imported.candidates[0].name, "康弘药业")
+
     def test_imports_tongdaxin_ebk_market_prefixed_codes(self) -> None:
         content = b"\r\n0002167\r\n1600593\r\n1603183\r\n1603980\r\n"
 

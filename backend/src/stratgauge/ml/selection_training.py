@@ -15,7 +15,6 @@ from typing import Literal, cast
 from pydantic import Field, field_validator, model_validator
 
 from stratgauge.domain.models import DomainModel
-from stratgauge.features.contract import FeatureSnapshot
 from stratgauge.ml.evaluation import ModelEvaluationEvidence
 
 FEATURE_DATASET_SCHEMA_VERSION = "selection-feature-dataset-v1"
@@ -164,31 +163,6 @@ class BaselineTrainingResult(DomainModel):
     row_counts: dict[str, int]
 
 
-def feature_row_from_snapshot(
-    snapshot: FeatureSnapshot,
-    *,
-    candidate_id: str,
-    tracking_policy_id: str,
-    label: BaselineLabel,
-    label_evaluated_at: datetime,
-) -> SelectionFeatureRow:
-    """Attach a matured outcome label to an immutable feature snapshot."""
-
-    return SelectionFeatureRow(
-        candidate_id=candidate_id,
-        symbol=snapshot.symbol,
-        selection_date=snapshot.selection_date,
-        feature_set_version_id=snapshot.feature_set_version_id,
-        feature_snapshot_id=snapshot.feature_snapshot_id,
-        as_of=snapshot.as_of,
-        label_evaluated_at=label_evaluated_at,
-        tracking_policy_id=tracking_policy_id,
-        label=label,
-        source_snapshot_ids=snapshot.source_snapshot_ids,
-        features=snapshot.values,
-    )
-
-
 def read_feature_dataset(content: bytes) -> tuple[SelectionFeatureRow, ...]:
     """Parse and validate versioned feature JSONL."""
 
@@ -219,25 +193,6 @@ def serialize_feature_dataset(rows: Iterable[SelectionFeatureRow]) -> str:
     """Serialize feature rows as deterministic newline-delimited JSON."""
 
     return "".join(f"{row.model_dump_json()}\n" for row in rows)
-
-
-def write_feature_dataset(path: str | Path, rows: Iterable[SelectionFeatureRow]) -> None:
-    """Write feature rows once without overwriting prior evidence."""
-
-    destination = Path(path)
-    if destination.exists():
-        raise FileExistsError(f"feature dataset already exists: {destination}")
-    content = serialize_feature_dataset(rows)
-    if not content:
-        raise ValueError("cannot write an empty feature dataset")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_suffix(f"{destination.suffix}.tmp")
-    try:
-        temporary.write_text(content, encoding="utf-8", newline="\n")
-        temporary.replace(destination)
-    except OSError:
-        temporary.unlink(missing_ok=True)
-        raise
 
 
 def split_feature_dataset(
