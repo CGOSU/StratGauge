@@ -35,8 +35,10 @@ from stratgauge.api.recommendations import (
 )
 from stratgauge.api.selections import (
     ManualSelectionRequest,
+    SelectionAnnotationRequest,
     SelectionApiError,
     SelectionBatchView,
+    SelectionExclusionRequest,
     SelectionFormulaCreateRequest,
     SelectionFormulaView,
     SelectionImportRequest,
@@ -48,6 +50,7 @@ from stratgauge.api.selections import (
     SelectionManagementStatsView,
     SelectionMatureRequest,
     SelectionMatureView,
+    SelectionObservationView,
     SelectionService,
     SelectionStatsView,
 )
@@ -77,6 +80,7 @@ from stratgauge.domain.portfolio import ManualFill, ManualOrder, PortfolioPositi
 from stratgauge.domain.selections import (
     ManualSelectionDecision,
     SelectionBatch,
+    SelectionCandidateReviewState,
     SelectionFormula,
     SelectionLifecycleStatus,
     SelectionMaturityTask,
@@ -285,6 +289,23 @@ def create_app(
     def list_selection_batches() -> list[SelectionBatch]:
         return list(selections.list_batches())
 
+    @app.get(
+        "/v1/selection-observation-pool",
+        response_model=list[SelectionObservationView],
+    )
+    def list_selection_observation_pool(
+        review_state: SelectionCandidateReviewState | None = None,
+        batch_id: str | None = None,
+        include_excluded: bool = False,
+    ) -> list[SelectionObservationView]:
+        return list(
+            selections.list_observation_pool(
+                review_state=review_state,
+                batch_id=batch_id,
+                include_excluded=include_excluded,
+            )
+        )
+
     @app.post("/v1/selection-batches", response_model=SelectionBatchView, status_code=201)
     def import_selection_batch(request: SelectionImportRequest) -> SelectionBatchView:
         return selections.import_batch(request)
@@ -480,6 +501,26 @@ def create_app(
         request: SelectionLabelRequest,
     ) -> SelectionBatchView:
         return selections.label_candidate(batch_id, request)
+
+    @app.post(
+        "/v1/selection-batches/{batch_id}/annotations",
+        response_model=SelectionBatchView,
+    )
+    def annotate_selection_candidate(
+        batch_id: str,
+        request: SelectionAnnotationRequest,
+    ) -> SelectionBatchView:
+        return selections.annotate_candidate(batch_id, request)
+
+    @app.post(
+        "/v1/selection-batches/{batch_id}/exclusions",
+        response_model=SelectionBatchView,
+    )
+    def exclude_selection_candidate(
+        batch_id: str,
+        request: SelectionExclusionRequest,
+    ) -> SelectionBatchView:
+        return selections.exclude_candidate(batch_id, request)
 
     return app
 

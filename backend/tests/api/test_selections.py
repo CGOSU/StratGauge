@@ -250,6 +250,144 @@ class SelectionApiTests(unittest.TestCase):
         self.assertEqual(stats.json()["pending"], 1)
         self.assertEqual(stats.json()["summary"]["total"], 0)
 
+    def test_annotation_api_appends_reviews_and_projects_observation_state(self) -> None:
+        imported = self.client.post(
+            "/v1/selection-batches",
+            json={
+                "content_base64": base64.b64encode(CONTENT).decode(),
+                "selection_date": "2026-01-05",
+                "exported_at": "2026-01-05T15:05:00+08:00",
+                "formula_name": "趋势选股",
+            },
+        ).json()
+        batch_id = imported["batch"]["batch_id"]
+        candidate_id = imported["candidates"][0]["candidate"]["candidate_id"]
+        first = self.client.post(
+            f"/v1/selection-batches/{batch_id}/annotations",
+            json={
+                "candidate_id": candidate_id,
+                "reviewed_at": "2026-01-05T15:10:00+08:00",
+                "overall_score": 3,
+                "outlook": "neutral",
+                "decision": "watch",
+                "position_tags": ["support"],
+                "pattern_tags": ["pullback"],
+                "price_volume_tags": ["price_up_volume_down"],
+                "sector_tags": ["sector_strong"],
+                "note": "等待次日确认",
+            },
+        )
+        self.assertEqual(first.status_code, 200)
+        first_candidate = first.json()["candidates"][0]
+        self.assertEqual(first_candidate["review_state"], "watching")
+        self.assertEqual(first_candidate["latest_annotation"]["overall_score"], 3)
+        self.assertEqual(len(first_candidate["annotations"]), 1)
+
+        second = self.client.post(
+            f"/v1/selection-batches/{batch_id}/annotations",
+            json={
+                "candidate_id": candidate_id,
+                "reviewed_at": "2026-01-06T10:00:00+08:00",
+                "overall_score": 4,
+                "outlook": "bullish",
+                "decision": "prepare_buy",
+            },
+        )
+        self.assertEqual(second.status_code, 200)
+        second_candidate = second.json()["candidates"][0]
+        self.assertEqual(second_candidate["review_state"], "preparing")
+        self.assertEqual(len(second_candidate["annotations"]), 2)
+        self.assertEqual(second_candidate["latest_annotation"]["decision"], "prepare_buy")
+
+        pool = self.client.get(
+            "/v1/selection-observation-pool",
+            params={"review_state": "watching"},
+        )
+        self.assertEqual(pool.status_code, 200)
+        self.assertEqual(pool.json(), [])
+        preparing_pool = self.client.get(
+            "/v1/selection-observation-pool",
+            params={"review_state": "preparing"},
+        )
+        self.assertEqual(preparing_pool.status_code, 200)
+        self.assertEqual(len(preparing_pool.json()), 1)
+        self.assertEqual(preparing_pool.json()[0]["candidate"]["candidate"]["symbol"], "000001.SZ")
+
+    def test_exclusion_is_separate_from_decision_and_hidden_from_default_pool(self) -> None:
+        imported = self.client.post(
+            "/v1/selection-batches",
+            json={
+                "content_base64": base64.b64encode(CONTENT).decode(),
+                "selection_date": "2026-01-05",
+                "exported_at": "2026-01-05T15:05:00+08:00",
+                "formula_name": "趋势选股",
+            },
+        ).json()
+        batch_id = imported["batch"]["batch_id"]
+        candidate_id = imported["candidates"][0]["candidate"]["candidate_id"]
+        excluded = self.client.post(
+            f"/v1/selection-batches/{batch_id}/exclusions",
+            json={
+                "candidate_id": candidate_id,
+                "excluded_at": "2026-01-06T09:00:00+08:00",
+                "reason": "代码无法复核",
+            },
+        )
+        self.assertEqual(excluded.status_code, 200)
+        candidate = excluded.json()["candidates"][0]
+        self.assertTrue(candidate["excluded"])
+        self.assertEqual(candidate["review_state"], "unreviewed")
+        self.assertEqual(candidate["exclusions"][0]["reason"], "代码无法复核")
+        self.assertEqual(self.client.get("/v1/selection-observation-pool").json(), [])
+        included = self.client.get(
+            "/v1/selection-observation-pool",
+            params={"include_excluded": "true"},
+        )
+        self.assertEqual(included.status_code, 200)
+        self.assertEqual(len(included.json()), 1)
+
+    def test_annotation_before_export_or_on_archived_batch_is_rejected(self) -> None:
+        imported = self.client.post(
+            "/v1/selection-batches",
+            json={
+                "content_base64": base64.b64encode(CONTENT).decode(),
+                "selection_date": "2026-01-05",
+                "exported_at": "2026-01-05T15:05:00+08:00",
+                "formula_name": "趋势选股",
+            },
+        ).json()
+        batch_id = imported["batch"]["batch_id"]
+        candidate_id = imported["candidates"][0]["candidate"]["candidate_id"]
+        before_export = self.client.post(
+            f"/v1/selection-batches/{batch_id}/annotations",
+            json={
+                "candidate_id": candidate_id,
+                "reviewed_at": "2026-01-05T15:00:00+08:00",
+                "overall_score": 1,
+                "outlook": "bearish",
+                "decision": "discard",
+            },
+        )
+        self.assertEqual(before_export.status_code, 422)
+        self.assertEqual(before_export.json()["error"]["code"], "SELECTION_ANNOTATION_NOT_ALLOWED")
+        archived = self.client.post(
+            f"/v1/data-management/batches/{batch_id}/archive",
+            json={"reason": "测试归档"},
+        )
+        self.assertEqual(archived.status_code, 200)
+        after_archive = self.client.post(
+            f"/v1/selection-batches/{batch_id}/annotations",
+            json={
+                "candidate_id": candidate_id,
+                "reviewed_at": "2026-01-05T15:10:00+08:00",
+                "overall_score": 1,
+                "outlook": "bearish",
+                "decision": "discard",
+            },
+        )
+        self.assertEqual(after_archive.status_code, 422)
+        self.assertEqual(after_archive.json()["error"]["code"], "SELECTION_BATCH_ARCHIVED")
+
     def test_management_stats_filter_by_batch_label_and_tracking_policy(self) -> None:
         formula = self.client.post(
             "/v1/formulas",

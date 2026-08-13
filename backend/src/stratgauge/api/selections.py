@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Literal
@@ -44,13 +45,22 @@ from stratgauge.domain.models import Exchange
 from stratgauge.domain.selections import (
     ManualSelectionDecision,
     ManualSelectionLabel,
+    SelectionAnnotation,
+    SelectionAnnotationDecision,
+    SelectionAnnotationOutlook,
     SelectionBatch,
     SelectionCandidate,
+    SelectionCandidateExclusion,
+    SelectionCandidateReviewState,
     SelectionFormula,
     SelectionLifecycleEvent,
     SelectionLifecycleStatus,
     SelectionMaturityTask,
     SelectionOutcome,
+    SelectionPatternTag,
+    SelectionPositionTag,
+    SelectionPriceVolumeTag,
+    SelectionSectorTag,
     TdxSelectionImport,
 )
 
@@ -153,6 +163,56 @@ class SelectionLabelRequest(BaseModel):
         return value
 
 
+class SelectionAnnotationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str = Field(min_length=1)
+    reviewed_at: datetime
+    overall_score: int = Field(ge=1, le=5)
+    outlook: SelectionAnnotationOutlook
+    decision: SelectionAnnotationDecision
+    position_tags: tuple[SelectionPositionTag, ...] = ()
+    pattern_tags: tuple[SelectionPatternTag, ...] = ()
+    price_volume_tags: tuple[SelectionPriceVolumeTag, ...] = ()
+    sector_tags: tuple[SelectionSectorTag, ...] = ()
+    note: str | None = None
+
+    @field_validator("reviewed_at")
+    @classmethod
+    def require_aware_review_time(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("reviewed_at must include a timezone")
+        return value
+
+    @field_validator("note")
+    @classmethod
+    def normalize_annotation_note(cls, value: str | None) -> str | None:
+        return None if value is None else value.strip() or None
+
+
+class SelectionExclusionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str = Field(min_length=1)
+    excluded_at: datetime
+    reason: str = Field(min_length=1)
+
+    @field_validator("excluded_at")
+    @classmethod
+    def require_aware_exclusion_time(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("excluded_at must include a timezone")
+        return value
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_exclusion_reason(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("exclusion reason must not be empty")
+        return normalized
+
+
 class SelectionMatureRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -199,6 +259,8 @@ class SelectionManagedBatchView(BaseModel):
     batch: SelectionBatch
     active: bool
     label_count: int = Field(ge=0)
+    annotation_count: int = Field(default=0, ge=0)
+    exclusion_count: int = Field(default=0, ge=0)
     outcome_count: int = Field(ge=0)
     lifecycle: tuple[SelectionLifecycleEvent, ...]
 
@@ -218,7 +280,20 @@ class SelectionCandidateView(BaseModel):
 
     candidate: SelectionCandidate
     labels: tuple[ManualSelectionLabel, ...] = ()
+    annotations: tuple[SelectionAnnotation, ...] = ()
+    exclusions: tuple[SelectionCandidateExclusion, ...] = ()
+    latest_annotation: SelectionAnnotation | None = None
+    latest_exclusion: SelectionCandidateExclusion | None = None
+    review_state: SelectionCandidateReviewState = SelectionCandidateReviewState.UNREVIEWED
+    excluded: bool = False
     outcomes: tuple[SelectionOutcome, ...] = ()
+
+
+class SelectionObservationView(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    batch: SelectionBatch
+    candidate: SelectionCandidateView
 
 
 class SelectionBatchView(BaseModel):
@@ -303,6 +378,14 @@ class SelectionService:
                     len(self._store.list_labels(candidate.candidate_id))
                     for candidate in imported.candidates
                 )
+                annotation_count = sum(
+                    len(self._store.list_annotations(candidate.candidate_id))
+                    for candidate in imported.candidates
+                )
+                exclusion_count = sum(
+                    len(self._store.list_exclusions(candidate.candidate_id))
+                    for candidate in imported.candidates
+                )
                 outcome_count = sum(
                     len(self._store.list_outcomes(candidate.candidate_id))
                     for candidate in imported.candidates
@@ -312,6 +395,8 @@ class SelectionService:
                         batch=imported.batch,
                         active=self._store.is_entity_active("batch", imported.batch.batch_id),
                         label_count=label_count,
+                        annotation_count=annotation_count,
+                        exclusion_count=exclusion_count,
                         outcome_count=outcome_count,
                         lifecycle=self._store.list_lifecycle_events(
                             "batch", imported.batch.batch_id
@@ -414,6 +499,46 @@ class SelectionService:
                 raise SelectionApiError(
                     "SELECTION_BATCH_NOT_FOUND", "选股批次不存在。", 404
                 ) from exc
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+
+    def list_observation_pool(
+        self,
+        *,
+        review_state: SelectionCandidateReviewState | None = None,
+        batch_id: str | None = None,
+        include_excluded: bool = False,
+    ) -> tuple[SelectionObservationView, ...]:
+        try:
+            views: list[SelectionObservationView] = []
+            manifests = self._store.list_manifests()
+            for manifest in manifests:
+                if batch_id is not None and manifest.batch_id != batch_id:
+                    continue
+                imported = self._store.load_import(manifest.batch_id)
+                for candidate in imported.candidates:
+                    candidate_view = self._candidate_view(candidate)
+                    if candidate_view.excluded and not include_excluded:
+                        continue
+                    if review_state is not None and candidate_view.review_state != review_state:
+                        continue
+                    views.append(
+                        SelectionObservationView(
+                            batch=imported.batch,
+                            candidate=candidate_view,
+                        )
+                    )
+            return tuple(
+                sorted(
+                    views,
+                    key=lambda item: (
+                        item.batch.selection_date,
+                        item.batch.batch_id,
+                        item.candidate.candidate.symbol,
+                    ),
+                    reverse=True,
+                )
+            )
+        except SelectionStoreError as exc:
             raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
 
     def list_batches(self) -> tuple[SelectionBatch, ...]:
@@ -791,7 +916,7 @@ class SelectionService:
             if "label timestamp" in message:
                 raise SelectionApiError(
                     "SELECTION_LABEL_NOT_ALLOWED",
-                    "人工标注必须在导出后、下一自然日开始前完成。",
+                    "旧版人工标签必须在导出后、下一自然日开始前完成。",
                     422,
                 ) from exc
             if "does not exist" in message or "does not belong" in message:
@@ -800,19 +925,148 @@ class SelectionService:
                 ) from exc
             raise SelectionApiError("SELECTION_STORAGE_ERROR", message, 500) from exc
 
+    def annotate_candidate(
+        self,
+        batch_id: str,
+        request: SelectionAnnotationRequest,
+    ) -> SelectionBatchView:
+        try:
+            imported = self._store.load_import(batch_id)
+            if not self._store.is_entity_active("batch", batch_id):
+                raise SelectionApiError("SELECTION_BATCH_ARCHIVED", "选股批次已归档。", 422)
+            if request.reviewed_at < imported.batch.exported_at:
+                raise SelectionApiError(
+                    "SELECTION_ANNOTATION_NOT_ALLOWED",
+                    "人工评审时间不能早于导出时间。",
+                    422,
+                )
+            recorded_at = datetime.now(UTC)
+            annotation = SelectionAnnotation(
+                annotation_id=_content_id(
+                    "annotation",
+                    request.candidate_id,
+                    request.reviewed_at.isoformat(),
+                    str(request.overall_score),
+                    request.outlook.value,
+                    request.decision.value,
+                    ",".join(item.value for item in request.position_tags),
+                    ",".join(item.value for item in request.pattern_tags),
+                    ",".join(item.value for item in request.price_volume_tags),
+                    ",".join(item.value for item in request.sector_tags),
+                    request.note or "",
+                    recorded_at.isoformat(),
+                ),
+                candidate_id=request.candidate_id,
+                reviewed_at=request.reviewed_at,
+                recorded_at=recorded_at,
+                overall_score=request.overall_score,
+                outlook=request.outlook,
+                decision=request.decision,
+                position_tags=request.position_tags,
+                pattern_tags=request.pattern_tags,
+                price_volume_tags=request.price_volume_tags,
+                sector_tags=request.sector_tags,
+                note=request.note,
+            )
+            self._store.write_annotation(batch_id, annotation)
+            return self.get_batch(batch_id)
+        except SelectionApiError:
+            raise
+        except SelectionStoreError as exc:
+            message = str(exc)
+            if "does not exist" in message or "does not belong" in message:
+                raise SelectionApiError(
+                    "SELECTION_CANDIDATE_NOT_FOUND", "候选股票不属于该选股批次。", 404
+                ) from exc
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", message, 500) from exc
+        except ValueError as exc:
+            raise SelectionApiError("SELECTION_ANNOTATION_INVALID", str(exc), 422) from exc
+
+    def exclude_candidate(
+        self,
+        batch_id: str,
+        request: SelectionExclusionRequest,
+    ) -> SelectionBatchView:
+        try:
+            imported = self._store.load_import(batch_id)
+            if not self._store.is_entity_active("batch", batch_id):
+                raise SelectionApiError("SELECTION_BATCH_ARCHIVED", "选股批次已归档。", 422)
+            if request.excluded_at < imported.batch.exported_at:
+                raise SelectionApiError(
+                    "SELECTION_EXCLUSION_NOT_ALLOWED",
+                    "排除时间不能早于导出时间。",
+                    422,
+                )
+            recorded_at = datetime.now(UTC)
+            exclusion = SelectionCandidateExclusion(
+                exclusion_id=_content_id(
+                    "exclusion",
+                    request.candidate_id,
+                    request.excluded_at.isoformat(),
+                    request.reason,
+                    recorded_at.isoformat(),
+                ),
+                candidate_id=request.candidate_id,
+                excluded_at=request.excluded_at,
+                recorded_at=recorded_at,
+                reason=request.reason,
+            )
+            self._store.write_exclusion(batch_id, exclusion)
+            return self.get_batch(batch_id)
+        except SelectionApiError:
+            raise
+        except SelectionStoreError as exc:
+            message = str(exc)
+            if "does not exist" in message or "does not belong" in message:
+                raise SelectionApiError(
+                    "SELECTION_CANDIDATE_NOT_FOUND", "候选股票不属于该选股批次。", 404
+                ) from exc
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", message, 500) from exc
+        except ValueError as exc:
+            raise SelectionApiError("SELECTION_EXCLUSION_INVALID", str(exc), 422) from exc
+
+    def _candidate_view(self, candidate: SelectionCandidate) -> SelectionCandidateView:
+        labels = self._store.list_labels(candidate.candidate_id)
+        annotations = self._store.list_annotations(candidate.candidate_id)
+        exclusions = self._store.list_exclusions(candidate.candidate_id)
+        latest_annotation = annotations[-1] if annotations else None
+        latest_exclusion = exclusions[-1] if exclusions else None
+        return SelectionCandidateView(
+            candidate=candidate,
+            labels=labels,
+            annotations=annotations,
+            exclusions=exclusions,
+            latest_annotation=latest_annotation,
+            latest_exclusion=latest_exclusion,
+            review_state=_review_state(latest_annotation),
+            excluded=latest_exclusion is not None,
+            outcomes=self._store.list_outcomes(candidate.candidate_id),
+        )
+
     def _view(self, imported: TdxSelectionImport) -> SelectionBatchView:
         try:
-            candidates = tuple(
-                SelectionCandidateView(
-                    candidate=candidate,
-                    labels=self._store.list_labels(candidate.candidate_id),
-                    outcomes=self._store.list_outcomes(candidate.candidate_id),
-                )
-                for candidate in imported.candidates
-            )
+            candidates = tuple(self._candidate_view(candidate) for candidate in imported.candidates)
         except SelectionStoreError as exc:
             raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
         return SelectionBatchView(batch=imported.batch, candidates=candidates)
+
+
+def _content_id(prefix: str, *parts: str) -> str:
+    identity = "\0".join(parts)
+    return f"{prefix}-{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:20]}"
+
+
+def _review_state(
+    annotation: SelectionAnnotation | None,
+) -> SelectionCandidateReviewState:
+    if annotation is None:
+        return SelectionCandidateReviewState.UNREVIEWED
+    states = {
+        SelectionAnnotationDecision.DISCARD: SelectionCandidateReviewState.DISCARDED,
+        SelectionAnnotationDecision.WATCH: SelectionCandidateReviewState.WATCHING,
+        SelectionAnnotationDecision.PREPARE_BUY: SelectionCandidateReviewState.PREPARING,
+    }
+    return states[annotation.decision]
 
 
 def _decode_base64(value: str) -> bytes:

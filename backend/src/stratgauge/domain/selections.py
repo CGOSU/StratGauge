@@ -58,6 +58,15 @@ class SelectionAnnotationDecision(StrEnum):
     PREPARE_BUY = "prepare_buy"
 
 
+class SelectionCandidateReviewState(StrEnum):
+    """Materialized current review state derived from the latest annotation."""
+
+    UNREVIEWED = "unreviewed"
+    DISCARDED = "discarded"
+    WATCHING = "watching"
+    PREPARING = "preparing"
+
+
 class SelectionPositionTag(StrEnum):
     """Position context tags from the versioned annotation vocabulary."""
 
