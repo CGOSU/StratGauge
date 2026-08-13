@@ -18,7 +18,7 @@ from stratgauge.domain.selections import (
     SelectionAnnotationOutlook,
 )
 
-BUY_TIMING_DATASET_SCHEMA_VERSION = "selection-buy-timing-dataset-v1"
+BUY_TIMING_DATASET_SCHEMA_VERSION = "selection-buy-timing-dataset-v2"
 SELL_TIMING_DATASET_SCHEMA_VERSION = "selection-sell-timing-dataset-v1"
 
 
@@ -35,6 +35,7 @@ class SelectionBuyTimingRow(BaseModel):
     selection_date: date
     annotation_reviewed_at: datetime
     annotation_recorded_at: datetime
+    evaluated_at: datetime
     overall_score: int = Field(ge=1, le=5)
     outlook: SelectionAnnotationOutlook
     decision: SelectionAnnotationDecision
@@ -48,7 +49,7 @@ class SelectionBuyTimingRow(BaseModel):
     fill_quantity: Decimal | None = None
     source_order_ids: tuple[str, ...] = ()
 
-    @field_validator("annotation_reviewed_at", "annotation_recorded_at")
+    @field_validator("annotation_reviewed_at", "annotation_recorded_at", "evaluated_at")
     @classmethod
     def validate_aware_annotation_time(cls, value: datetime) -> datetime:
         if value.tzinfo is None or value.utcoffset() is None:
@@ -172,6 +173,7 @@ def build_buy_timing_dataset(
                     selection_date=imported.batch.selection_date,
                     annotation_reviewed_at=annotation.reviewed_at,
                     annotation_recorded_at=annotation.recorded_at,
+                    evaluated_at=evaluated_at,
                     overall_score=annotation.overall_score,
                     outlook=annotation.outlook,
                     decision=annotation.decision,
