@@ -141,6 +141,80 @@ class PortfolioApiTests(unittest.TestCase):
             self.assertEqual(client.get("/v1/manual-orders").json(), [])
             self.assertEqual(client.get("/v1/manual-fills").json(), [])
 
+    def test_confirmed_trade_supports_sell_reason_and_is_atomic(self) -> None:
+        with TemporaryDirectory() as directory:
+            client = TestClient(
+                create_app(
+                    data_root=directory,
+                    portfolio_store=ManualPortfolioStore(directory),
+                    market_root=f"{directory}/market",
+                    portfolio_root=directory,
+                )
+            )
+            buy = client.post(
+                "/v1/manual-trades/confirm",
+                json={
+                    "order_id": "confirm-buy",
+                    "fill_id": "confirm-buy-fill",
+                    "local_code": "000001",
+                    "exchange": "SZ",
+                    "side": "buy",
+                    "ordered_at": "2026-01-05T15:00:00+00:00",
+                    "filled_at": "2026-01-06T10:00:00+00:00",
+                    "quantity": "100",
+                    "price": "10",
+                },
+            )
+            self.assertEqual(buy.status_code, 201)
+            sell = client.post(
+                "/v1/manual-trades/confirm",
+                json={
+                    "order_id": "confirm-sell",
+                    "fill_id": "confirm-sell-fill",
+                    "local_code": "000001",
+                    "exchange": "SZ",
+                    "side": "sell",
+                    "ordered_at": "2026-01-07T15:00:00+00:00",
+                    "filled_at": "2026-01-07T10:00:00+00:00",
+                    "quantity": "50",
+                    "price": "11",
+                    "sell_reason": "target_reached",
+                    "note": "达到目标位",
+                },
+            )
+            self.assertEqual(sell.status_code, 422)
+            self.assertEqual(client.get("/v1/manual-orders").json().__len__(), 1)
+            sell = client.post(
+                "/v1/manual-trades/confirm",
+                json={
+                    "order_id": "confirm-sell",
+                    "fill_id": "confirm-sell-fill",
+                    "local_code": "000001",
+                    "exchange": "SZ",
+                    "side": "sell",
+                    "ordered_at": "2026-01-07T09:00:00+00:00",
+                    "filled_at": "2026-01-07T10:00:00+00:00",
+                    "quantity": "50",
+                    "price": "11",
+                    "sell_reason": "target_reached",
+                    "note": "达到目标位",
+                },
+            )
+            self.assertEqual(sell.status_code, 201)
+            self.assertEqual(sell.json()[0]["sell_reason"], "target_reached")
+            self.assertEqual(client.get("/v1/positions").json()[0]["quantity"], "50")
+            trades = client.get("/v1/workbench/trades")
+            self.assertEqual(trades.status_code, 200)
+            self.assertEqual(len(trades.json()), 2)
+            positions = client.get(
+                "/v1/workbench/positions",
+                params={"as_of": "2026-01-08T00:00:00+00:00"},
+            )
+            self.assertEqual(positions.status_code, 200)
+            self.assertIsNone(positions.json()[0]["unrealized_profit"])
+            self.assertEqual(positions.json()[0]["market"]["status"], "unavailable")
+            self.assertTrue(positions.json()[0]["unrealized_reason"])
+
     def test_fill_rejection_is_structured(self) -> None:
         with TemporaryDirectory() as directory:
             client = TestClient(create_app(portfolio_store=ManualPortfolioStore(directory)))

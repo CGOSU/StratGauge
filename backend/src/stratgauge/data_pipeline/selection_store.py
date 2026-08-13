@@ -24,6 +24,11 @@ from stratgauge.domain.selections import (
     SelectionMaturityTaskStatus,
     SelectionOutcome,
     SelectionPerformance,
+    SelectionReusableTag,
+    SelectionReusableTagCategory,
+    SelectionReusableTagEvent,
+    SelectionReusableTagEventType,
+    SelectionReusableTagView,
     TdxSelectionImport,
 )
 
@@ -56,6 +61,8 @@ class SelectionImportStore:
         self.outcome_dir = self.root / "tdx" / "outcomes"
         self.performance_dir = self.root / "tdx" / "performances"
         self.formula_dir = self.root / "tdx" / "formulas"
+        self.reusable_tag_dir = self.root / "tdx" / "annotation_tags"
+        self.reusable_tag_event_dir = self.root / "tdx" / "annotation_tag_events"
         self.lifecycle_dir = self.root / "tdx" / "lifecycle"
         self.maturity_task_dir = self.root / "tdx" / "maturity_tasks"
         self.maturity_event_dir = self.root / "tdx" / "maturity_task_events"
@@ -69,11 +76,203 @@ class SelectionImportStore:
             self.outcome_dir,
             self.performance_dir,
             self.formula_dir,
+            self.reusable_tag_dir,
+            self.reusable_tag_event_dir,
             self.lifecycle_dir,
             self.maturity_task_dir,
             self.maturity_event_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
+
+    def create_reusable_tag(
+        self,
+        *,
+        category: SelectionReusableTagCategory,
+        label: str,
+        created_at: datetime | None = None,
+    ) -> SelectionReusableTag:
+        with local_write_lock(self.root):
+            normalized_label = label.strip()
+            identity = f"{category.value}\0{normalized_label}"
+            tag_id = f"annotation-tag-{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:20]}"
+            tag = SelectionReusableTag(
+                tag_id=tag_id,
+                category=category,
+                label=normalized_label,
+                created_at=created_at or datetime.now(UTC),
+            )
+            path = self.reusable_tag_dir / f"{tag_id}.json"
+            if path.exists():
+                try:
+                    existing = SelectionReusableTag.model_validate_json(
+                        path.read_text(encoding="utf-8")
+                    )
+                except Exception as exc:
+                    raise SelectionStoreError(f"reusable tag is invalid: {tag_id}") from exc
+                if existing.category != tag.category or existing.label != tag.label:
+                    raise SelectionStoreError("reusable tag identity already has different content")
+                return existing
+            _atomic_write_text(path, tag.model_dump_json(indent=2))
+            return tag
+
+    def load_reusable_tag(self, tag_id: str) -> SelectionReusableTag:
+        if not re.fullmatch(r"annotation-tag-[0-9a-f]{20}", tag_id):
+            raise SelectionStoreError(f"invalid reusable tag id: {tag_id}")
+        path = self.reusable_tag_dir / f"{tag_id}.json"
+        if not path.exists():
+            raise SelectionStoreError(f"reusable tag does not exist: {tag_id}")
+        try:
+            return SelectionReusableTag.model_validate_json(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise SelectionStoreError(f"reusable tag is invalid: {tag_id}") from exc
+
+    def list_reusable_tags(
+        self,
+        *,
+        include_archived: bool = False,
+    ) -> tuple[SelectionReusableTagView, ...]:
+        try:
+            definitions = tuple(
+                self.load_reusable_tag(path.stem)
+                for path in sorted(self.reusable_tag_dir.glob("annotation-tag-*.json"))
+            )
+            views = tuple(
+                SelectionReusableTagView.project(
+                    definition,
+                    self.list_reusable_tag_events(definition.tag_id),
+                )
+                for definition in definitions
+            )
+        except Exception as exc:
+            if isinstance(exc, SelectionStoreError):
+                raise
+            raise SelectionStoreError("reusable tag is invalid") from exc
+        ordered = tuple(sorted(views, key=lambda item: (item.created_at, item.tag_id)))
+        if include_archived:
+            return ordered
+        return tuple(item for item in ordered if item.active)
+
+    def list_reusable_tag_events(
+        self,
+        tag_id: str,
+    ) -> tuple[SelectionReusableTagEvent, ...]:
+        self.load_reusable_tag(tag_id)
+        events: list[SelectionReusableTagEvent] = []
+        try:
+            for path in sorted(self.reusable_tag_event_dir.glob("annotation-tag-event-*.json")):
+                event = SelectionReusableTagEvent.model_validate_json(
+                    path.read_text(encoding="utf-8")
+                )
+                if event.tag_id == tag_id:
+                    events.append(event)
+        except Exception as exc:
+            raise SelectionStoreError("reusable tag event is invalid") from exc
+        return tuple(sorted(events, key=lambda item: (item.occurred_at, item.event_id)))
+
+    def set_reusable_tag_label(
+        self,
+        tag_id: str,
+        *,
+        label: str,
+        occurred_at: datetime,
+        reason: str | None = None,
+    ) -> SelectionReusableTagEvent:
+        with local_write_lock(self.root):
+            definition = self.load_reusable_tag(tag_id)
+            events = self.list_reusable_tag_events(tag_id)
+            current = SelectionReusableTagView.project(definition, events)
+            if not current.active:
+                raise SelectionStoreError("archived reusable tag cannot be renamed")
+            normalized_label = label.strip()
+            if normalized_label == current.label:
+                raise SelectionStoreError("reusable tag rename must change the label")
+            return self._write_reusable_tag_event_unlocked(
+                tag_id=tag_id,
+                category=definition.category,
+                event_type=SelectionReusableTagEventType.RENAME,
+                occurred_at=occurred_at,
+                new_label=normalized_label,
+                reason=reason,
+            )
+
+    def set_reusable_tag_status(
+        self,
+        tag_id: str,
+        status: SelectionLifecycleStatus,
+        *,
+        occurred_at: datetime,
+        reason: str | None = None,
+    ) -> SelectionReusableTagEvent:
+        with local_write_lock(self.root):
+            definition = self.load_reusable_tag(tag_id)
+            events = self.list_reusable_tag_events(tag_id)
+            current = SelectionReusableTagView.project(definition, events)
+            if status is SelectionLifecycleStatus.ARCHIVED:
+                event_type = SelectionReusableTagEventType.ARCHIVE
+                if not current.active:
+                    raise SelectionStoreError("reusable tag is already archived")
+            else:
+                event_type = SelectionReusableTagEventType.RESTORE
+                if current.active:
+                    raise SelectionStoreError("reusable tag is already active")
+            return self._write_reusable_tag_event_unlocked(
+                tag_id=tag_id,
+                category=definition.category,
+                event_type=event_type,
+                occurred_at=occurred_at,
+                reason=reason,
+            )
+
+    def _write_reusable_tag_event_unlocked(
+        self,
+        *,
+        tag_id: str,
+        category: SelectionReusableTagCategory,
+        event_type: SelectionReusableTagEventType,
+        occurred_at: datetime,
+        new_label: str | None = None,
+        reason: str | None = None,
+    ) -> SelectionReusableTagEvent:
+        events = self.list_reusable_tag_events(tag_id)
+        if events and occurred_at <= events[-1].occurred_at:
+            raise SelectionStoreError("reusable tag event time must be after previous event")
+        identity = "\0".join(
+            (
+                tag_id,
+                category.value,
+                event_type.value,
+                occurred_at.isoformat(),
+                new_label or "",
+                reason or "",
+            )
+        )
+        event_id = (
+            f"annotation-tag-event-{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:20]}"
+        )
+        event = SelectionReusableTagEvent(
+            event_id=event_id,
+            tag_id=tag_id,
+            category=category,
+            event_type=event_type,
+            occurred_at=occurred_at,
+            new_label=new_label,
+            reason=reason,
+        )
+        path = self.reusable_tag_event_dir / f"{event_id}.json"
+        if path.exists():
+            try:
+                existing = SelectionReusableTagEvent.model_validate_json(
+                    path.read_text(encoding="utf-8")
+                )
+            except Exception as exc:
+                raise SelectionStoreError(f"reusable tag event is invalid: {event_id}") from exc
+            if existing != event:
+                raise SelectionStoreError(
+                    "reusable tag event identity already has different content"
+                )
+            return existing
+        _atomic_write_text(path, event.model_dump_json(indent=2))
+        return event
 
     def create_formula(
         self,

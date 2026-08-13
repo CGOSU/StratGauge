@@ -15,6 +15,7 @@ from stratgauge.domain.selections import (
     ManualSelectionDecision,
     SelectionOutcome,
     SelectionOutcomeStatus,
+    SelectionReusableTagCategory,
 )
 
 CONTENT = "代码,名称,市场,评分\n000001,平安银行,SZ,85\n".encode()
@@ -249,6 +250,160 @@ class SelectionApiTests(unittest.TestCase):
         self.assertEqual(stats.status_code, 200)
         self.assertEqual(stats.json()["pending"], 1)
         self.assertEqual(stats.json()["summary"]["total"], 0)
+
+    def test_reusable_annotation_tags_can_be_created_listed_and_lifecycle_managed(self) -> None:
+        created = self.client.post(
+            "/v1/annotation-tags",
+            json={"category": "pattern", "label": "缩量企稳"},
+        )
+        self.assertEqual(created.status_code, 201)
+        tag = created.json()
+        self.assertEqual(tag["category"], SelectionReusableTagCategory.PATTERN.value)
+        self.assertTrue(tag["active"])
+
+        listed = self.client.get("/v1/annotation-tags")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual([item["tag_id"] for item in listed.json()], [tag["tag_id"]])
+
+        managed = self.client.get("/v1/data-management/annotation-tags")
+        self.assertEqual(managed.status_code, 200)
+        self.assertEqual(managed.json()[0]["label"], "缩量企稳")
+
+        renamed = self.client.post(
+            f"/v1/data-management/annotation-tags/{tag['tag_id']}/rename",
+            json={"label": "缩量企稳确认"},
+        )
+        self.assertEqual(renamed.status_code, 200)
+        self.assertEqual(renamed.json()["label"], "缩量企稳确认")
+
+        archived = self.client.post(
+            f"/v1/data-management/annotation-tags/{tag['tag_id']}/archive",
+            json={"reason": "暂不使用"},
+        )
+        self.assertEqual(archived.status_code, 200)
+        self.assertFalse(archived.json()["active"])
+        self.assertEqual(self.client.get("/v1/annotation-tags").json(), [])
+
+        restored = self.client.post(
+            f"/v1/data-management/annotation-tags/{tag['tag_id']}/restore",
+            json={},
+        )
+        self.assertEqual(restored.status_code, 200)
+        self.assertTrue(restored.json()["active"])
+
+    def test_reusable_annotation_tag_ids_are_resolved_to_server_snapshots(self) -> None:
+        tag = self.client.post(
+            "/v1/annotation-tags",
+            json={"category": "position", "label": "低位支撑"},
+        ).json()
+        imported = self.client.post(
+            "/v1/selection-batches",
+            json={
+                "content_base64": base64.b64encode(CONTENT).decode(),
+                "selection_date": "2026-01-05",
+                "exported_at": "2026-01-05T15:05:00+08:00",
+                "formula_name": "趋势选股",
+            },
+        ).json()
+        batch_id = imported["batch"]["batch_id"]
+        candidate_id = imported["candidates"][0]["candidate"]["candidate_id"]
+
+        annotated = self.client.post(
+            f"/v1/selection-batches/{batch_id}/annotations",
+            json={
+                "candidate_id": candidate_id,
+                "reviewed_at": "2026-01-05T15:10:00+08:00",
+                "overall_score": 4,
+                "outlook": "bullish",
+                "decision": "watch",
+                "reusable_tag_ids": [tag["tag_id"]],
+            },
+        )
+        self.assertEqual(annotated.status_code, 200)
+        snapshot = annotated.json()["candidates"][0]["annotations"][0]["reusable_tag_snapshots"][0]
+        self.assertEqual(
+            snapshot,
+            {
+                "tag_id": tag["tag_id"],
+                "category": "position",
+                "label": "低位支撑",
+            },
+        )
+
+        renamed = self.client.post(
+            f"/v1/data-management/annotation-tags/{tag['tag_id']}/rename",
+            json={"label": "低位支撑确认"},
+        )
+        self.assertEqual(renamed.status_code, 200)
+        fetched = self.client.get(f"/v1/selection-batches/{batch_id}")
+        self.assertEqual(
+            fetched.json()["candidates"][0]["annotations"][0]["reusable_tag_snapshots"][0]["label"],
+            "低位支撑",
+        )
+
+    def test_reusable_annotation_tag_errors_are_structured_and_client_cannot_submit_snapshot(
+        self,
+    ) -> None:
+        imported = self.client.post(
+            "/v1/selection-batches",
+            json={
+                "content_base64": base64.b64encode(CONTENT).decode(),
+                "selection_date": "2026-01-05",
+                "exported_at": "2026-01-05T15:05:00+08:00",
+                "formula_name": "趋势选股",
+            },
+        ).json()
+        batch_id = imported["batch"]["batch_id"]
+        candidate_id = imported["candidates"][0]["candidate"]["candidate_id"]
+        unknown = self.client.post(
+            f"/v1/selection-batches/{batch_id}/annotations",
+            json={
+                "candidate_id": candidate_id,
+                "reviewed_at": "2026-01-05T15:10:00+08:00",
+                "overall_score": 3,
+                "outlook": "neutral",
+                "decision": "watch",
+                "reusable_tag_ids": ["annotation-tag-0123456789abcdef0123"],
+            },
+        )
+        self.assertEqual(unknown.status_code, 404)
+        self.assertEqual(unknown.json()["error"]["code"], "ANNOTATION_TAG_NOT_FOUND")
+
+        tag = self.client.post(
+            "/v1/annotation-tags",
+            json={"category": "sector", "label": "行业强"},
+        ).json()
+        archived = self.client.post(
+            f"/v1/data-management/annotation-tags/{tag['tag_id']}/archive",
+            json={},
+        )
+        self.assertEqual(archived.status_code, 200)
+        archived_use = self.client.post(
+            f"/v1/selection-batches/{batch_id}/annotations",
+            json={
+                "candidate_id": candidate_id,
+                "reviewed_at": "2026-01-05T15:10:00+08:00",
+                "overall_score": 3,
+                "outlook": "neutral",
+                "decision": "watch",
+                "reusable_tag_ids": [tag["tag_id"]],
+            },
+        )
+        self.assertEqual(archived_use.status_code, 422)
+        self.assertEqual(archived_use.json()["error"]["code"], "ANNOTATION_TAG_ARCHIVED")
+
+        snapshot_payload = self.client.post(
+            f"/v1/selection-batches/{batch_id}/annotations",
+            json={
+                "candidate_id": candidate_id,
+                "reviewed_at": "2026-01-05T15:10:00+08:00",
+                "overall_score": 3,
+                "outlook": "neutral",
+                "decision": "watch",
+                "reusable_tag_snapshots": [],
+            },
+        )
+        self.assertEqual(snapshot_payload.status_code, 422)
 
     def test_annotation_api_appends_reviews_and_projects_observation_state(self) -> None:
         imported = self.client.post(

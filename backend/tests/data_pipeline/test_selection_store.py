@@ -19,6 +19,8 @@ from stratgauge.domain.selections import (
     SelectionPerformance,
     SelectionPerformancePoint,
     SelectionPerformanceStatus,
+    SelectionReusableTagCategory,
+    SelectionReusableTagSnapshot,
     TdxSelectionImport,
 )
 
@@ -97,6 +99,136 @@ class SelectionImportStoreTests(unittest.TestCase):
             self.assertEqual(store.list_formulas(), (formula,))
             self.assertEqual(len(store.list_manifests()), 1)
             self.assertEqual(len(store.list_lifecycle_events("batch", parsed.batch.batch_id)), 2)
+
+    def test_reusable_tags_are_idempotent_and_project_active_state(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SelectionImportStore(directory)
+            created_at = datetime(2026, 1, 5, 16, tzinfo=UTC)
+            first = store.create_reusable_tag(
+                category=SelectionReusableTagCategory.PATTERN,
+                label="缩量企稳",
+                created_at=created_at,
+            )
+            second = store.create_reusable_tag(
+                category=SelectionReusableTagCategory.PATTERN,
+                label="缩量企稳",
+                created_at=created_at,
+            )
+
+            self.assertEqual(first, second)
+            self.assertEqual(len(store.list_reusable_tags()), 1)
+            self.assertEqual(store.list_reusable_tags()[0].label, "缩量企稳")
+            self.assertTrue(store.list_reusable_tags()[0].active)
+
+    def test_reusable_tag_rename_archive_restore_is_append_only(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SelectionImportStore(directory)
+            tag = store.create_reusable_tag(
+                category=SelectionReusableTagCategory.POSITION,
+                label="低位",
+                created_at=datetime(2026, 1, 5, 16, tzinfo=UTC),
+            )
+            definition_path = Path(directory) / "tdx" / "annotation_tags" / f"{tag.tag_id}.json"
+            definition_before = definition_path.read_bytes()
+
+            store.set_reusable_tag_label(
+                tag.tag_id,
+                label="低位支撑",
+                occurred_at=datetime(2026, 1, 5, 17, tzinfo=UTC),
+            )
+            store.set_reusable_tag_status(
+                tag.tag_id,
+                SelectionLifecycleStatus.ARCHIVED,
+                occurred_at=datetime(2026, 1, 5, 18, tzinfo=UTC),
+            )
+            self.assertEqual(store.list_reusable_tags(), ())
+            archived = store.list_reusable_tags(include_archived=True)[0]
+            self.assertEqual(archived.label, "低位支撑")
+            self.assertFalse(archived.active)
+
+            store.set_reusable_tag_status(
+                tag.tag_id,
+                SelectionLifecycleStatus.ACTIVE,
+                occurred_at=datetime(2026, 1, 5, 19, tzinfo=UTC),
+            )
+            restored = store.list_reusable_tags()[0]
+            self.assertEqual(restored.label, "低位支撑")
+            self.assertTrue(restored.active)
+            self.assertEqual(definition_path.read_bytes(), definition_before)
+            self.assertEqual(len(store.list_reusable_tag_events(tag.tag_id)), 3)
+
+    def test_reusable_tag_lifecycle_does_not_change_annotation_snapshot(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SelectionImportStore(directory)
+            parsed = parsed_import()
+            store.write(CONTENT, parsed)
+            tag = store.create_reusable_tag(
+                category=SelectionReusableTagCategory.PATTERN,
+                label="缩量企稳",
+                created_at=datetime(2026, 1, 5, 16, tzinfo=UTC),
+            )
+            annotation = SelectionAnnotation(
+                annotation_id="annotation-tag-snapshot",
+                candidate_id=parsed.candidates[0].candidate_id,
+                reviewed_at=datetime(2026, 1, 5, 16, 1, tzinfo=UTC),
+                recorded_at=datetime(2026, 1, 5, 16, 2, tzinfo=UTC),
+                overall_score=4,
+                outlook=SelectionAnnotationOutlook.BULLISH,
+                decision=SelectionAnnotationDecision.PREPARE_BUY,
+                reusable_tag_snapshots=(
+                    SelectionReusableTagSnapshot(
+                        tag_id=tag.tag_id,
+                        category=tag.category,
+                        label=tag.label,
+                    ),
+                ),
+            )
+            store.write_annotation(parsed.batch.batch_id, annotation)
+
+            store.set_reusable_tag_label(
+                tag.tag_id,
+                label="缩量企稳确认",
+                occurred_at=datetime(2026, 1, 5, 17, tzinfo=UTC),
+            )
+            store.set_reusable_tag_status(
+                tag.tag_id,
+                SelectionLifecycleStatus.ARCHIVED,
+                occurred_at=datetime(2026, 1, 5, 18, tzinfo=UTC),
+            )
+
+            loaded = store.list_annotations(annotation.candidate_id)
+            self.assertEqual(loaded, (annotation,))
+            self.assertEqual(loaded[0].reusable_tag_snapshots[0].label, "缩量企稳")
+
+    def test_reusable_tag_events_require_monotonic_times_and_no_hard_delete(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SelectionImportStore(directory)
+            tag = store.create_reusable_tag(
+                category=SelectionReusableTagCategory.SECTOR,
+                label="行业强",
+                created_at=datetime(2026, 1, 5, 16, tzinfo=UTC),
+            )
+            store.set_reusable_tag_status(
+                tag.tag_id,
+                SelectionLifecycleStatus.ARCHIVED,
+                occurred_at=datetime(2026, 1, 5, 17, tzinfo=UTC),
+            )
+            with self.assertRaisesRegex(SelectionStoreError, "already archived"):
+                store.set_reusable_tag_status(
+                    tag.tag_id,
+                    SelectionLifecycleStatus.ARCHIVED,
+                    occurred_at=datetime(2026, 1, 5, 18, tzinfo=UTC),
+                )
+            with self.assertRaisesRegex(SelectionStoreError, "after previous"):
+                store.set_reusable_tag_status(
+                    tag.tag_id,
+                    SelectionLifecycleStatus.ACTIVE,
+                    occurred_at=datetime(2026, 1, 5, 16, 30, tzinfo=UTC),
+                )
+            tag_files = tuple((Path(directory) / "tdx" / "annotation_tags").glob("*.json"))
+            event_files = tuple((Path(directory) / "tdx" / "annotation_tag_events").glob("*.json"))
+            self.assertEqual(len(tag_files), 1)
+            self.assertEqual(len(event_files), 1)
 
     def test_write_persists_raw_and_parsed_import_idempotently(self) -> None:
         with TemporaryDirectory() as directory:

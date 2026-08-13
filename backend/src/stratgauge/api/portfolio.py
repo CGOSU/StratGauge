@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from stratgauge.data_pipeline.portfolio_store import ManualPortfolioStore, PortfolioStoreError
 from stratgauge.domain.models import Exchange, Security, canonical_symbol
@@ -13,6 +13,7 @@ from stratgauge.domain.portfolio import (
     ManualFill,
     ManualOrder,
     ManualOrderSide,
+    ManualSellReason,
     PortfolioPosition,
     PortfolioReview,
 )
@@ -42,6 +43,7 @@ class ManualOrderRequest(BaseModel):
     strategy_version_id: str | None = None
     recommendation_id: str | None = None
     selection_candidate_id: str | None = None
+    sell_reason: ManualSellReason | None = None
     note: str | None = None
 
     @field_validator("local_code")
@@ -58,6 +60,14 @@ class ManualOrderRequest(BaseModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("ordered_at must include a timezone")
         return value
+
+    @model_validator(mode="after")
+    def validate_sell_reason(self) -> ManualOrderRequest:
+        if self.side is ManualOrderSide.SELL and self.sell_reason is None:
+            raise ValueError("sell_reason is required for sell orders")
+        if self.side is ManualOrderSide.BUY and self.sell_reason is not None:
+            raise ValueError("sell_reason is only valid for sell orders")
+        return self
 
 
 class CandidateTradeRequest(BaseModel):
@@ -91,6 +101,53 @@ class CandidateTradeRequest(BaseModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("trade timestamps must include a timezone")
         return value
+
+
+class ConfirmedManualTradeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    order_id: str = Field(min_length=1)
+    fill_id: str = Field(min_length=1)
+    local_code: str
+    exchange: Exchange
+    name: str | None = None
+    side: ManualOrderSide
+    ordered_at: datetime
+    filled_at: datetime
+    quantity: Decimal = Field(gt=0)
+    price: Decimal = Field(gt=0)
+    commission: Decimal = Field(default=Decimal("0"), ge=0)
+    stamp_duty: Decimal = Field(default=Decimal("0"), ge=0)
+    strategy_version_id: str | None = None
+    recommendation_id: str | None = None
+    selection_candidate_id: str | None = None
+    sell_reason: ManualSellReason | None = None
+    note: str | None = None
+
+    @field_validator("local_code")
+    @classmethod
+    def normalize_local_code(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if len(normalized) != 6 or not normalized.isascii() or not normalized.isdigit():
+            raise ValueError("local_code must contain exactly six digits")
+        return normalized
+
+    @field_validator("ordered_at", "filled_at")
+    @classmethod
+    def require_aware_trade_times(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("trade timestamps must include a timezone")
+        return value
+
+    @model_validator(mode="after")
+    def validate_trade_reason(self) -> ConfirmedManualTradeRequest:
+        if self.filled_at < self.ordered_at:
+            raise ValueError("filled_at cannot precede ordered_at")
+        if self.side is ManualOrderSide.SELL and self.sell_reason is None:
+            raise ValueError("sell_reason is required for sell trades")
+        if self.side is ManualOrderSide.BUY and self.sell_reason is not None:
+            raise ValueError("sell_reason is only valid for buy trades")
+        return self
 
 
 class ManualFillRequest(BaseModel):
@@ -165,12 +222,51 @@ class PortfolioService:
             strategy_version_id=request.strategy_version_id,
             recommendation_id=request.recommendation_id,
             selection_candidate_id=request.selection_candidate_id,
+            sell_reason=request.sell_reason,
             note=request.note,
         )
         try:
             return self._store.create_order(order)
         except PortfolioStoreError as exc:
             raise PortfolioApiError("PORTFOLIO_ORDER_REJECTED", str(exc), 409) from exc
+
+    def confirm_trade(
+        self,
+        request: ConfirmedManualTradeRequest,
+    ) -> tuple[ManualOrder, ManualFill]:
+        symbol = canonical_symbol(request.local_code, request.exchange)
+        order = ManualOrder(
+            order_id=request.order_id,
+            security=Security(
+                security_id=f"portfolio-{symbol}",
+                local_code=request.local_code,
+                symbol=symbol,
+                exchange=request.exchange,
+                name=request.name,
+            ),
+            side=request.side,
+            ordered_at=request.ordered_at,
+            quantity=request.quantity,
+            strategy_version_id=request.strategy_version_id,
+            recommendation_id=request.recommendation_id,
+            selection_candidate_id=request.selection_candidate_id,
+            sell_reason=request.sell_reason,
+            note=request.note,
+        )
+        fill = ManualFill(
+            fill_id=request.fill_id,
+            order_id=request.order_id,
+            filled_at=request.filled_at,
+            quantity=request.quantity,
+            price=request.price,
+            commission=request.commission,
+            stamp_duty=request.stamp_duty,
+            note=request.note,
+        )
+        try:
+            return self._store.record_order_and_fill(order, fill)
+        except PortfolioStoreError as exc:
+            raise PortfolioApiError("PORTFOLIO_TRADE_REJECTED", str(exc), 409) from exc
 
     def record_fill(self, request: ManualFillRequest) -> ManualFill:
         fill = ManualFill(**request.model_dump())

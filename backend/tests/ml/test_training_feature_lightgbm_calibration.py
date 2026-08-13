@@ -297,16 +297,19 @@ def _training_result(
     predictions: tuple[FeatureLightGBMPrediction, ...],
 ) -> FeatureLightGBMTrainingResult:
     labels = _labels_for(model.purpose)
+    target_counts_by_split: dict[str, dict[str, int]] = {
+        "train": dict(model.train_target_counts),
+        "validation": {label.value: 0 for label in labels},
+        "test": {label.value: 0 for label in labels},
+    }
+    for row in predictions:
+        target_counts_by_split[row.split][row.target.value] += 1
     metrics = tuple(
         FeatureLightGBMMetrics(
             split=split,
             row_count=model.row_counts[split],
             coverage=Decimal("1") if model.row_counts[split] else Decimal("0"),
-            target_counts={
-                label.value: model.row_counts[split] // len(labels)
-                + int(index < model.row_counts[split] % len(labels))
-                for index, label in enumerate(labels)
-            },
+            target_counts=target_counts_by_split[split],
             mean_predicted_probabilities={
                 label.value: Decimal("0.5") if len(labels) == 2 else Decimal("0.3333333333333333")
                 for label in labels

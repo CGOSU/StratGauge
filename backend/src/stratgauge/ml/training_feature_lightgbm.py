@@ -177,6 +177,22 @@ class FeatureLightGBMPrediction(DomainModel):
     feature_snapshot_id: str
     source_label_row_sha256: str
 
+    @field_validator("sample_id", "candidate_id", "symbol", "feature_snapshot_id")
+    @classmethod
+    def validate_identity_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("feature LightGBM prediction identity must not be empty")
+        return normalized
+
+    @field_validator("source_label_row_sha256")
+    @classmethod
+    def validate_source_label_hash(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not _is_sha256(normalized):
+            raise ValueError("feature LightGBM prediction source must be a SHA-256 digest")
+        return normalized
+
     @field_validator("label_available_at")
     @classmethod
     def validate_label_available_at(cls, value: datetime) -> datetime:
@@ -641,6 +657,11 @@ def _predictions(
 
 def _labels_for(purpose: TrainingDatasetPurpose) -> tuple[TrainingLabel, ...]:
     return _PURPOSE_LABEL_ORDER[purpose]
+
+
+def _is_sha256(value: str) -> bool:
+    normalized = value.strip().lower()
+    return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
 
 
 def _sha256(content: bytes) -> str:

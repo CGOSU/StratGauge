@@ -63,8 +63,6 @@ class ManualPortfolioStore:
     ) -> tuple[ManualOrder, ManualFill]:
         if fill.order_id != order.order_id:
             raise PortfolioStoreError("fill must reference the submitted order")
-        if order.side is not ManualOrderSide.BUY:
-            raise PortfolioStoreError("atomic candidate trade only supports buy orders")
         if fill.filled_at < order.ordered_at:
             raise PortfolioStoreError("fill cannot precede order")
         if fill.quantity > order.quantity:
@@ -81,6 +79,10 @@ class ManualPortfolioStore:
             return existing_order, existing_fill
         if existing_order is not None or existing_fill is not None:
             raise PortfolioStoreError("atomic candidate trade has a partial existing record")
+        if order.side is ManualOrderSide.SELL:
+            held = self._quantity_for_symbol(order.security.symbol)
+            if fill.quantity > held:
+                raise PortfolioStoreError("sell fill exceeds current position")
         _atomic_write(order_path, order.model_dump_json(indent=2))
         try:
             _atomic_write(fill_path, fill.model_dump_json(indent=2))

@@ -17,6 +17,18 @@ class ManualOrderSide(StrEnum):
     SELL = "sell"
 
 
+class ManualSellReason(StrEnum):
+    """Structured reason recorded when a user confirms a sell."""
+
+    TARGET_REACHED = "target_reached"
+    STOP_LOSS_BROKEN = "stop_loss_broken"
+    TREND_WEAKENED = "trend_weakened"
+    SECTOR_WEAKENED = "sector_weakened"
+    MARKET_RISK = "market_risk"
+    STRATEGY_INVALIDATED = "strategy_invalidated"
+    OTHER = "other"
+
+
 class ManualOrder(DomainModel):
     """A user's intended manual order; it is not sent to a broker."""
 
@@ -29,6 +41,7 @@ class ManualOrder(DomainModel):
     strategy_version_id: str | None = None
     recommendation_id: str | None = None
     selection_candidate_id: str | None = None
+    sell_reason: ManualSellReason | None = None
     note: str | None = None
 
     @field_validator("order_id")

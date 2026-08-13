@@ -292,6 +292,23 @@ corepack pnpm build
 - [x] **SG-ML-02D 用途特征基线接入**：新增用途特征连接 manifest、原始标签分区和血缘校验；`train_selection_feature_baseline.py` 只接受完整连接，运行独立 `constant_label_distribution` 特征基线并保留四类模型、评估和注册边界。
 - [x] **SG-ML-02E 四用途 LightGBM 候选接入**：新增 `train_selection_feature_lightgbm.py`；从已验证用途特征 split 读取完整血缘，候选成功率/买入择时/卖出择时使用二分类，人工决策使用三分类；仅 train 拟合、validation/test 评估，`purged` 和失败连接阻断；输出未校准模型与不可覆盖证据，不自动校准、注册、晋升或交易。
 - [x] **SG-ML-02F 四用途概率校准接入**：新增 `calibrate_selection_feature_probabilities.py`；二分类只校准正类并取补集，三分类按 one-vs-rest PAVA 校准后归一化；只用 validation 拟合，test 隔离评估；校验模型、指标、预测、manifest 哈希及完整特征血缘，校准时间不得早于标签可用时间；输出不可覆盖且不自动注册、晋升、影子评分或交易。
+- [x] **SG-ML-02G 四用途模型不可变注册证据**：新增 `training_feature_registry.py` 和 `register_selection_feature_model.py`；独立于旧 `ModelRegistryStore`，只接受完整校验的四用途 LightGBM 训练目录，可选绑定同源校准目录；复制模型、运行工件、指标、预测和 manifest 全部证据并记录 SHA-256、用途、标签契约、类别、特征列和完整血缘；注册固定为 `challenger`，不可覆盖，不自动迁移、比较、影子评分或交易。
+- [x] **SG-ML-02H 四用途模型人工启用 shadow**：新增用途模型追加式 `challenger → shadow → retired` 生命周期、`transition_selection_feature_model.py`、`training_feature_shadow.py` 和 `score_selection_feature_shadow.py`；输入必须显式绑定用途/标签契约并且不含结果标签，特征列/特征集/注册血缘/时序边界不匹配时逐候选失败；支持二分类/三分类 raw 概率以及仅消费同一注册校准器的 calibrated 概率；影子证据独立不可覆盖，固定 `used_for_decision=false`，不接入旧 registry、比较、晋升、API、推荐或交易。
+- [x] **SG-ML-02I 四用途走步验证**：新增 `training_feature_walk_forward.py` 和 `validate_selection_feature_walk_forward.py`；显式 folds 内只用训练分区拟合，按 `label_available_at` 清除未来标签；`purged` 永不消费，final test 只记录边界和计数；报告校验用途、标签契约、类别、特征列及完整注册/特征血缘，并不可覆盖保存。
+- [x] **SG-ML-02J 用途感知模型比较**：新增 `training_feature_comparison.py` 和 `compare_selection_feature_models.py`；只聚合同用途走步报告的 validation 指标，比较策略显式声明指标方向、绝对阈值、相对退化上限、参考模型和校准要求；缺失指标或任一血缘不一致时阻断；比较报告仅供人工审阅，不自动晋升、影子评分、推荐、API 或交易。
+
+### P5：桌面研究工作台 UI（当前进行中）
+
+> `task_workflow` 在本轮创建 UI 任务时因 Pi 内部 `shouldOrchestrateWorkflow` 错误不可用；以下任务按已冻结的设计架构手动串行跟踪，不改变文件范围或验收边界。
+
+- [x] **UI-01 `desktop-shell`**：实现 220px 固定左导航、顶部运行状态栏、中央工作区、响应式设计 token，以及统一的 Stock Detail Drawer 容器；导航入口固定为工作台、今日信号、观察池、持仓、交易记录、策略、分析和设置。
+  - 验收：桌面端导航不随内容滚动；API/证据/不自动下单状态始终可见；低频数据管理仍可从设置进入；不移除既有手工台账入口。
+- [x] **UI-02 `daily-signals-detail`**：接入只读工作台 API，显示摘要、全量信号、筛选、搜索、观察池、策略和分析投影；点击股票在右侧打开统一详情 Drawer，提供行情、判断、信号、交易、分析五个 Tab 和追加式快速判断。
+  - 验收：未判断不显示为不看好；行情只显示已批准快照或明确 unavailable/incomplete；人工判断 POST 只追加 Annotation，不覆盖历史；错误和加载状态结构化可见。
+- [x] **UI-03 `portfolio-lifecycle-ui`**：统一 Drawer 的交易 Tab 已支持用户显式确认 BUY/SELL；BUY 复用候选关联的原子成交接口，SELL 使用结构化卖出原因并复用原子确认交易接口；持仓/交易/时间线仍由只读投影展示，在迁移完成前保留现有手工台账录入入口。
+  - 验收：缺少人工成交价不提交；SELL 必须选择结构化原因；交易成功后刷新股票详情和工作台投影；不自动下单、不把信号自动转换为交易。
+- [x] **UI-04 `workbench-home`**：补齐以“今天需要处理什么”为中心的默认工作台排序、连续处理入口和观察池重新判断变化摘要。
+  - 验收：默认工作台按未判断、观察复评、其他已判断、已买入排序；“连续处理待办”打开优先级最高的待处理股票；观察池展示已有复评、判断变化和当前准备买入摘要；仅消费追加 Annotation，不把未判断解释为不看好。
 
 ### 明确不做
 

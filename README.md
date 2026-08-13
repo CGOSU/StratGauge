@@ -436,7 +436,45 @@ PYTHONPATH=src uv run python scripts/calibrate_selection_feature_probabilities.p
 
 两个入口都只用 validation 拟合、test 隔离评估；用途特征入口会校验模型、指标、预测、manifest 哈希、标签契约、特征列和标签可用时间。输出显式记录 `calibrated=true`，当前不进入 Web、推荐、注册、影子评分或自动晋升。
 
-模型注册会复制模型、评估报告和训练 manifest，并校验 SHA-256；LightGBM 注册时 `--model` 指向 `model.json`，另用 `--runtime-artifact model.txt` 保存可执行工件；生命周期只能人工追加，不能自动晋升：
+四用途特征 LightGBM 使用独立注册入口；可注册未校准训练证据，也可同时绑定同一训练输出派生的用途校准证据。注册只复制完整证据并固定为 `challenger`，不复用旧 `tracking_policy_id`/`win-loss` 注册契约：
+
+```bash
+PYTHONPATH=src uv run python scripts/register_selection_feature_model.py \
+  --root data \
+  --training-dir data/ml-models/annotation-decision-lightgbm \
+  --calibration-dir data/ml-models/annotation-decision-calibration \
+  --registered-at 2026-10-03T18:00:00+08:00 \
+  --registered-by researcher
+```
+
+注册会校验训练目录和可选校准目录中的模型、运行工件、指标、预测、manifest 哈希、用途、标签契约、类别、特征列、分区及标签可用时间；注册输出位于独立 `data/models/feature-registry/`，不可覆盖。用途模型只能由人工追加进入 shadow，当前不自动比较、晋升、推荐或交易：
+
+```bash
+PYTHONPATH=src uv run python scripts/transition_selection_feature_model.py \
+  --root data \
+  --registration-id <feature_registration_id> \
+  --to shadow \
+  --changed-at 2026-10-03T18:05:00+08:00 \
+  --reason "人工启用用途模型 shadow 验证" \
+  --operator researcher
+```
+
+shadow 输入是带 `candidate_id`、用途、标签契约和 `FeatureSnapshot` 的 JSONL，不得包含结果标签；先计算 canonical SHA-256，再显式运行二/三分类用途评分。可选 `--calibration-mode registered` 只消费注册时绑定的同源校准器：
+
+```bash
+PYTHONPATH=src uv run python scripts/score_selection_feature_shadow.py \
+  --root data \
+  --registration-id <feature_registration_id> \
+  --input data/selection-features/feature-shadow-input.jsonl \
+  --source-input-sha256 <sha256> \
+  --scored-at 2026-10-03T18:10:00+08:00 \
+  --calibration-mode registered \
+  --output data/models/feature-registry/shadow-run.json
+```
+
+用途 shadow 证据保存在独立 `models/feature-registry/shadow-scores/`，记录 raw/校准类别概率、预测类别、特征快照和失败项；输入、模型注册、shadow 授权和校准时间均不得来自未来，所有结果固定 `used_for_decision=false`，不改变人工标签、客观结果、成熟任务或交易台账。
+
+旧模型注册会复制模型、评估报告和训练 manifest，并校验 SHA-256；LightGBM 注册时 `--model` 指向 `model.json`，另用 `--runtime-artifact model.txt` 保存可执行工件；生命周期只能人工追加，不能自动晋升：
 
 ```bash
 PYTHONPATH=src uv run python scripts/register_selection_model.py \

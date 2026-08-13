@@ -64,8 +64,13 @@ from stratgauge.domain.selections import (
     SelectionPerformance,
     SelectionPositionTag,
     SelectionPriceVolumeTag,
+    SelectionReusableTagCategory,
+    SelectionReusableTagSnapshot,
     SelectionSectorTag,
     TdxSelectionImport,
+)
+from stratgauge.domain.selections import (
+    SelectionReusableTagView as DomainSelectionReusableTagView,
 )
 
 
@@ -85,6 +90,19 @@ class SelectionFormulaCreateRequest(BaseModel):
     name: str = Field(min_length=1)
     version: str | None = None
     description: str | None = None
+
+
+class SelectionReusableTagCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    category: SelectionReusableTagCategory
+    label: str = Field(min_length=1)
+
+
+class SelectionReusableTagRenameRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1)
 
 
 class SelectionImportRequest(BaseModel):
@@ -179,7 +197,18 @@ class SelectionAnnotationRequest(BaseModel):
     pattern_tags: tuple[SelectionPatternTag, ...] = ()
     price_volume_tags: tuple[SelectionPriceVolumeTag, ...] = ()
     sector_tags: tuple[SelectionSectorTag, ...] = ()
+    reusable_tag_ids: tuple[str, ...] = ()
     note: str | None = None
+
+    @field_validator("reusable_tag_ids")
+    @classmethod
+    def validate_reusable_tag_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized = tuple(item.strip().lower() for item in value)
+        if any(not item for item in normalized):
+            raise ValueError("reusable tag IDs must not be empty")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("reusable tag IDs must not contain duplicates")
+        return normalized
 
     @field_validator("reviewed_at")
     @classmethod
@@ -361,6 +390,85 @@ class SelectionService:
             return SelectionFormulaView(formula=formula)
         except (SelectionStoreError, ValueError) as exc:
             raise SelectionApiError("SELECTION_FORMULA_INVALID", str(exc), 422) from exc
+
+    def list_reusable_tags(self) -> tuple[DomainSelectionReusableTagView, ...]:
+        try:
+            return self._store.list_reusable_tags()
+        except SelectionStoreError as exc:
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+
+    def list_managed_reusable_tags(self) -> tuple[DomainSelectionReusableTagView, ...]:
+        try:
+            return self._store.list_reusable_tags(include_archived=True)
+        except SelectionStoreError as exc:
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+
+    def create_reusable_tag(
+        self,
+        request: SelectionReusableTagCreateRequest,
+    ) -> DomainSelectionReusableTagView:
+        try:
+            tag = self._store.create_reusable_tag(
+                category=request.category,
+                label=request.label,
+                created_at=datetime.now(UTC),
+            )
+            return next(
+                item
+                for item in self._store.list_reusable_tags(include_archived=True)
+                if item.tag_id == tag.tag_id
+            )
+        except (SelectionStoreError, ValueError) as exc:
+            raise SelectionApiError("ANNOTATION_TAG_INVALID", str(exc), 422) from exc
+
+    def rename_reusable_tag(
+        self,
+        tag_id: str,
+        request: SelectionReusableTagRenameRequest,
+    ) -> DomainSelectionReusableTagView:
+        try:
+            self._store.set_reusable_tag_label(
+                tag_id,
+                label=request.label,
+                occurred_at=datetime.now(UTC),
+            )
+            return self._get_reusable_tag(tag_id)
+        except SelectionStoreError as exc:
+            raise self._tag_error(exc, tag_id) from exc
+        except ValueError as exc:
+            raise SelectionApiError("ANNOTATION_TAG_INVALID", str(exc), 422) from exc
+
+    def set_reusable_tag_status(
+        self,
+        tag_id: str,
+        status: SelectionLifecycleStatus,
+        request: SelectionLifecycleChangeRequest,
+    ) -> DomainSelectionReusableTagView:
+        try:
+            self._store.set_reusable_tag_status(
+                tag_id,
+                status,
+                occurred_at=datetime.now(UTC),
+                reason=request.reason,
+            )
+            return self._get_reusable_tag(tag_id)
+        except SelectionStoreError as exc:
+            raise self._tag_error(exc, tag_id) from exc
+        except ValueError as exc:
+            raise SelectionApiError("ANNOTATION_TAG_INVALID", str(exc), 422) from exc
+
+    def _get_reusable_tag(self, tag_id: str) -> DomainSelectionReusableTagView:
+        for tag in self._store.list_reusable_tags(include_archived=True):
+            if tag.tag_id == tag_id:
+                return tag
+        raise SelectionApiError("ANNOTATION_TAG_NOT_FOUND", "评审标签不存在。", 404)
+
+    @staticmethod
+    def _tag_error(exc: SelectionStoreError, tag_id: str) -> SelectionApiError:
+        message = str(exc)
+        if "does not exist" in message or "invalid reusable tag id" in message:
+            return SelectionApiError("ANNOTATION_TAG_NOT_FOUND", "评审标签不存在。", 404)
+        return SelectionApiError("ANNOTATION_TAG_INVALID", message, 422)
 
     def list_managed_formulas(self) -> tuple[SelectionManagedFormulaView, ...]:
         try:
@@ -979,6 +1087,7 @@ class SelectionService:
                     422,
                 )
             recorded_at = datetime.now(UTC)
+            reusable_tag_snapshots = self._resolve_reusable_tag_snapshots(request.reusable_tag_ids)
             annotation = SelectionAnnotation(
                 annotation_id=_content_id(
                     "annotation",
@@ -991,6 +1100,7 @@ class SelectionService:
                     ",".join(item.value for item in request.pattern_tags),
                     ",".join(item.value for item in request.price_volume_tags),
                     ",".join(item.value for item in request.sector_tags),
+                    ",".join(item.tag_id for item in reusable_tag_snapshots),
                     request.note or "",
                     recorded_at.isoformat(),
                 ),
@@ -1004,6 +1114,7 @@ class SelectionService:
                 pattern_tags=request.pattern_tags,
                 price_volume_tags=request.price_volume_tags,
                 sector_tags=request.sector_tags,
+                reusable_tag_snapshots=reusable_tag_snapshots,
                 note=request.note,
             )
             self._store.write_annotation(batch_id, annotation)
@@ -1019,6 +1130,34 @@ class SelectionService:
             raise SelectionApiError("SELECTION_STORAGE_ERROR", message, 500) from exc
         except ValueError as exc:
             raise SelectionApiError("SELECTION_ANNOTATION_INVALID", str(exc), 422) from exc
+
+    def _resolve_reusable_tag_snapshots(
+        self,
+        tag_ids: tuple[str, ...],
+    ) -> tuple[SelectionReusableTagSnapshot, ...]:
+        if not tag_ids:
+            return ()
+        try:
+            tags = {
+                tag.tag_id: tag for tag in self._store.list_reusable_tags(include_archived=True)
+            }
+        except SelectionStoreError as exc:
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+        snapshots: list[SelectionReusableTagSnapshot] = []
+        for tag_id in tag_ids:
+            tag = tags.get(tag_id)
+            if tag is None:
+                raise SelectionApiError("ANNOTATION_TAG_NOT_FOUND", "评审标签不存在。", 404)
+            if not tag.active:
+                raise SelectionApiError("ANNOTATION_TAG_ARCHIVED", "评审标签已归档。", 422)
+            snapshots.append(
+                SelectionReusableTagSnapshot(
+                    tag_id=tag.tag_id,
+                    category=tag.category,
+                    label=tag.label,
+                )
+            )
+        return tuple(snapshots)
 
     def exclude_candidate(
         self,

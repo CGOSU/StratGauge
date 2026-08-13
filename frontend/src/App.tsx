@@ -2,13 +2,20 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import {
   Archive,
+  BarChart3,
+  Briefcase,
   CalendarDays,
+  ChartLine,
   Database,
+  Eye,
   Download,
   LayoutDashboard,
+  ListChecks,
   Pencil,
   Plus,
+  Receipt,
   RotateCcw,
+  Settings2,
   Upload,
   WalletCards,
   X,
@@ -29,8 +36,31 @@ type AnnotationOutlook = 'bullish' | 'neutral' | 'bearish'
 type AnnotationDecision = 'discard' | 'watch' | 'prepare_buy'
 type ReviewState = 'unreviewed' | 'discarded' | 'watching' | 'preparing'
 type AnnotationTag = string
+type ReusableTagCategory = 'position' | 'pattern' | 'price_volume' | 'sector'
+type ReusableTag = {
+  tag_id: string
+  category: ReusableTagCategory
+  label: string
+  created_at: string
+  active: boolean
+  events: Array<{
+    event_id: string
+    tag_id: string
+    category: ReusableTagCategory
+    event_type: 'rename' | 'archive' | 'restore'
+    occurred_at: string
+    new_label: string | null
+    reason: string | null
+  }>
+}
+type ReusableTagSnapshot = {
+  tag_id: string
+  category: ReusableTagCategory
+  label: string
+}
 type OutcomeStatus = 'win' | 'loss' | 'flat' | 'no_entry' | 'unresolved'
 type Workspace = 'research' | 'management' | 'portfolio'
+type AppRoute = 'workbench' | 'signals' | 'watchlist' | 'positions' | 'trades' | 'strategies' | 'analytics' | 'import' | 'settings'
 type LifecycleStatus = 'active' | 'archived'
 type ManagementFilter = 'all' | LifecycleStatus
 type BatchSource = 'tongdaxin' | 'manual'
@@ -109,6 +139,7 @@ type Annotation = {
   pattern_tags: AnnotationTag[]
   price_volume_tags: AnnotationTag[]
   sector_tags: AnnotationTag[]
+  reusable_tag_snapshots: ReusableTagSnapshot[]
   taxonomy_version: string
   note: string | null
 }
@@ -298,8 +329,11 @@ type ManualOrder = {
   ordered_at: string
   quantity: string
   limit_price: string | null
+  strategy_version_id?: string | null
   recommendation_id: string | null
   selection_candidate_id: string | null
+  sell_reason?: string | null
+  note?: string | null
 }
 
 type ManualFill = {
@@ -308,6 +342,9 @@ type ManualFill = {
   filled_at: string
   quantity: string
   price: string
+  commission?: string
+  stamp_duty?: string
+  note?: string | null
 }
 
 type PortfolioReview = {
@@ -340,6 +377,8 @@ type ManagedFormula = {
   active: boolean
   lifecycle: LifecycleEvent[]
 }
+
+type ManagedReusableTag = ReusableTag
 
 type ManagedBatch = {
   batch: Batch
@@ -399,6 +438,134 @@ type MaturityTask = {
   events: MaturityTaskEvent[]
 }
 
+type MarketSyncResponse = {
+  requested_through: string
+  universe_snapshot_id: string
+  security_count: number
+  sessions: Array<{
+    session_date: string
+    market_snapshot_id: string
+    market_status: 'approved' | 'rejected' | 'pending'
+    adjustment_factor_snapshot_id: string | null
+    adjustment_factor_status: 'approved' | 'rejected' | 'pending' | null
+    skipped: boolean
+  }>
+}
+
+type WorkbenchMarketEvidence = {
+  status: 'available' | 'unavailable' | 'incomplete'
+  snapshot_id: string | null
+  provider: string | null
+  session_date: string | null
+  available_at: string | null
+  close: string | null
+  previous_close: string | null
+  change_percent: string | null
+  volume: string | null
+  amount: string | null
+  reason: string | null
+}
+
+type WorkbenchSignal = {
+  batch: Batch
+  candidate: Candidate
+  labels: Label[]
+  annotations: Annotation[]
+  latest_annotation: Annotation | null
+  exclusions: Exclusion[]
+  latest_exclusion: Exclusion | null
+  review_state: ReviewState
+  excluded: boolean
+  outcomes: Outcome[]
+  performances: Performance[]
+  market: WorkbenchMarketEvidence
+  confirmed_buy: boolean
+  confirmed_buy_fill_ids: string[]
+}
+
+type WorkbenchSummary = {
+  as_of: string
+  signal_count: number
+  excluded_count: number
+  unreviewed_count: number
+  reviewed_count: number
+  watching_count: number
+  preparing_count: number
+  confirmed_buy_count: number
+}
+
+type WorkbenchTimelineEvent = {
+  event_id: string
+  event_type: 'signal' | 'annotation' | 'exclusion' | 'order' | 'fill' | 'review' | 'outcome' | 'performance'
+  occurred_at: string
+  source_id: string
+  title: string
+  detail: string
+}
+
+type WorkbenchStockDetail = {
+  symbol: string
+  name: string | null
+  as_of: string
+  market: WorkbenchMarketEvidence
+  signals: WorkbenchSignal[]
+  timeline: WorkbenchTimelineEvent[]
+}
+
+type WorkbenchPositionView = {
+  position: PortfolioPosition
+  as_of: string
+  source: 'signal' | 'manual_discovery' | 'mixed'
+  selection_candidate_ids: string[]
+  holding_days: number
+  market: WorkbenchMarketEvidence
+  unrealized_profit: string | null
+  unrealized_return: string | null
+  unrealized_reason: string | null
+}
+
+type WorkbenchTradeView = {
+  order: ManualOrder
+  fills: ManualFill[]
+  source: 'signal' | 'manual_discovery' | 'mixed'
+}
+
+type WorkbenchHorizonMetric = {
+  horizon_sessions: number
+  sample_count: number
+  average_return: string | null
+  average_maximum_rise: string | null
+  average_maximum_drawdown: string | null
+  target_3_percent_rate: string | null
+  target_5_percent_rate: string | null
+}
+
+type WorkbenchCohortMetrics = {
+  cohort: 'all_signals' | 'human_bullish' | 'confirmed_trades'
+  sample_count: number
+  resolved_count: number
+  excluded_count: number
+  horizons: WorkbenchHorizonMetric[]
+}
+
+type WorkbenchStrategyView = {
+  formula_id: string | null
+  formula_name: string
+  formula_version: string | null
+  signal_count: number
+  cohorts: WorkbenchCohortMetrics[]
+}
+
+type WorkbenchAnalyticsView = {
+  as_of: string
+  cohorts: WorkbenchCohortMetrics[]
+}
+
+type WorkbenchRoute = Extract<AppRoute, 'workbench' | 'signals' | 'watchlist' | 'positions' | 'trades' | 'strategies' | 'analytics'>
+type WorkbenchReviewFilter = 'all' | 'unreviewed' | 'bullish' | 'watching' | 'preparing' | 'discarded' | 'bought'
+type StockDrawerTab = 'market' | 'judgment' | 'signal' | 'trade' | 'analysis'
+type ManualSellReason = 'target_reached' | 'stop_loss_broken' | 'trend_weakened' | 'sector_weakened' | 'market_risk' | 'strategy_invalidated' | 'other'
+
 type ApiErrorPayload = {
   error?: { message?: string }
 }
@@ -433,15 +600,33 @@ const annotationDecisionLabels: Record<AnnotationDecision, string> = {
   prepare_buy: '准备买入',
 }
 
+const manualSellReasonLabels: Record<ManualSellReason, string> = {
+  target_reached: '达到目标',
+  stop_loss_broken: '跌破止损',
+  trend_weakened: '走势转弱',
+  sector_weakened: '板块转弱',
+  market_risk: '大盘风险',
+  strategy_invalidated: '策略失效',
+  other: '其他',
+}
+
+const reusableTagCategoryLabels: Record<ReusableTagCategory, string> = {
+  position: '位置',
+  pattern: '形态',
+  price_volume: '量价',
+  sector: '板块环境',
+}
+
 const annotationTagGroups: Array<{
   key: 'position_tags' | 'pattern_tags' | 'price_volume_tags' | 'sector_tags'
+  reusableCategory: ReusableTagCategory
   label: string
   options: Array<[string, string]>
 }> = [
-  { key: 'position_tags', label: '位置', options: [['low', '低位'], ['mid', '中位'], ['high', '高位'], ['support', '支撑附近'], ['resistance', '压力附近'], ['new_high', '阶段新高']] },
-  { key: 'pattern_tags', label: '形态', options: [['trend_continuation', '趋势延续'], ['breakout', '突破'], ['pullback', '回踩'], ['consolidation', '横盘整理'], ['reversal', '反转'], ['pattern_break', '形态破坏']] },
-  { key: 'price_volume_tags', label: '量价', options: [['price_up_volume_up', '价涨量增'], ['price_up_volume_down', '价涨量缩'], ['price_down_volume_up', '价跌量增'], ['price_down_volume_down', '价跌量缩'], ['volume_breakout', '放量突破'], ['volume_pullback', '缩量回踩']] },
-  { key: 'sector_tags', label: '板块环境', options: [['sector_strong', '板块强势'], ['sector_rotation', '板块轮动'], ['sector_leader', '板块龙头'], ['sector_following', '板块跟涨'], ['sector_weak', '板块弱势'], ['stock_independent', '个股独立']] },
+  { key: 'position_tags', reusableCategory: 'position', label: '位置', options: [['low', '低位'], ['mid', '中位'], ['high', '高位'], ['support', '支撑附近'], ['resistance', '压力附近'], ['new_high', '阶段新高']] },
+  { key: 'pattern_tags', reusableCategory: 'pattern', label: '形态', options: [['trend_continuation', '趋势延续'], ['breakout', '突破'], ['pullback', '回踩'], ['consolidation', '横盘整理'], ['reversal', '反转'], ['pattern_break', '形态破坏']] },
+  { key: 'price_volume_tags', reusableCategory: 'price_volume', label: '量价', options: [['price_up_volume_up', '价涨量增'], ['price_up_volume_down', '价涨量缩'], ['price_down_volume_up', '价跌量增'], ['price_down_volume_down', '价跌量缩'], ['volume_breakout', '放量突破'], ['volume_pullback', '缩量回踩']] },
+  { key: 'sector_tags', reusableCategory: 'sector', label: '板块环境', options: [['sector_strong', '板块强势'], ['sector_rotation', '板块轮动'], ['sector_leader', '板块龙头'], ['sector_following', '板块跟涨'], ['sector_weak', '板块弱势'], ['stock_independent', '个股独立']] },
 ]
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -1022,8 +1207,921 @@ function PortfolioWorkspace({ apiBase }: { apiBase: string }) {
   )
 }
 
+const appRouteLabels: Record<AppRoute, string> = {
+  workbench: '工作台',
+  signals: '今日信号',
+  watchlist: '观察池',
+  positions: '持仓',
+  trades: '交易记录',
+  strategies: '策略',
+  analytics: '分析',
+  import: '导入数据',
+  settings: '设置',
+}
+
+const appRouteIcons: Record<AppRoute, typeof LayoutDashboard> = {
+  workbench: LayoutDashboard,
+  signals: ListChecks,
+  watchlist: Eye,
+  positions: Briefcase,
+  trades: Receipt,
+  strategies: BarChart3,
+  analytics: ChartLine,
+  import: Upload,
+  settings: Settings2,
+}
+
+const primaryAppRoutes: AppRoute[] = [
+  'workbench',
+  'signals',
+  'watchlist',
+  'positions',
+  'trades',
+  'strategies',
+  'analytics',
+]
+
+function AppSidebar({
+  activeRoute,
+  onNavigate,
+}: {
+  activeRoute: AppRoute
+  onNavigate: (route: AppRoute) => void
+}) {
+  return (
+    <aside className="app-sidebar" aria-label="主导航">
+      <div className="app-brand">
+        <div className="app-brand-mark" aria-hidden="true">SG</div>
+        <div>
+          <strong>StratGauge</strong>
+          <span>策衡研究台</span>
+        </div>
+      </div>
+      <div className="app-sidebar-section-label">研究工作区</div>
+      <nav className="app-sidebar-nav">
+        {primaryAppRoutes.map((route) => {
+          const Icon = appRouteIcons[route]
+          return (
+            <button
+              type="button"
+              className={`app-nav-item${activeRoute === route ? ' app-nav-item--active' : ''}`}
+              aria-current={activeRoute === route ? 'page' : undefined}
+              key={route}
+              onClick={() => onNavigate(route)}
+            >
+              <Icon className="app-nav-icon" aria-hidden="true" />
+              <span>{appRouteLabels[route]}</span>
+            </button>
+          )
+        })}
+      </nav>
+      <div className="app-sidebar-spacer" />
+      <div className="app-sidebar-section-label">低频管理</div>
+      <button
+        type="button"
+        className={`app-nav-item${activeRoute === 'import' ? ' app-nav-item--active' : ''}`}
+        aria-current={activeRoute === 'import' ? 'page' : undefined}
+        onClick={() => onNavigate('import')}
+      >
+        <Upload className="app-nav-icon" aria-hidden="true" />
+        <span>导入数据</span>
+      </button>
+      <button
+        type="button"
+        className={`app-nav-item${activeRoute === 'settings' ? ' app-nav-item--active' : ''}`}
+        aria-current={activeRoute === 'settings' ? 'page' : undefined}
+        onClick={() => onNavigate('settings')}
+      >
+        <Settings2 className="app-nav-icon" aria-hidden="true" />
+        <span>设置</span>
+      </button>
+      <div className="app-sidebar-footer">
+        <span className="app-sidebar-status-dot" aria-hidden="true" />
+        <span>人工确认模式</span>
+      </div>
+    </aside>
+  )
+}
+
+function OperationalStatusBar({
+  healthState,
+  activeRoute,
+}: {
+  healthState: HealthState
+  activeRoute: AppRoute
+}) {
+  return (
+    <header className="operational-bar">
+      <div className="operational-context">
+        <span className="operational-kicker">研究工作台</span>
+        <strong>{appRouteLabels[activeRoute]}</strong>
+      </div>
+      <div className="operational-statuses">
+        <span className="operational-status operational-status--evidence">
+          <span className="operational-status-dot" aria-hidden="true" />
+          本地证据优先
+        </span>
+        <span className={`operational-status operational-status--${healthState}`} role="status" aria-live="polite">
+          <span className="operational-status-dot" aria-hidden="true" />
+          API {healthState === 'checking' ? '检测中' : healthState === 'online' ? '在线' : '离线'}
+        </span>
+        <span className="operational-status operational-status--manual">不自动下单</span>
+      </div>
+    </header>
+  )
+}
+
+function workbenchReviewLabel(state: ReviewState): string {
+  const labels: Record<ReviewState, string> = {
+    unreviewed: '未判断',
+    discarded: '不看好',
+    watching: '观察中',
+    preparing: '准备买入',
+  }
+  return labels[state]
+}
+
+function workbenchCohortLabel(cohort: WorkbenchCohortMetrics['cohort']): string {
+  const labels: Record<WorkbenchCohortMetrics['cohort'], string> = {
+    all_signals: '全部信号',
+    human_bullish: '人工看好',
+    confirmed_trades: '实际买入',
+  }
+  return labels[cohort]
+}
+
+function workbenchEventLabel(eventType: WorkbenchTimelineEvent['event_type']): string {
+  const labels: Record<WorkbenchTimelineEvent['event_type'], string> = {
+    signal: '策略信号',
+    annotation: '人工判断',
+    exclusion: '候选排除',
+    order: '订单',
+    fill: '成交',
+    review: '复盘',
+    outcome: '策略结果',
+    performance: '未来表现',
+  }
+  return labels[eventType]
+}
+
+function matchesWorkbenchFilter(signal: WorkbenchSignal, filter: WorkbenchReviewFilter): boolean {
+  switch (filter) {
+    case 'all':
+      return true
+    case 'unreviewed':
+      return signal.review_state === 'unreviewed'
+    case 'bullish':
+      return signal.latest_annotation?.outlook === 'bullish'
+    case 'watching':
+      return signal.review_state === 'watching'
+    case 'preparing':
+      return signal.review_state === 'preparing'
+    case 'discarded':
+      return signal.review_state === 'discarded'
+    case 'bought':
+      return signal.confirmed_buy
+  }
+}
+
+function MainBoardMarketSyncPanel({ apiBase }: { apiBase: string }) {
+  const [sessionDate, setSessionDate] = useState(new Date().toISOString().slice(0, 10))
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [syncResult, setSyncResult] = useState<MarketSyncResponse | null>(null)
+
+  async function syncMarket(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    setMessage(null)
+    setErrorMessage(null)
+    setSyncResult(null)
+    try {
+      const result = await requestJson<MarketSyncResponse>(`${apiBase}/v1/market-sync/main-board`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_date: sessionDate, minimum_coverage: '0.90' }),
+      })
+      setSyncResult(result)
+      const approvedCount = result.sessions.filter((session) => session.market_status === 'approved').length
+      const skippedCount = result.sessions.filter((session) => session.skipped).length
+      setMessage(`已同步至 ${result.requested_through}：检查 ${result.sessions.length} 个工作日，${approvedCount} 个行情快照批准，${skippedCount} 个已存在；股票池 ${result.security_count} 只。`)
+    } catch (reason: unknown) {
+      setErrorMessage(reason instanceof Error ? reason.message : '同步主板收盘行情失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card className="market-sync-panel panel" aria-labelledby="market-sync-title">
+      <div className="section-heading">
+        <div><p className="eyebrow">行情 · 主板</p><h2 id="market-sync-title">同步收盘行情</h2></div>
+        <Badge variant="outline">仅 SH / SZ 主板</Badge>
+      </div>
+      <p className="market-sync-copy">选择交易日后，从 Tushare 同步当前主板股票池的日线收盘数据，并写入批准快照。不会同步创业板、科创板、北交所，也不会触发交易。</p>
+      <form className="market-sync-form" onSubmit={syncMarket}>
+        <div className="field"><Label htmlFor="market-sync-date">交易日</Label><CalendarInput id="market-sync-date" value={sessionDate} onChange={setSessionDate} required /></div>
+        <Button type="submit" disabled={busy || !sessionDate}>{busy ? '同步中…' : '同步今日主板行情'}</Button>
+      </form>
+      {message && <p className="market-sync-success" role="status">{message}</p>}
+      {errorMessage && <p className="market-sync-error" role="alert">{errorMessage}</p>}
+      {syncResult && (
+        <div className="market-sync-results" aria-label="行情同步明细">
+          {syncResult.sessions.map((session) => (
+            <div className="market-sync-result-row" key={session.session_date}>
+              <strong>{session.session_date}</strong>
+              <span className={session.market_status === 'approved' ? 'market-profit' : 'market-loss'}>{session.market_status === 'approved' ? '已批准' : '未批准'}</span>
+              <span>{session.skipped ? '已有快照，已跳过' : '本次请求'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function WorkbenchMarketEvidenceView({ market }: { market: WorkbenchMarketEvidence }) {
+  if (market.status !== 'available') {
+    return (
+      <div className="workbench-evidence-empty">
+        <strong>行情证据{market.status === 'incomplete' ? '不完整' : '不可用'}</strong>
+        <span>{market.reason ?? '没有已批准的市场快照，系统不填充价格。'}</span>
+      </div>
+    )
+  }
+  return (
+    <div className="workbench-market-grid">
+      <div><span>当前价</span><strong>{formatPrice(market.close)}</strong></div>
+      <div><span>涨跌幅</span><strong className={Number(market.change_percent ?? 0) >= 0 ? 'market-profit' : 'market-loss'}>{formatPercent(market.change_percent)}</strong></div>
+      <div><span>交易日</span><strong>{market.session_date ?? '—'}</strong></div>
+      <div><span>快照</span><strong>{market.snapshot_id ?? '—'}</strong></div>
+    </div>
+  )
+}
+
+function WorkbenchAnnotationPanel({
+  apiBase,
+  signal,
+  onSaved,
+}: {
+  apiBase: string
+  signal: WorkbenchSignal
+  onSaved: () => void | Promise<void>
+}) {
+  const latest = signal.latest_annotation
+  const [score, setScore] = useState(String(latest?.overall_score ?? 3))
+  const [outlook, setOutlook] = useState<AnnotationOutlook>(latest?.outlook ?? 'neutral')
+  const [decision, setDecision] = useState<AnnotationDecision>(latest?.decision ?? 'watch')
+  const [tags, setTags] = useState<Record<'position_tags' | 'pattern_tags' | 'price_volume_tags' | 'sector_tags', string[]>>({
+    position_tags: latest?.position_tags ?? [],
+    pattern_tags: latest?.pattern_tags ?? [],
+    price_volume_tags: latest?.price_volume_tags ?? [],
+    sector_tags: latest?.sector_tags ?? [],
+  })
+  const [note, setNote] = useState(latest?.note ?? '')
+  const [busy, setBusy] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    setScore(String(signal.latest_annotation?.overall_score ?? 3))
+    setOutlook(signal.latest_annotation?.outlook ?? 'neutral')
+    setDecision(signal.latest_annotation?.decision ?? 'watch')
+    setTags({
+      position_tags: signal.latest_annotation?.position_tags ?? [],
+      pattern_tags: signal.latest_annotation?.pattern_tags ?? [],
+      price_volume_tags: signal.latest_annotation?.price_volume_tags ?? [],
+      sector_tags: signal.latest_annotation?.sector_tags ?? [],
+    })
+    setNote(signal.latest_annotation?.note ?? '')
+    setErrorMessage(null)
+  }, [signal.candidate.candidate_id, signal.latest_annotation?.annotation_id])
+
+  function toggleTag(key: keyof typeof tags, value: string) {
+    setTags((current) => ({
+      ...current,
+      [key]: current[key].includes(value) ? current[key].filter((item) => item !== value) : [...current[key], value],
+    }))
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy) {
+      return
+    }
+    setBusy(true)
+    setErrorMessage(null)
+    try {
+      await requestJson<BatchView>(
+        `${apiBase}/v1/selection-batches/${encodeURIComponent(signal.batch.batch_id)}/annotations`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            candidate_id: signal.candidate.candidate_id,
+            reviewed_at: new Date().toISOString(),
+            overall_score: Number(score),
+            outlook,
+            decision,
+            position_tags: tags.position_tags,
+            pattern_tags: tags.pattern_tags,
+            price_volume_tags: tags.price_volume_tags,
+            sector_tags: tags.sector_tags,
+            reusable_tag_ids: [],
+            note: note.trim() || null,
+          }),
+        },
+      )
+      await onSaved()
+    } catch (reason: unknown) {
+      setErrorMessage(reason instanceof Error ? reason.message : '保存人工判断失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="drawer-judgment-panel">
+      <div className="drawer-section-heading">
+        <div>
+          <span className="drawer-section-kicker">APPEND-ONLY ANNOTATION</span>
+          <h3>快速判断</h3>
+        </div>
+        <span className="drawer-readonly-note">不覆盖历史</span>
+      </div>
+      {latest ? (
+        <div className="drawer-latest-annotation">
+          <span>上次判断 · {formatManagementDate(latest.reviewed_at)}</span>
+          <strong>{'★'.repeat(latest.overall_score)}{'☆'.repeat(5 - latest.overall_score)} · {annotationOutlookLabels[latest.outlook]}</strong>
+          <span>{annotationDecisionLabels[latest.decision]}{latest.note ? ` · ${latest.note}` : ''}</span>
+        </div>
+      ) : (
+        <p className="drawer-muted-copy">尚未判断。未判断不等同于不看好。</p>
+      )}
+      <form className="drawer-annotation-form" onSubmit={submit}>
+        <fieldset disabled={busy}>
+          <legend>综合评分</legend>
+          <div className="drawer-choice-row">
+            {[1, 2, 3, 4, 5].map((value) => (
+              <button type="button" className={`drawer-score-choice${Number(score) === value ? ' is-selected' : ''}`} key={value} onClick={() => setScore(String(value))}>
+                {value}
+              </button>
+            ))}
+          </div>
+          <legend>判断</legend>
+          <div className="drawer-choice-row drawer-choice-row--wide">
+            {(['bullish', 'neutral', 'bearish'] as AnnotationOutlook[]).map((value) => (
+              <button type="button" className={`drawer-choice${outlook === value ? ' is-selected' : ''}`} key={value} onClick={() => setOutlook(value)}>
+                {annotationOutlookLabels[value]}
+              </button>
+            ))}
+          </div>
+          <legend>操作意图</legend>
+          <div className="drawer-choice-row drawer-choice-row--wide">
+            {(['discard', 'watch', 'prepare_buy'] as AnnotationDecision[]).map((value) => (
+              <button type="button" className={`drawer-choice${decision === value ? ' is-selected' : ''}`} key={value} onClick={() => setDecision(value)}>
+                {annotationDecisionLabels[value]}
+              </button>
+            ))}
+          </div>
+          <div className="drawer-tag-groups">
+            {annotationTagGroups.map((group) => (
+              <div className="drawer-tag-group" key={group.key}>
+                <span>{group.label}</span>
+                <div>
+                  {group.options.map(([value, label]) => (
+                    <button type="button" className={tags[group.key].includes(value) ? 'is-selected' : ''} key={value} onClick={() => toggleTag(group.key, value)}>{label}</button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <label className="drawer-field">
+            <span>备注（可选）</span>
+            <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="记录这次判断的依据" rows={3} />
+          </label>
+        </fieldset>
+        {errorMessage && <p className="drawer-form-error" role="alert">{errorMessage}</p>}
+        <button type="submit" className="drawer-primary-action" disabled={busy}>
+          {busy ? '追加中…' : '追加本次判断'}
+        </button>
+      </form>
+    </div>
+  )
+}
+
+function WorkbenchTradePanel({
+  apiBase,
+  signal,
+  onSaved,
+}: {
+  apiBase: string
+  signal: WorkbenchSignal
+  onSaved: () => void | Promise<void>
+}) {
+  const [side, setSide] = useState<'buy' | 'sell'>(signal.confirmed_buy ? 'sell' : 'buy')
+  const [orderId, setOrderId] = useState(() => crypto.randomUUID())
+  const [fillId, setFillId] = useState(() => crypto.randomUUID())
+  const [orderedAt, setOrderedAt] = useState(() => new Date().toISOString().slice(0, 16))
+  const [filledAt, setFilledAt] = useState(() => new Date().toISOString().slice(0, 16))
+  const [quantity, setQuantity] = useState('100')
+  const [price, setPrice] = useState(signal.market.close ?? '')
+  const [sellReason, setSellReason] = useState<ManualSellReason>('target_reached')
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    setSide(signal.confirmed_buy ? 'sell' : 'buy')
+    setPrice(signal.market.close ?? '')
+    setErrorMessage(null)
+  }, [signal.candidate.candidate_id, signal.confirmed_buy, signal.market.close])
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy) {
+      return
+    }
+    setBusy(true)
+    setErrorMessage(null)
+    const commonBody = {
+      order_id: orderId,
+      fill_id: fillId,
+      local_code: signal.candidate.local_code,
+      exchange: signal.candidate.exchange,
+      name: signal.candidate.name,
+      ordered_at: toShanghaiDateTime(orderedAt),
+      filled_at: toShanghaiDateTime(filledAt),
+      quantity,
+      price,
+      selection_candidate_id: signal.candidate.candidate_id,
+      note: note.trim() || null,
+    }
+    try {
+      if (side === 'buy') {
+        await requestJson<[ManualOrder, ManualFill]>(`${apiBase}/v1/selection-candidate-trades`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(commonBody),
+        })
+      } else {
+        await requestJson<[ManualOrder, ManualFill]>(`${apiBase}/v1/manual-trades/confirm`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...commonBody, side, sell_reason: sellReason }),
+        })
+      }
+      setOrderId(crypto.randomUUID())
+      setFillId(crypto.randomUUID())
+      setNote('')
+      await onSaved()
+    } catch (reason: unknown) {
+      setErrorMessage(reason instanceof Error ? reason.message : '保存确认交易失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="drawer-trade-panel">
+      <div className="drawer-section-heading">
+        <div>
+          <span className="drawer-section-kicker">MANUAL EXECUTION</span>
+          <h3>确认交易</h3>
+        </div>
+        <span className="drawer-readonly-note">不自动下单</span>
+      </div>
+      <p className="drawer-muted-copy">这里只记录用户已经确认的真实事实，不生成推荐价格。成交价格必须由用户填写。</p>
+      <form className="drawer-trade-form" onSubmit={submit}>
+        <fieldset disabled={busy}>
+          <legend>方向</legend>
+          <div className="drawer-choice-row drawer-choice-row--wide">
+            <button type="button" className={`drawer-choice${side === 'buy' ? ' is-selected' : ''}`} disabled={signal.confirmed_buy} onClick={() => setSide('buy')}>确认买入</button>
+            <button type="button" className={`drawer-choice${side === 'sell' ? ' is-selected' : ''}`} onClick={() => setSide('sell')}>确认卖出</button>
+          </div>
+          {side === 'sell' && (
+            <label className="drawer-field">
+              <span>卖出原因（必填）</span>
+              <select value={sellReason} onChange={(event) => setSellReason(event.target.value as ManualSellReason)}>
+                {(Object.keys(manualSellReasonLabels) as ManualSellReason[]).map((value) => <option value={value} key={value}>{manualSellReasonLabels[value]}</option>)}
+              </select>
+            </label>
+          )}
+          <div className="drawer-trade-grid">
+            <label className="drawer-field"><span>数量</span><input type="number" min="1" step="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} required /></label>
+            <label className="drawer-field"><span>成交价</span><input type="number" min="0.0001" step="0.0001" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="必须人工填写" required /></label>
+            <label className="drawer-field"><span>下单时间</span><input type="datetime-local" value={orderedAt} onChange={(event) => setOrderedAt(event.target.value)} required /></label>
+            <label className="drawer-field"><span>成交时间</span><input type="datetime-local" value={filledAt} onChange={(event) => setFilledAt(event.target.value)} required /></label>
+          </div>
+          <label className="drawer-field"><span>交易备注（可选）</span><textarea value={note} onChange={(event) => setNote(event.target.value)} rows={2} placeholder="记录交易事实或复盘线索" /></label>
+        </fieldset>
+        {errorMessage && <p className="drawer-form-error" role="alert">{errorMessage}</p>}
+        <button type="submit" className="drawer-primary-action drawer-primary-action--trade" disabled={busy || (side === 'buy' && signal.confirmed_buy)}>{busy ? '保存中…' : side === 'buy' ? '确认并记录买入' : '确认并记录卖出'}</button>
+      </form>
+    </div>
+  )
+}
+
+function StockDetailDrawer({
+  apiBase,
+  detail,
+  onClose,
+  onAnnotationSaved,
+  onTradeSaved,
+}: {
+  apiBase: string
+  detail: WorkbenchStockDetail
+  onClose: () => void
+  onAnnotationSaved: () => void | Promise<void>
+  onTradeSaved: () => void | Promise<void>
+}) {
+  const [tab, setTab] = useState<StockDrawerTab>('market')
+  const signal = detail.signals[0]
+
+  useEffect(() => {
+    setTab('market')
+  }, [detail.symbol])
+
+  return (
+    <div className="stock-drawer-layer" role="presentation">
+      <button type="button" className="stock-drawer-backdrop" aria-label="关闭股票详情" onClick={onClose} />
+      <aside className="stock-detail-drawer" role="dialog" aria-modal="true" aria-label={`${detail.symbol} 股票详情`}>
+        <header className="stock-drawer-header">
+          <div>
+            <span className="drawer-symbol">{detail.symbol}</span>
+            <h2>{detail.name ?? '未提供名称'}</h2>
+            <span className="drawer-subtitle">截至 {formatManagementDate(detail.as_of)}</span>
+          </div>
+          <button type="button" className="drawer-close-button" aria-label="关闭股票详情" onClick={onClose}><X aria-hidden="true" /></button>
+        </header>
+        <div className="stock-drawer-market-summary">
+          <WorkbenchMarketEvidenceView market={detail.market} />
+        </div>
+        <nav className="stock-drawer-tabs" aria-label="股票详情标签">
+          {([
+            ['market', '行情'],
+            ['judgment', '判断'],
+            ['signal', '信号'],
+            ['trade', '交易'],
+            ['analysis', '分析'],
+          ] as Array<[StockDrawerTab, string]>).map(([value, label]) => (
+            <button type="button" className={tab === value ? 'is-active' : ''} key={value} onClick={() => setTab(value)}>{label}</button>
+          ))}
+        </nav>
+        <div className="stock-drawer-body">
+          {tab === 'market' && (
+            <section className="drawer-tab-panel" aria-labelledby="drawer-market-title">
+              <div className="drawer-section-heading"><h3 id="drawer-market-title">批准行情证据</h3><span>{detail.market.provider ?? '本地快照'}</span></div>
+              <WorkbenchMarketEvidenceView market={detail.market} />
+              <p className="drawer-muted-copy">行情仅读取已批准的 market_daily 快照；缺失时不伪造价格、K 线或指标。</p>
+            </section>
+          )}
+          {tab === 'judgment' && (
+            <section className="drawer-tab-panel" aria-labelledby="drawer-judgment-title">
+              <WorkbenchAnnotationPanel apiBase={apiBase} signal={signal} onSaved={onAnnotationSaved} />
+            </section>
+          )}
+          {tab === 'signal' && (
+            <section className="drawer-tab-panel" aria-labelledby="drawer-signal-title">
+              <div className="drawer-section-heading"><h3 id="drawer-signal-title">策略信号历史</h3><span>{detail.signals.length} 次命中</span></div>
+              <div className="drawer-signal-list">
+                {detail.signals.map((item) => (
+                  <article className="drawer-signal-item" key={item.candidate.candidate_id}>
+                    <div><strong>{item.batch.formula_name}{item.batch.formula_version ? ` · ${item.batch.formula_version}` : ''}</strong><span>{item.batch.selection_date} · {item.batch.source === 'manual' ? '手工' : '通达信'}</span></div>
+                    <div className="drawer-signal-status"><span className={`workbench-status workbench-status--${item.review_state}`}>{workbenchReviewLabel(item.review_state)}</span>{item.confirmed_buy && <span className="workbench-status workbench-status--bought">已买入</span>}</div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+          {tab === 'trade' && (
+            <section className="drawer-tab-panel" aria-labelledby="drawer-trade-title">
+              <div className="drawer-section-heading"><h3 id="drawer-trade-title">交易与生命周期</h3><span>{signal.confirmed_buy ? '存在买入证据' : '尚无关联买入'}</span></div>
+              <WorkbenchTradePanel apiBase={apiBase} signal={signal} onSaved={onTradeSaved} />
+              <div className="drawer-timeline">
+                {detail.timeline.filter((event) => ['order', 'fill', 'review'].includes(event.event_type)).length === 0 ? <p className="drawer-muted-copy">暂无真实交易或复盘证据。</p> : detail.timeline.filter((event) => ['order', 'fill', 'review'].includes(event.event_type)).map((event) => (
+                  <article className="drawer-timeline-item" key={event.event_id}><span className="drawer-timeline-marker" /><div><span>{formatManagementDate(event.occurred_at)} · {workbenchEventLabel(event.event_type)}</span><strong>{event.title}</strong><p>{event.detail}</p></div></article>
+                ))}
+              </div>
+            </section>
+          )}
+          {tab === 'analysis' && (
+            <section className="drawer-tab-panel" aria-labelledby="drawer-analysis-title">
+              <div className="drawer-section-heading"><h3 id="drawer-analysis-title">客观结果</h3><span>只读证据</span></div>
+              {detail.signals.map((item) => (
+                <article className="drawer-analysis-block" key={item.candidate.candidate_id}>
+                  <strong>{item.batch.selection_date} · {item.batch.formula_name}</strong>
+                  {item.performances.length === 0 && item.outcomes.length === 0 ? <p className="drawer-muted-copy">尚无完成的未来表现或结果。</p> : (
+                    <div className="drawer-analysis-metrics">
+                      {item.performances.flatMap((performance) => performance.points).map((point) => <span key={`${item.candidate.candidate_id}:${point.horizon_sessions}`}>T+{point.horizon_sessions} {formatPercent(point.return_from_anchor)}</span>)}
+                      {item.outcomes.map((outcome) => <span key={`${item.candidate.candidate_id}:${outcome.evaluated_at}`}>{outcome.status} {formatPercent(outcome.net_return)}</span>)}
+                    </div>
+                  )}
+                </article>
+              ))}
+              <p className="drawer-muted-copy">模型概率、推荐和自动动作不会在此被推断；只有已保存的证据才会展示。</p>
+            </section>
+          )}
+          <section className="drawer-timeline-section" aria-labelledby="drawer-timeline-title">
+            <div className="drawer-section-heading"><h3 id="drawer-timeline-title">完整时间线</h3><span>{detail.timeline.length} 个事件</span></div>
+            <div className="drawer-timeline">
+              {detail.timeline.length === 0 ? <p className="drawer-muted-copy">暂无时间线事件。</p> : detail.timeline.map((event) => (
+                <article className="drawer-timeline-item" key={event.event_id}><span className="drawer-timeline-marker" /><div><span>{formatManagementDate(event.occurred_at)} · {workbenchEventLabel(event.event_type)}</span><strong>{event.title}</strong><p>{event.detail}</p></div></article>
+              ))}
+            </div>
+          </section>
+        </div>
+      </aside>
+    </div>
+  )
+}
+
+function workbenchActionRank(signal: WorkbenchSignal): number {
+  if (!signal.latest_annotation) return 0
+  if (signal.review_state === 'watching' || signal.review_state === 'preparing') return 1
+  if (signal.confirmed_buy) return 3
+  return 2
+}
+
+function workbenchSignalSort(signals: WorkbenchSignal[]): WorkbenchSignal[] {
+  return [...signals].sort((left, right) => {
+    const rankDifference = workbenchActionRank(left) - workbenchActionRank(right)
+    if (rankDifference !== 0) return rankDifference
+    const leftAt = left.latest_annotation?.reviewed_at ?? left.batch.selection_date
+    const rightAt = right.latest_annotation?.reviewed_at ?? right.batch.selection_date
+    return rightAt.localeCompare(leftAt)
+  })
+}
+
+function WorkbenchChangeSummary({ signals }: { signals: WorkbenchSignal[] }) {
+  const recheckSignals = signals.filter((signal) => signal.annotations.length > 1)
+  const changedSignals = recheckSignals.filter((signal) => {
+    const latest = signal.annotations[signal.annotations.length - 1]
+    const previous = signal.annotations[signal.annotations.length - 2]
+    return latest.overall_score !== previous.overall_score || latest.outlook !== previous.outlook || latest.decision !== previous.decision
+  })
+  return (
+    <section className="workbench-change-summary" aria-label="观察池变化摘要">
+      <div className="workbench-section-heading workbench-section-heading--compact">
+        <div><span className="eyebrow">WATCHLIST · SINCE LAST JUDGMENT</span><h3>自上次判断以来发生了什么</h3></div>
+        <span className="workbench-as-of">仅基于追加记录</span>
+      </div>
+      <div className="workbench-change-cards">
+        <div><strong>{recheckSignals.length}</strong><span>已有复评记录</span></div>
+        <div><strong>{changedSignals.length}</strong><span>判断发生变化</span></div>
+        <div><strong>{signals.filter((signal) => signal.latest_annotation?.decision === 'prepare_buy').length}</strong><span>当前准备买入</span></div>
+      </div>
+      {changedSignals.length > 0 ? <div className="workbench-change-list">{changedSignals.slice(0, 8).map((signal) => {
+        const latest = signal.annotations[signal.annotations.length - 1]
+        const previous = signal.annotations[signal.annotations.length - 2]
+        return <div className="workbench-change-row" key={signal.candidate.candidate_id}><strong>{signal.candidate.symbol}</strong><span>{annotationDecisionLabels[previous.decision]} → {annotationDecisionLabels[latest.decision]}</span><span>{previous.overall_score} 分 → {latest.overall_score} 分</span><small>{formatManagementDate(latest.reviewed_at)}</small></div>
+      })}</div> : <p className="workbench-empty workbench-empty--compact">当前没有可比较的复评变化；未判断不等于不看好。</p>}
+    </section>
+  )
+}
+
+function WorkbenchSignalTable({
+  signals,
+  onOpen,
+  emptyMessage,
+}: {
+  signals: WorkbenchSignal[]
+  onOpen: (symbol: string) => void
+  emptyMessage: string
+}) {
+  return signals.length === 0 ? <p className="workbench-empty">{emptyMessage}</p> : (
+    <div className="workbench-table" role="table" aria-label="策略信号列表">
+      <div className="workbench-table-header" role="row"><span>股票</span><span>策略</span><span>信号时间</span><span>行情</span><span>人工判断</span><span>状态</span></div>
+      {signals.map((signal) => (
+        <button type="button" className="workbench-table-row" role="row" key={signal.candidate.candidate_id} onClick={() => onOpen(signal.candidate.symbol)}>
+          <span className="workbench-stock-cell"><strong>{signal.candidate.symbol}</strong><small>{signal.candidate.name ?? '未提供名称'}</small></span>
+          <span className="workbench-table-cell"><strong>{signal.batch.formula_name}</strong><small>{signal.batch.formula_version ?? '未版本化'}</small></span>
+          <span className="workbench-table-cell"><strong>{signal.batch.selection_date}</strong><small>{formatManagementDate(signal.batch.exported_at)}</small></span>
+          <span className="workbench-table-cell"><strong>{formatPrice(signal.market.close)}</strong><small className={Number(signal.market.change_percent ?? 0) >= 0 ? 'market-profit' : 'market-loss'}>{formatPercent(signal.market.change_percent)}</small></span>
+          <span className="workbench-table-cell"><strong>{signal.latest_annotation ? `${'★'.repeat(signal.latest_annotation.overall_score)}${'☆'.repeat(5 - signal.latest_annotation.overall_score)}` : '—'}</strong><small>{signal.latest_annotation ? annotationOutlookLabels[signal.latest_annotation.outlook] : '未判断'}</small></span>
+          <span className="workbench-table-status"><span className={`workbench-status workbench-status--${signal.review_state}`}>{workbenchReviewLabel(signal.review_state)}</span>{signal.confirmed_buy && <span className="workbench-status workbench-status--bought">已买入</span>}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function WorkbenchFilterBar({
+  query,
+  onQueryChange,
+  filter,
+  onFilterChange,
+  onRefresh,
+  busy,
+}: {
+  query: string
+  onQueryChange: (value: string) => void
+  filter: WorkbenchReviewFilter
+  onFilterChange: (value: WorkbenchReviewFilter) => void
+  onRefresh: () => void
+  busy: boolean
+}) {
+  const filters: Array<[WorkbenchReviewFilter, string]> = [
+    ['all', '全部'],
+    ['unreviewed', '未判断'],
+    ['bullish', '看好'],
+    ['watching', '观察'],
+    ['preparing', '准备买入'],
+    ['discarded', '不看好'],
+    ['bought', '已买入'],
+  ]
+  return (
+    <div className="workbench-filter-bar">
+      <label className="workbench-search"><span className="sr-only">搜索股票或策略</span><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="搜索代码、名称或策略" /></label>
+      <div className="workbench-filter-buttons" role="group" aria-label="信号筛选">
+        {filters.map(([value, label]) => <button type="button" className={filter === value ? 'is-active' : ''} key={value} onClick={() => onFilterChange(value)}>{label}</button>)}
+      </div>
+      <button type="button" className="workbench-refresh" onClick={onRefresh} disabled={busy}><RotateCcw className={busy ? 'is-spinning' : ''} aria-hidden="true" />刷新</button>
+    </div>
+  )
+}
+
+function WorkbenchWorkspace({
+  apiBase,
+  route,
+}: {
+  apiBase: string
+  route: WorkbenchRoute
+}) {
+  const [summary, setSummary] = useState<WorkbenchSummary | null>(null)
+  const [signals, setSignals] = useState<WorkbenchSignal[]>([])
+  const [positions, setPositions] = useState<WorkbenchPositionView[]>([])
+  const [trades, setTrades] = useState<WorkbenchTradeView[]>([])
+  const [strategies, setStrategies] = useState<WorkbenchStrategyView[]>([])
+  const [analytics, setAnalytics] = useState<WorkbenchAnalyticsView | null>(null)
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<WorkbenchReviewFilter>('all')
+  const [loading, setLoading] = useState(true)
+  const [pageError, setPageError] = useState<string | null>(null)
+  const [reloadToken, setReloadToken] = useState(0)
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
+  const [stockDetail, setStockDetail] = useState<WorkbenchStockDetail | null>(null)
+  const [drawerLoading, setDrawerLoading] = useState(false)
+  const [drawerError, setDrawerError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    setPageError(null)
+    const signal = { signal: controller.signal }
+    const load = async () => {
+      try {
+        if (route === 'workbench' || route === 'signals') {
+          const [nextSummary, nextSignals] = await Promise.all([
+            requestJson<WorkbenchSummary>(`${apiBase}/v1/workbench/summary`, signal),
+            requestJson<WorkbenchSignal[]>(`${apiBase}/v1/workbench/daily-signals`, signal),
+          ])
+          setSummary(nextSummary)
+          setSignals(nextSignals)
+        } else if (route === 'watchlist') {
+          const nextSignals = await requestJson<WorkbenchSignal[]>(`${apiBase}/v1/workbench/watchlist`, signal)
+          setSignals(nextSignals)
+          setSummary(null)
+        } else if (route === 'positions') {
+          setPositions(await requestJson<WorkbenchPositionView[]>(`${apiBase}/v1/workbench/positions`, signal))
+        } else if (route === 'trades') {
+          setTrades(await requestJson<WorkbenchTradeView[]>(`${apiBase}/v1/workbench/trades`, signal))
+        } else if (route === 'strategies') {
+          setStrategies(await requestJson<WorkbenchStrategyView[]>(`${apiBase}/v1/workbench/strategies`, signal))
+        } else {
+          setAnalytics(await requestJson<WorkbenchAnalyticsView>(`${apiBase}/v1/workbench/analytics`, signal))
+        }
+      } catch (reason: unknown) {
+        if (reason instanceof DOMException && reason.name === 'AbortError') {
+          return
+        }
+        setPageError(reason instanceof Error ? reason.message : '加载工作台数据失败。')
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
+      }
+    }
+    void load()
+    return () => controller.abort()
+  }, [apiBase, route, reloadToken])
+
+  useEffect(() => {
+    setSelectedSymbol(null)
+    setStockDetail(null)
+    setDrawerError(null)
+  }, [route])
+
+  async function openStock(symbol: string) {
+    setSelectedSymbol(symbol)
+    setStockDetail(null)
+    setDrawerError(null)
+    setDrawerLoading(true)
+    try {
+      setStockDetail(await requestJson<WorkbenchStockDetail>(`${apiBase}/v1/workbench/stocks/${encodeURIComponent(symbol)}`))
+    } catch (reason: unknown) {
+      setDrawerError(reason instanceof Error ? reason.message : '加载股票详情失败。')
+    } finally {
+      setDrawerLoading(false)
+    }
+  }
+
+  async function refreshStock() {
+    if (!selectedSymbol) {
+      return
+    }
+    await openStock(selectedSymbol)
+  }
+
+  const visibleSignals = workbenchSignalSort(signals.filter((signal) => {
+    const normalizedQuery = query.trim().toLowerCase()
+    const matchesQuery = !normalizedQuery || [signal.candidate.symbol, signal.candidate.local_code, signal.candidate.name ?? '', signal.batch.formula_name].some((value) => value.toLowerCase().includes(normalizedQuery))
+    return matchesQuery && matchesWorkbenchFilter(signal, filter)
+  }))
+  const nextActionableSignal = visibleSignals.find((signal) => workbenchActionRank(signal) < 2)
+  const openNextActionable = () => {
+    if (nextActionableSignal) void openStock(nextActionableSignal.candidate.symbol)
+  }
+  const summaryCards = summary ? [
+    ['今日信号', summary.signal_count, 'neutral'],
+    ['待判断', summary.unreviewed_count, 'pending'],
+    ['观察中', summary.watching_count, 'review'],
+    ['准备买入', summary.preparing_count, 'profit'],
+    ['已判断', summary.reviewed_count, 'neutral'],
+    ['当前已买入', summary.confirmed_buy_count, 'loss'],
+  ] as Array<[string, number, string]> : []
+
+  return (
+    <section className="workbench-page" aria-label={`${appRouteLabels[route]}工作区`}>
+      {pageError && <div className="workbench-page-error" role="alert">{pageError}</div>}
+      {(route === 'workbench' || route === 'signals') && summary && (
+        <div className="workbench-kpi-grid">
+          {summaryCards.map(([label, value, tone]) => <article className={`workbench-kpi workbench-kpi--${tone}`} key={label}><span>{label}</span><strong>{value}</strong></article>)}
+        </div>
+      )}
+      {route === 'workbench' && (
+        <>
+          <div className="workbench-section-heading"><div><span className="eyebrow">TODAY · ACTION QUEUE</span><h2>今天需要处理什么</h2><p>按“未判断 → 观察复评 → 已确认事实”排序；点击股票，在右侧详情中追加判断。</p></div><div className="workbench-heading-actions"><span className="workbench-as-of">证据截至 {summary ? formatManagementDate(summary.as_of) : '—'}</span><button type="button" className="workbench-primary-action" onClick={openNextActionable} disabled={!nextActionableSignal || loading}>连续处理待办</button></div></div>
+          <WorkbenchFilterBar query={query} onQueryChange={setQuery} filter={filter} onFilterChange={setFilter} onRefresh={() => setReloadToken((value) => value + 1)} busy={loading} />
+          {loading ? <div className="workbench-loading">正在读取本地研究证据…</div> : <WorkbenchSignalTable signals={visibleSignals.slice(0, 12)} onOpen={(symbol) => void openStock(symbol)} emptyMessage="当前没有待处理信号。" />}
+          {!loading && visibleSignals.length > 12 && <p className="workbench-queue-note">当前显示前 12 条；点击“连续处理待办”可从优先级最高的未判断信号开始。</p>}
+        </>
+      )}
+      {route === 'signals' && (
+        <>
+          <div className="workbench-section-heading"><div><span className="eyebrow">SIGNALS · IMMUTABLE FACTS</span><h2>今日信号</h2><p>展示所有策略命中的股票；人工判断不会改变原始信号。</p></div><span className="workbench-as-of">共 {visibleSignals.length} 条</span></div>
+          <WorkbenchFilterBar query={query} onQueryChange={setQuery} filter={filter} onFilterChange={setFilter} onRefresh={() => setReloadToken((value) => value + 1)} busy={loading} />
+          {loading ? <div className="workbench-loading">正在读取信号…</div> : <WorkbenchSignalTable signals={visibleSignals} onOpen={(symbol) => void openStock(symbol)} emptyMessage="没有匹配的策略信号。" />}
+        </>
+      )}
+      {route === 'watchlist' && (
+        <>
+          <div className="workbench-section-heading"><div><span className="eyebrow">WATCHLIST · RE-EVALUATION</span><h2>观察池</h2><p>只显示已进入观察或准备买入、且尚未确认买入的信号。</p></div><span className="workbench-as-of">共 {visibleSignals.length} 条</span></div>
+          <WorkbenchFilterBar query={query} onQueryChange={setQuery} filter={filter} onFilterChange={setFilter} onRefresh={() => setReloadToken((value) => value + 1)} busy={loading} />
+          {loading ? <div className="workbench-loading">正在读取观察池…</div> : <><WorkbenchChangeSummary signals={signals} /><WorkbenchSignalTable signals={visibleSignals} onOpen={(symbol) => void openStock(symbol)} emptyMessage="观察池为空。" /></>}
+        </>
+      )}
+      {route === 'positions' && (
+        <>
+          <div className="workbench-section-heading"><div><span className="eyebrow">POSITIONS · CONFIRMED FACTS</span><h2>持仓</h2><p>持仓由已确认成交推导，不把策略信号或推荐当作交易。</p></div><span className="workbench-as-of">共 {positions.length} 个</span></div>
+          {loading ? <div className="workbench-loading">正在读取持仓…</div> : positions.length === 0 ? <p className="workbench-empty">暂无持仓。</p> : <div className="workbench-position-list">{positions.map((item) => <button type="button" className="workbench-position-row" key={item.position.security.symbol} onClick={() => void openStock(item.position.security.symbol)}><span className="workbench-stock-cell"><strong>{item.position.security.symbol}</strong><small>{item.position.security.name ?? '未提供名称'} · {item.source === 'signal' ? '策略来源' : item.source === 'mixed' ? '混合来源' : '手工发现'}</small></span><span><small>数量</small><strong>{item.position.quantity}</strong></span><span><small>成本</small><strong>{formatPrice(item.position.average_cost)}</strong></span><span><small>现价</small><strong>{formatPrice(item.market.close)}</strong></span><span><small>浮动收益</small><strong className={Number(item.unrealized_return ?? 0) >= 0 ? 'market-profit' : 'market-loss'}>{formatPercent(item.unrealized_return)}</strong></span><span><small>持有天数</small><strong>{item.holding_days}</strong></span></button>)}</div>}
+        </>
+      )}
+      {route === 'trades' && (
+        <>
+          <div className="workbench-section-heading"><div><span className="eyebrow">TRADES · MANUAL EXECUTIONS</span><h2>交易记录</h2><p>仅展示用户显式确认的订单与成交。</p></div><span className="workbench-as-of">共 {trades.length} 笔</span></div>
+          {loading ? <div className="workbench-loading">正在读取交易…</div> : trades.length === 0 ? <p className="workbench-empty">暂无已确认成交。</p> : <div className="workbench-trade-list">{trades.map((trade) => <button type="button" className="workbench-trade-row" key={trade.order.order_id} onClick={() => void openStock(trade.order.security.symbol)}><span className="workbench-stock-cell"><strong>{trade.order.security.symbol}</strong><small>{trade.order.security.name ?? '未提供名称'} · {trade.source === 'signal' ? '策略来源' : trade.source === 'mixed' ? '混合来源' : '手工发现'}</small></span><span className={`trade-side trade-side--${trade.order.side}`}>{trade.order.side === 'buy' ? '买入' : '卖出'}</span><span><small>数量</small><strong>{trade.order.quantity}</strong></span><span><small>成交</small><strong>{trade.fills.length} 笔</strong></span><span><small>最近成交</small><strong>{trade.fills.length ? formatManagementDate(trade.fills[trade.fills.length - 1].filled_at) : '—'}</strong></span></button>)}</div>}
+        </>
+      )}
+      {route === 'strategies' && (
+        <>
+          <div className="workbench-section-heading"><div><span className="eyebrow">STRATEGIES · VERSIONED EVIDENCE</span><h2>策略</h2><p>按策略版本比较全部信号、人工看好和实际买入的客观结果。</p></div><span className="workbench-as-of">共 {strategies.length} 个版本</span></div>
+          {loading ? <div className="workbench-loading">正在读取策略证据…</div> : strategies.length === 0 ? <p className="workbench-empty">暂无策略信号。</p> : <div className="workbench-strategy-grid">{strategies.map((strategy) => <article className="workbench-strategy-card" key={`${strategy.formula_id ?? 'none'}:${strategy.formula_version ?? 'none'}`}><div className="workbench-card-heading"><div><strong>{strategy.formula_name}</strong><span>{strategy.formula_version ?? '未版本化'}</span></div><b>{strategy.signal_count}<small>信号</small></b></div><div className="workbench-cohort-grid">{strategy.cohorts.map((cohort) => <div className="workbench-cohort" key={cohort.cohort}><span>{workbenchCohortLabel(cohort.cohort)}</span><strong>{cohort.sample_count}</strong><small>已解决 {cohort.resolved_count} · 排除 {cohort.excluded_count}</small>{cohort.horizons[0] && <small>T+{cohort.horizons[0].horizon_sessions} 平均 {formatPercent(cohort.horizons[0].average_return)}</small>}</div>)}</div></article>)}</div>}
+        </>
+      )}
+      {route === 'analytics' && (
+        <>
+          <div className="workbench-section-heading"><div><span className="eyebrow">ANALYTICS · HUMAN VS EVIDENCE</span><h2>分析</h2><p>指标只来自已解决的客观表现；缺失样本保持为空。</p></div><span className="workbench-as-of">截至 {analytics ? formatManagementDate(analytics.as_of) : '—'}</span></div>
+          {loading ? <div className="workbench-loading">正在读取分析…</div> : !analytics || analytics.cohorts.length === 0 ? <p className="workbench-empty">暂无可比较的策略证据。</p> : <div className="workbench-analytics-grid">{analytics.cohorts.map((cohort) => <article className="workbench-analytics-card" key={cohort.cohort}><div className="workbench-card-heading"><div><strong>{workbenchCohortLabel(cohort.cohort)}</strong><span>样本 {cohort.sample_count} · 已解决 {cohort.resolved_count}</span></div><span className="workbench-status workbench-status--neutral">只读</span></div><div className="workbench-analytics-horizons">{cohort.horizons.map((horizon) => <div key={horizon.horizon_sessions}><span>T+{horizon.horizon_sessions}</span><strong>{formatPercent(horizon.average_return)}</strong><small>{horizon.sample_count} 个表现样本</small></div>)}</div></article>)}</div>}
+        </>
+      )}
+      {(route === 'positions' || route === 'trades') && (
+        <details className="workbench-legacy-tools">
+          <summary>打开现有手工台账录入</summary>
+          <p>交易写入仍保留在独立的手工台账流程中；这里不会把策略信号自动转换为订单。</p>
+          <PortfolioWorkspace apiBase={apiBase} />
+        </details>
+      )}
+      {selectedSymbol && drawerLoading && <div className="stock-drawer-loading" role="status">正在读取 {selectedSymbol} 的证据…</div>}
+      {selectedSymbol && drawerError && <div className="stock-drawer-loading stock-drawer-loading--error" role="alert">{drawerError}<button type="button" onClick={() => setSelectedSymbol(null)}>关闭</button></div>}
+      {stockDetail && <StockDetailDrawer apiBase={apiBase} detail={stockDetail} onClose={() => { setSelectedSymbol(null); setStockDetail(null) }} onAnnotationSaved={async () => { setReloadToken((value) => value + 1); await refreshStock() }} onTradeSaved={async () => { setReloadToken((value) => value + 1); await refreshStock() }} />}
+    </section>
+  )
+}
+
 function App() {
   const [workspace, setWorkspace] = useState<Workspace>('research')
+  const [activeRoute, setActiveRoute] = useState<AppRoute>('workbench')
   const [healthState, setHealthState] = useState<HealthState>('checking')
   const [formulas, setFormulas] = useState<Formula[]>([])
   const [selectedFormulaId, setSelectedFormulaId] = useState('')
@@ -1060,7 +2158,6 @@ function App() {
   const [timeoutSeconds, setTimeoutSeconds] = useState('900')
   const [maturityTasks, setMaturityTasks] = useState<MaturityTask[]>([])
   const [maturityTaskAction, setMaturityTaskAction] = useState<string | null>(null)
-  const [notes, setNotes] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [batchReloadToken, setBatchReloadToken] = useState(0)
   const [loadingBatches, setLoadingBatches] = useState(true)
@@ -1072,6 +2169,15 @@ function App() {
   const [annotationOutlook, setAnnotationOutlook] = useState<AnnotationOutlook>('neutral')
   const [annotationDecision, setAnnotationDecision] = useState<AnnotationDecision>('watch')
   const [annotationTags, setAnnotationTags] = useState<Record<string, string[]>>({})
+  const [annotationReusableTagIds, setAnnotationReusableTagIds] = useState<string[]>([])
+  const [annotationNewTagLabels, setAnnotationNewTagLabels] = useState<Record<ReusableTagCategory, string>>({
+    position: '',
+    pattern: '',
+    price_volume: '',
+    sector: '',
+  })
+  const [annotationTagBusy, setAnnotationTagBusy] = useState<ReusableTagCategory | null>(null)
+  const [reusableTags, setReusableTags] = useState<ReusableTag[]>([])
   const [annotationNote, setAnnotationNote] = useState('')
   const [annotationBusy, setAnnotationBusy] = useState(false)
   const [tradeCandidateId, setTradeCandidateId] = useState<string | null>(null)
@@ -1111,6 +2217,10 @@ function App() {
   }, [])
 
   useEffect(() => {
+    void loadReusableTags()
+  }, [])
+
+  useEffect(() => {
     if (batchesLoadStarted.current) {
       return
     }
@@ -1134,6 +2244,7 @@ function App() {
     if (workspace === 'research') {
       void loadBatches()
       void loadFormulas()
+      void loadReusableTags()
     }
   }, [workspace])
 
@@ -1147,8 +2258,6 @@ function App() {
       setModelScoreLoadingId(null)
       setRecommendationWorkbench(null)
       setRecommendationLoading(false)
-      setMaturityTasks([])
-      setLoadingMaturityTasks(false)
       return
     }
     const controller = new AbortController()
@@ -1160,9 +2269,7 @@ function App() {
     setModelScoreLoadingId(null)
     setRecommendationWorkbench(null)
     setRecommendationLoading(false)
-    setMaturityTasks([])
     setLoadingBatch(true)
-    setLoadingMaturityTasks(true)
     void Promise.all([
       requestJson<BatchView>(
         `${apiBase}/v1/selection-batches/${encodeURIComponent(selectedBatchId)}`,
@@ -1172,26 +2279,20 @@ function App() {
         `${apiBase}/v1/selection-batches/${encodeURIComponent(selectedBatchId)}/stats`,
         { signal: controller.signal },
       ),
-      requestJson<MaturityTask[]>(
-        `${apiBase}/v1/selection-batches/${encodeURIComponent(selectedBatchId)}/maturity-tasks`,
-        { signal: controller.signal },
-      ),
     ])
-      .then(([batch, stats, tasks]) => {
+      .then(([batch, stats]) => {
         setSelectedBatch(batch)
         setSelectedStats(stats)
-        setMaturityTasks(tasks)
       })
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === 'AbortError') {
           return
         }
-        setError(reason instanceof Error ? reason.message : '加载批次和成熟任务失败。')
+        setError(reason instanceof Error ? reason.message : '加载批次详情失败。')
       })
       .finally(() => {
         if (!controller.signal.aborted) {
           setLoadingBatch(false)
-          setLoadingMaturityTasks(false)
         }
       })
 
@@ -1442,6 +2543,8 @@ function App() {
     setAnnotationOutlook('neutral')
     setAnnotationDecision('watch')
     setAnnotationTags({})
+    setAnnotationReusableTagIds([])
+    setAnnotationNewTagLabels({ position: '', pattern: '', price_volume: '', sector: '' })
     setAnnotationNote('')
   }
 
@@ -1459,6 +2562,46 @@ function App() {
         [group]: values.includes(tag) ? values.filter((item) => item !== tag) : [...values, tag],
       }
     })
+  }
+
+  function toggleReusableTag(tagId: string) {
+    setAnnotationReusableTagIds((current) =>
+      current.includes(tagId) ? current.filter((item) => item !== tagId) : [...current, tagId],
+    )
+  }
+
+  async function loadReusableTags() {
+    try {
+      const tags = await requestJson<ReusableTag[]>(`${apiBase}/v1/annotation-tags`)
+      setReusableTags(tags)
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '加载评审标签失败。')
+    }
+  }
+
+  async function createAndSelectReusableTag(category: ReusableTagCategory) {
+    const label = annotationNewTagLabels[category].trim()
+    if (!label || annotationTagBusy !== null) {
+      return
+    }
+    setAnnotationTagBusy(category)
+    setError(null)
+    try {
+      const tag = await requestJson<ReusableTag>(`${apiBase}/v1/annotation-tags`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category, label }),
+      })
+      setReusableTags((current) => [tag, ...current.filter((item) => item.tag_id !== tag.tag_id)])
+      setAnnotationReusableTagIds((current) => (
+        current.includes(tag.tag_id) ? current : [...current, tag.tag_id]
+      ))
+      setAnnotationNewTagLabels((current) => ({ ...current, [category]: '' }))
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '创建评审标签失败。')
+    } finally {
+      setAnnotationTagBusy(null)
+    }
   }
 
   function openCandidateTrade(candidateView: CandidateView) {
@@ -1511,6 +2654,7 @@ function App() {
         }),
       })
       setTradeCandidateId(null)
+      setActiveRoute('positions')
       setWorkspace('portfolio')
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : '保存实际买入失败。')
@@ -1542,6 +2686,7 @@ function App() {
             pattern_tags: annotationTags.pattern_tags ?? [],
             price_volume_tags: annotationTags.price_volume_tags ?? [],
             sector_tags: annotationTags.sector_tags ?? [],
+            reusable_tag_ids: annotationReusableTagIds,
             note: annotationNote.trim() || null,
           }),
         },
@@ -1671,41 +2816,44 @@ function App() {
     }
   }
 
-  return (
-    <main className="shell">
-      <header className="hero">
-        <p className="eyebrow">STRATGAUGE · 策衡</p>
-        <h1>衡量优势，以证据交易。</h1>
-        <p className="summary">通达信负责选股，系统负责留痕、标注和后续验证。</p>
-        <nav className="workspace-nav" aria-label="工作区导航">
-          <Button
-            type="button"
-            variant={workspace === 'research' ? 'default' : 'outline'}
-            onClick={() => setWorkspace('research')}
-          >
-            <LayoutDashboard className="h-4 w-4" />
-            研究工作台
-          </Button>
-          <Button
-            type="button"
-            variant={workspace === 'management' ? 'default' : 'outline'}
-            onClick={() => setWorkspace('management')}
-          >
-            <Database className="h-4 w-4" />
-            数据管理
-          </Button>
-          <Button
-            type="button"
-            variant={workspace === 'portfolio' ? 'default' : 'outline'}
-            onClick={() => setWorkspace('portfolio')}
-          >
-            <WalletCards className="h-4 w-4" />
-            持仓台账
-          </Button>
-        </nav>
-      </header>
+  function navigateTo(route: AppRoute) {
+    setActiveRoute(route)
+    if (route === 'settings') {
+      setWorkspace('management')
+    } else if (route === 'positions' || route === 'trades') {
+      setWorkspace('portfolio')
+    } else {
+      setWorkspace('research')
+    }
+  }
 
-      {workspace === 'management' ? (
+  return (
+    <main className="app-shell">
+      <AppSidebar activeRoute={activeRoute} onNavigate={navigateTo} />
+      <div className="app-main-column">
+        <OperationalStatusBar healthState={healthState} activeRoute={activeRoute} />
+        <section className="app-content-shell">
+          <header className="content-page-heading">
+            <div>
+              <p className="eyebrow">STRATGAUGE · 策衡</p>
+              <h1>{appRouteLabels[activeRoute]}</h1>
+              <p className="content-page-summary">
+                {activeRoute === 'settings'
+                  ? '公式、标签和批次等低频管理。'
+                  : activeRoute === 'import'
+                    ? '导入通达信收盘后结果，保留原始文件证据并创建选股批次。'
+                    : '从策略信号出发，保留人工判断、客观行情与真实交易的证据边界。'}
+              </p>
+            </div>
+            <div className="content-page-meta">
+              <span>证据驱动</span>
+              <span>不自动交易</span>
+            </div>
+          </header>
+
+      {activeRoute !== 'settings' && activeRoute !== 'import' ? (
+        <WorkbenchWorkspace apiBase={apiBase} route={activeRoute as WorkbenchRoute} />
+      ) : workspace === 'management' ? (
         <DataManagementWorkspace
           apiBase={apiBase}
           onFormulaCreated={() => void loadFormulas()}
@@ -1734,6 +2882,8 @@ function App() {
       </Card>
 
       {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
+
+      <MainBoardMarketSyncPanel apiBase={apiBase} />
 
       <section className="research-layout" aria-label="通达信选股研究工作区">
         <Card className="import-panel panel">
@@ -2092,8 +3242,8 @@ function App() {
       <Card className="candidate-panel panel" aria-labelledby="candidate-title">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">03 · 标注</p>
-            <h2 id="candidate-title">候选股票</h2>
+            <p className="eyebrow">03 · 候选</p>
+            <h2 id="candidate-title">候选股票（只读）</h2>
           </div>
           <div className="section-heading-actions">
             {selectedBatch && (
@@ -2115,37 +3265,7 @@ function App() {
             </Button>
           </div>
         </div>
-        <aside className="decision-guide" aria-labelledby="decision-guide-title">
-          <div className="decision-guide-heading">
-            <div>
-              <p className="eyebrow">先看这里</p>
-              <h3 id="decision-guide-title">标记代表什么？</h3>
-            </div>
-            <span>当天标记，下一交易日前完成；实际成交另记。</span>
-          </div>
-          <div className="decision-guide-grid ">
-            <div>
-              <Badge className="decision-badge--buy_candidate">候选</Badge>
-              <p>明天优先复核</p>
-            </div>
-            <div>
-              <Badge className="decision-badge--watch">观察</Badge>
-              <p>暂时不买，继续跟踪</p>
-            </div>
-            <div>
-              <Badge className="decision-badge--pass">放弃</Badge>
-              <p>本次不考虑</p>
-            </div>
-            <div>
-              <Badge className="decision-badge--invalid">无效</Badge>
-              <p>代码或数据无效</p>
-            </div>
-          </div>
-          <p className="decision-guide-callout">
-            <strong>明天不买、后天才买：</strong>
-            今天标“观察”；实际成交时到持仓台账记录时间和价格。
-          </p>
-        </aside>
+        <p className="candidate-readonly-note">这里仅查看导入批次和历史证据。新的人工判断请进入“工作台 / 今日信号”，打开股票详情后使用“判断”Tab；旧标签仅保留为历史兼容数据，不再从此处新增或覆盖。</p>
         {recommendationWorkbench && <RecommendationWorkbenchPanel data={recommendationWorkbench} />}
         {selectedStats && !loadingBatch && (
           <div className="stats-strip" aria-label="批次统计">
@@ -2213,6 +3333,16 @@ function App() {
                           {annotationOutlookLabels[candidateView.latest_annotation.outlook]}
                         </Badge>
                       )}
+                      {candidateView.latest_annotation?.reusable_tag_snapshots.map((tag) => (
+                        <Badge
+                          key={tag.tag_id}
+                          variant="outline"
+                          className="reusable-tag-badge"
+                          title={`历史快照：${tag.category}`}
+                        >
+                          {tag.label}
+                        </Badge>
+                      ))}
                       <Badge variant={candidateView.excluded ? 'outline' : 'secondary'}>
                         {candidateView.excluded ? '已排除' : reviewStateLabel(candidateView.review_state)}
                       </Badge>
@@ -2228,6 +3358,28 @@ function App() {
                             T+{point.horizon_sessions} {formatPercent(point.return_from_anchor)}
                             {point.target_achieved === true ? ' · 达标' : ''}
                           </span>
+                        ))}
+                      </div>
+                    )}
+                    {candidateView.annotations.some((annotation) => annotation.reusable_tag_snapshots.length > 0) && (
+                      <div className="annotation-history" aria-label={`${candidate.symbol} 可复用标签历史`}>
+                        <span className="annotation-history-title">标签历史</span>
+                        {candidateView.annotations.map((annotation) => (
+                          <div className="annotation-history-row" key={annotation.annotation_id}>
+                            <span>{formatManagementDate(annotation.reviewed_at)}</span>
+                            <div className="badge-row">
+                              {annotation.reusable_tag_snapshots.map((tag) => (
+                                <Badge
+                                  key={tag.tag_id}
+                                  variant="outline"
+                                  className="reusable-tag-badge"
+                                  title={`评审快照 · ${tag.category}`}
+                                >
+                                  {tag.label}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -2263,42 +3415,7 @@ function App() {
                         <CandidateModelScorePanel data={candidateModelScores[candidate.candidate_id]} />
                       )}
                     </div>
-                    <Input
-                      className="note-input"
-                      type="text"
-                      value={notes[candidate.candidate_id] ?? ''}
-                      onChange={(event) =>
-                        setNotes((current) => ({
-                          ...current,
-                          [candidate.candidate_id]: event.target.value,
-                        }))
-                      }
-                      placeholder="备注（可选）"
-                      aria-label={`${candidate.symbol} 的标注备注`}
-                    />
-                    <div className="decision-buttons" aria-label={`${candidate.symbol} 人工评审操作`}>
-                      <Button
-                        variant="default"
-                        size="sm"
-                        type="button"
-                        disabled={annotationBusy || tradeBusy || candidateView.excluded}
-                        onClick={() => openAnnotation(candidateView)}
-                      >
-                        {candidateView.latest_annotation ? '新增评审' : '开始评审'}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        type="button"
-                        disabled={annotationBusy || tradeBusy || candidateView.excluded}
-                        onClick={() => openCandidateTrade(candidateView)}
-                      >
-                        记录实际买入
-                      </Button>
-                      {candidateView.annotations.length > 0 && (
-                        <span className="form-hint">已评审 {candidateView.annotations.length} 次</span>
-                      )}
-                    </div>
+                    <span className="candidate-readonly-hint">人工判断与交易记录请从工作台股票详情进入。</span>
                   </div>
                 </article>
               )
@@ -2348,26 +3465,66 @@ function App() {
               </div>
             </div>
             <div className="annotation-tag-groups">
-              {annotationTagGroups.map((group) => (
-                <fieldset className="annotation-tag-group" key={group.key}>
-                  <legend>{group.label}</legend>
-                  <div className="annotation-tag-options">
-                    {group.options.map(([value, text]) => {
-                      const checked = annotationTags[group.key]?.includes(value) ?? false
-                      return (
-                        <label className="annotation-tag-option" key={value}>
+              {annotationTagGroups.map((group) => {
+                const categoryTags = reusableTags.filter((tag) => tag.category === group.reusableCategory && tag.active)
+                return (
+                  <fieldset className="annotation-tag-group" key={group.key}>
+                    <legend>{group.label}</legend>
+                    <div className="annotation-tag-options">
+                      {group.options.map(([value, text]) => {
+                        const checked = annotationTags[group.key]?.includes(value) ?? false
+                        return (
+                          <label className="annotation-tag-option" key={value}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleAnnotationTag(group.key, value)}
+                            />
+                            <span>{text}</span>
+                          </label>
+                        )
+                      })}
+                      {categoryTags.map((tag) => (
+                        <label className="annotation-tag-option annotation-tag-option--reusable" key={tag.tag_id}>
                           <input
                             type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleAnnotationTag(group.key, value)}
+                            checked={annotationReusableTagIds.includes(tag.tag_id)}
+                            onChange={() => toggleReusableTag(tag.tag_id)}
                           />
-                          <span>{text}</span>
+                          <span>{tag.label}</span>
                         </label>
-                      )
-                    })}
-                  </div>
-                </fieldset>
-              ))}
+                      ))}
+                    </div>
+                    <div className="annotation-tag-create">
+                      <Input
+                        value={annotationNewTagLabels[group.reusableCategory]}
+                        onChange={(event) => setAnnotationNewTagLabels((current) => ({
+                          ...current,
+                          [group.reusableCategory]: event.target.value,
+                        }))}
+                        placeholder={`新建${group.label}标签`}
+                        aria-label={`新建${group.label}标签`}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault()
+                            void createAndSelectReusableTag(group.reusableCategory)
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={annotationBusy || annotationTagBusy !== null || !annotationNewTagLabels[group.reusableCategory].trim()}
+                        data-saving={annotationTagBusy === group.reusableCategory}
+                        onClick={() => void createAndSelectReusableTag(group.reusableCategory)}
+                      >
+                        {annotationTagBusy === group.reusableCategory ? '创建中…' : '新建并选中'}
+                      </Button>
+                    </div>
+                  </fieldset>
+                )
+              })}
             </div>
             <div className="field">
               <Label htmlFor="annotation-note">自由备注（可选）</Label>
@@ -2435,7 +3592,7 @@ function App() {
         </DialogContent>
       </Dialog>
 
-      <Card className="mature-panel panel" aria-labelledby="mature-title">
+      {false && <Card className="mature-panel panel" aria-labelledby="mature-title">
         <div className="section-heading maturity-section-heading">
           <div>
             <p className="eyebrow">04 · 成熟</p>
@@ -2668,7 +3825,7 @@ function App() {
             })}
           </div>
         )}
-      </Card>
+      </Card>}
 
       <section className="principles" aria-labelledby="principles-title">
         <h2 id="principles-title">当前边界</h2>
@@ -2680,6 +3837,8 @@ function App() {
       </section>
         </>
       )}
+        </section>
+      </div>
     </main>
   )
 }
@@ -2717,17 +3876,23 @@ function DataManagementWorkspace({
   const [editFormulaVersion, setEditFormulaVersion] = useState('')
   const [editFormulaDescription, setEditFormulaDescription] = useState('')
   const [editFormulaBusy, setEditFormulaBusy] = useState(false)
+  const [managedTags, setManagedTags] = useState<ManagedReusableTag[]>([])
+  const [tagEditId, setTagEditId] = useState<string | null>(null)
+  const [tagEditLabel, setTagEditLabel] = useState('')
+  const [tagBusyKey, setTagBusyKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function loadManagement() {
     setLoading(true)
     try {
-      const [formulaResult, batchResult] = await Promise.all([
+      const [formulaResult, batchResult, tagResult] = await Promise.all([
         requestJson<ManagedFormula[]>(`${apiBase}/v1/data-management/formulas`),
         requestJson<ManagedBatch[]>(`${apiBase}/v1/data-management/batches`),
+        requestJson<ManagedReusableTag[]>(`${apiBase}/v1/data-management/annotation-tags`),
       ])
       setFormulas(formulaResult)
       setBatches(batchResult)
+      setManagedTags(tagResult)
       setSelectedBatchId((current) => {
         if (current && batchResult.some((item) => item.batch.batch_id === current)) {
           return current
@@ -2945,6 +4110,60 @@ function DataManagementWorkspace({
     }
   }
 
+  function beginTagRename(tag: ManagedReusableTag) {
+    setTagEditId(tag.tag_id)
+    setTagEditLabel(tag.label)
+    setError(null)
+  }
+
+  async function renameManagedTag(tag: ManagedReusableTag) {
+    const label = tagEditLabel.trim()
+    if (!label || tagBusyKey !== null) {
+      return
+    }
+    const key = `rename:${tag.tag_id}`
+    setTagBusyKey(key)
+    setError(null)
+    try {
+      await requestJson<ManagedReusableTag>(
+        `${apiBase}/v1/data-management/annotation-tags/${encodeURIComponent(tag.tag_id)}/rename`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label }),
+        },
+      )
+      await loadManagement()
+      setTagEditId(null)
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '保存评审标签改名失败。')
+    } finally {
+      setTagBusyKey(null)
+    }
+  }
+
+  async function changeManagedTagStatus(tag: ManagedReusableTag) {
+    const action = tag.active ? 'archive' : 'restore'
+    const key = `tags:${tag.tag_id}:${action}`
+    setTagBusyKey(key)
+    setError(null)
+    try {
+      await requestJson<ManagedReusableTag>(
+        `${apiBase}/v1/data-management/annotation-tags/${encodeURIComponent(tag.tag_id)}/${action}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: tag.active ? 'Web 评审标签管理操作' : 'Web 评审标签恢复' }),
+        },
+      )
+      await loadManagement()
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '更新评审标签状态失败。')
+    } finally {
+      setTagBusyKey(null)
+    }
+  }
+
   function selectManagedBatch(batchId: string) {
     setSelectedBatchId(batchId)
     requestAnimationFrame(() => {
@@ -3139,6 +4358,76 @@ function DataManagementWorkspace({
       ) : (
         <>
           <div className="management-grid">
+            <Card className="management-section panel management-tags-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">评审标签目录</p>
+                  <h2>可复用标签</h2>
+                </div>
+                <Badge variant="outline">{managedTags.length} 项</Badge>
+              </div>
+              <p className="form-hint">改名和归档只追加生命周期事件；历史评审保留当时的标签快照。可复用标签不会自动进入机器学习数据。</p>
+              {managedTags.length === 0 ? (
+                <p className="empty-copy">还没有可复用标签。可以在评审表单中直接新建。</p>
+              ) : (
+                <div className="management-record-list">
+                  {managedTags.map((tag) => {
+                    const action = tag.active ? 'archive' : 'restore'
+                    const actionKey = `tags:${tag.tag_id}:${action}`
+                    const editing = tagEditId === tag.tag_id
+                    return (
+                      <article className="management-record" key={tag.tag_id}>
+                        <div className="management-record-heading">
+                          <div>
+                            <strong>{tag.label}</strong>
+                            <span>{reusableTagCategoryLabels[tag.category]} · {tag.tag_id}</span>
+                          </div>
+                          <Badge variant={tag.active ? 'secondary' : 'outline'} className={`lifecycle-badge lifecycle-badge--${tag.active ? 'active' : 'archived'}`}>
+                            {tag.active ? '启用' : '已归档'}
+                          </Badge>
+                        </div>
+                        {editing ? (
+                          <div className="management-tag-edit">
+                            <Input
+                              value={tagEditLabel}
+                              onChange={(event) => setTagEditLabel(event.target.value)}
+                              aria-label={`修改标签 ${tag.label}`}
+                              autoFocus
+                            />
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={tagBusyKey !== null || !tagEditLabel.trim()}
+                              data-saving={tagBusyKey === `rename:${tag.tag_id}`}
+                              onClick={() => void renameManagedTag(tag)}
+                            >
+                              {tagBusyKey === `rename:${tag.tag_id}` ? '保存中…' : '保存改名'}
+                            </Button>
+                            <Button type="button" size="sm" variant="ghost" disabled={tagBusyKey !== null} onClick={() => setTagEditId(null)}>取消</Button>
+                          </div>
+                        ) : (
+                          <div className="management-record-actions">
+                            <Button type="button" size="sm" variant="outline" onClick={() => beginTagRename(tag)}>改名</Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={tagBusyKey !== null}
+                              data-saving={tagBusyKey === actionKey}
+                              onClick={() => void changeManagedTagStatus(tag)}
+                            >
+                              {tag.active ? <Archive className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+                              {tagBusyKey === actionKey ? '处理中…' : tag.active ? '归档' : '恢复'}
+                            </Button>
+                          </div>
+                        )}
+                      </article>
+                    )
+                  })}
+                </div>
+              )}
+            </Card>
+
             <Card className="management-section panel">
               <div className="section-heading">
                 <div>

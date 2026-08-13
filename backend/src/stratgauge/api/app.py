@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.responses import JSONResponse, Response
 
 from stratgauge.api.analysis import (
@@ -17,6 +17,7 @@ from stratgauge.api.analysis import (
     AnalysisService,
     InMemoryAnalysisRepository,
 )
+from stratgauge.api.market_sync import MarketSyncRequest, MarketSyncResponse, sync_main_board_close
 from stratgauge.api.model_scores import (
     CandidateModelScoresView,
     ModelScoreApiError,
@@ -24,6 +25,7 @@ from stratgauge.api.model_scores import (
 )
 from stratgauge.api.portfolio import (
     CandidateTradeRequest,
+    ConfirmedManualTradeRequest,
     ManualFillRequest,
     ManualOrderRequest,
     PortfolioApiError,
@@ -52,6 +54,8 @@ from stratgauge.api.selections import (
     SelectionMatureRequest,
     SelectionMatureView,
     SelectionObservationView,
+    SelectionReusableTagCreateRequest,
+    SelectionReusableTagRenameRequest,
     SelectionService,
     SelectionStatsView,
 )
@@ -62,6 +66,8 @@ from stratgauge.api.universe import (
     UniverseSearchResponse,
     UniverseSearchService,
 )
+from stratgauge.api.workbench import register_workbench_routes
+from stratgauge.application.workbench import WorkbenchReadError, WorkbenchService
 from stratgauge.backtest.recommendations import RecommendationWorkbench
 from stratgauge.backtest.selection_analysis import SelectionCandidateAnalysis
 from stratgauge.data_pipeline.portfolio_store import ManualPortfolioStore
@@ -85,6 +91,7 @@ from stratgauge.domain.selections import (
     SelectionFormula,
     SelectionLifecycleStatus,
     SelectionMaturityTask,
+    SelectionReusableTagView,
 )
 from stratgauge.ml.registry import ModelRegistryStore
 from stratgauge.ml.shadow import ShadowScoreStore
@@ -116,7 +123,14 @@ def create_app(
     service = AnalysisService(InMemoryAnalysisRepository(records or {}))
     selection_store_instance = selection_store or SelectionImportStore(runtime.selection_root)
     selections = SelectionService(selection_store_instance)
-    portfolio = PortfolioService(portfolio_store or ManualPortfolioStore(runtime.portfolio_root))
+    portfolio_store_instance = portfolio_store or ManualPortfolioStore(runtime.portfolio_root)
+    portfolio = PortfolioService(portfolio_store_instance)
+    market_store_instance = SnapshotStore(runtime.market_root)
+    workbench = WorkbenchService(
+        selection_store_instance,
+        portfolio_store_instance,
+        market_store_instance,
+    )
     universe = UniverseSearchService(
         universe_store or UniverseSnapshotStore(runtime.universe_root),
         UniverseOverrideStore(runtime.universe_root),
@@ -131,7 +145,7 @@ def create_app(
     recommendations = RecommendationWorkbenchService(
         selection_store_instance,
         score_store=score_store,
-        market_store=SnapshotStore(runtime.market_root),
+        market_store=market_store_instance,
     )
     create_market_adapter = market_adapter_factory or _create_market_adapter
     app = FastAPI(title="StratGauge API", version="0.1.0")
@@ -167,6 +181,13 @@ def create_app(
 
     @app.exception_handler(PortfolioApiError)
     async def handle_portfolio_error(_: Any, error: PortfolioApiError) -> JSONResponse:
+        return JSONResponse(
+            status_code=error.status_code,
+            content={"error": {"code": error.code, "message": error.message, "details": {}}},
+        )
+
+    @app.exception_handler(WorkbenchReadError)
+    async def handle_workbench_error(_: Any, error: WorkbenchReadError) -> JSONResponse:
         return JSONResponse(
             status_code=error.status_code,
             content={"error": {"code": error.code, "message": error.message, "details": {}}},
@@ -215,6 +236,21 @@ def create_app(
     ) -> UniverseSearchResponse:
         return universe.search(query=query, as_of=as_of, limit=limit)
 
+    @app.post("/v1/market-sync/main-board", response_model=MarketSyncResponse)
+    def sync_main_board_market_close(request: MarketSyncRequest) -> MarketSyncResponse:
+        try:
+            return sync_main_board_close(
+                request,
+                market_root=runtime.market_root,
+                universe_root=runtime.universe_root,
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    workbench_router = APIRouter(prefix="/v1/workbench", tags=["workbench"])
+    register_workbench_routes(workbench_router, workbench)
+    app.include_router(workbench_router)
+
     @app.get("/v1/positions", response_model=list[PortfolioPosition])
     def list_positions() -> list[PortfolioPosition]:
         return list(portfolio.positions())
@@ -234,6 +270,16 @@ def create_app(
     @app.post("/v1/manual-orders", response_model=ManualOrder, status_code=201)
     def create_manual_order(request: ManualOrderRequest) -> ManualOrder:
         return portfolio.create_order(request)
+
+    @app.post(
+        "/v1/manual-trades/confirm",
+        response_model=tuple[ManualOrder, ManualFill],
+        status_code=201,
+    )
+    def confirm_manual_trade(
+        request: ConfirmedManualTradeRequest,
+    ) -> tuple[ManualOrder, ManualFill]:
+        return portfolio.confirm_trade(request)
 
     @app.post("/v1/manual-fills", response_model=ManualFill, status_code=201)
     def record_manual_fill(request: ManualFillRequest) -> ManualFill:
@@ -269,6 +315,61 @@ def create_app(
     @app.get("/v1/formulas", response_model=list[SelectionFormula])
     def list_formulas() -> list[SelectionFormula]:
         return list(selections.list_formulas())
+
+    @app.get("/v1/annotation-tags", response_model=list[SelectionReusableTagView])
+    def list_annotation_tags() -> list[SelectionReusableTagView]:
+        return list(selections.list_reusable_tags())
+
+    @app.post("/v1/annotation-tags", response_model=SelectionReusableTagView, status_code=201)
+    def create_annotation_tag(
+        request: SelectionReusableTagCreateRequest,
+    ) -> SelectionReusableTagView:
+        return selections.create_reusable_tag(request)
+
+    @app.get(
+        "/v1/data-management/annotation-tags",
+        response_model=list[SelectionReusableTagView],
+    )
+    def list_managed_annotation_tags() -> list[SelectionReusableTagView]:
+        return list(selections.list_managed_reusable_tags())
+
+    @app.post(
+        "/v1/data-management/annotation-tags/{tag_id}/rename",
+        response_model=SelectionReusableTagView,
+    )
+    def rename_annotation_tag(
+        tag_id: str,
+        request: SelectionReusableTagRenameRequest,
+    ) -> SelectionReusableTagView:
+        return selections.rename_reusable_tag(tag_id, request)
+
+    @app.post(
+        "/v1/data-management/annotation-tags/{tag_id}/archive",
+        response_model=SelectionReusableTagView,
+    )
+    def archive_annotation_tag(
+        tag_id: str,
+        request: SelectionLifecycleChangeRequest,
+    ) -> SelectionReusableTagView:
+        return selections.set_reusable_tag_status(
+            tag_id,
+            SelectionLifecycleStatus.ARCHIVED,
+            request,
+        )
+
+    @app.post(
+        "/v1/data-management/annotation-tags/{tag_id}/restore",
+        response_model=SelectionReusableTagView,
+    )
+    def restore_annotation_tag(
+        tag_id: str,
+        request: SelectionLifecycleChangeRequest,
+    ) -> SelectionReusableTagView:
+        return selections.set_reusable_tag_status(
+            tag_id,
+            SelectionLifecycleStatus.ACTIVE,
+            request,
+        )
 
     @app.post("/v1/formulas", response_model=SelectionFormulaView, status_code=201)
     def create_formula(request: SelectionFormulaCreateRequest) -> SelectionFormulaView:

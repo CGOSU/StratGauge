@@ -1,3 +1,4 @@
+import json
 import unittest
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -21,6 +22,8 @@ from stratgauge.domain.selections import (
     SelectionAnnotationDecision,
     SelectionAnnotationOutlook,
     SelectionOutcomeStatus,
+    SelectionReusableTagCategory,
+    SelectionReusableTagSnapshot,
 )
 from stratgauge.ml.training_datasets import (
     TrainingDatasetPurpose,
@@ -68,6 +71,29 @@ class TrainingDatasetTests(unittest.TestCase):
         self.assertEqual(prepared.skipped_unlabeled_row_count, 1)
         self.assertEqual(report.purged_future_label_count, 1)
         self.assertTrue(report.eligible)
+
+    def test_annotation_dataset_with_reusable_tag_keeps_training_contract_unchanged(self) -> None:
+        row = _annotation_row("annotation-custom-tag", date(2026, 1, 1), "watch")
+        payload = row.model_dump()
+        payload["reusable_tag_snapshots"] = [
+            SelectionReusableTagSnapshot(
+                tag_id="annotation-tag-0123456789abcdef0123",
+                category=SelectionReusableTagCategory.PATTERN,
+                label="缩量企稳",
+            ).model_dump(mode="json")
+        ]
+        with self.assertRaises(ValueError):
+            prepare_training_label_dataset(
+                (json.dumps(payload, ensure_ascii=False) + "\n").encode(),
+                purpose=TrainingDatasetPurpose.ANNOTATION_DECISION,
+            )
+
+        prepared = prepare_training_label_dataset(
+            serialize_annotation_dataset((row,)).encode(),
+            purpose=TrainingDatasetPurpose.ANNOTATION_DECISION,
+        )
+        self.assertEqual(prepared.rows[0].target, TrainingLabel.WATCH)
+        self.assertNotIn("reusable_tag_snapshots", prepared.rows[0].model_dump())
 
     def test_annotation_decision_contract_omits_same_review_inputs(self) -> None:
         content = serialize_annotation_dataset(

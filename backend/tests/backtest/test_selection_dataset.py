@@ -8,6 +8,7 @@ from stratgauge.backtest.selection_dataset import (
     build_annotation_dataset,
     build_selection_dataset,
     read_annotation_dataset,
+    serialize_annotation_dataset,
     write_selection_dataset,
 )
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
@@ -20,6 +21,8 @@ from stratgauge.domain.selections import (
     SelectionAnnotationOutlook,
     SelectionOutcome,
     SelectionOutcomeStatus,
+    SelectionReusableTagCategory,
+    SelectionReusableTagSnapshot,
 )
 
 CONTENT = "代码,名称,市场\n000001,平安银行,SZ\n".encode()
@@ -158,6 +161,47 @@ class SelectionDatasetTests(unittest.TestCase):
             self.assertIsNone(rows[1].outcome_status)
             content = "".join(f"{row.model_dump_json()}\n" for row in rows).encode()
             self.assertEqual(len(read_annotation_dataset(content)), 2)
+
+    def test_reusable_annotation_tags_stay_out_of_v1_dataset(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SelectionImportStore(directory)
+            imported = import_tdx_export(
+                CONTENT,
+                selection_date=EXPORTED_AT.date(),
+                exported_at=EXPORTED_AT,
+                imported_at=IMPORTED_AT,
+                formula_name="公式 A",
+            )
+            store.write(CONTENT, imported)
+            annotation = SelectionAnnotation(
+                annotation_id="annotation-with-reusable-tag",
+                candidate_id=imported.candidates[0].candidate_id,
+                reviewed_at=IMPORTED_AT,
+                recorded_at=datetime(2026, 1, 5, 15, 11, tzinfo=UTC),
+                overall_score=4,
+                outlook=SelectionAnnotationOutlook.BULLISH,
+                decision=SelectionAnnotationDecision.PREPARE_BUY,
+                position_tags=(),
+                pattern_tags=(),
+                price_volume_tags=(),
+                sector_tags=(),
+                reusable_tag_snapshots=(
+                    SelectionReusableTagSnapshot(
+                        tag_id="annotation-tag-0123456789abcdef0123",
+                        category=SelectionReusableTagCategory.PATTERN,
+                        label="缩量企稳",
+                    ),
+                ),
+            )
+            store.write_annotation(imported.batch.batch_id, annotation)
+
+            rows = build_annotation_dataset(store, imported.batch.batch_id)
+            self.assertEqual(len(rows), 1)
+            payload = rows[0].model_dump(mode="json")
+            self.assertNotIn("reusable_tag_snapshots", payload)
+            serialized = serialize_annotation_dataset(rows)
+            self.assertNotIn("reusable_tag_snapshots", serialized)
+            self.assertEqual(len(read_annotation_dataset(serialized.encode())), 1)
 
     def test_dataset_writer_does_not_overwrite(self) -> None:
         with TemporaryDirectory() as directory:

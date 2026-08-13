@@ -22,6 +22,7 @@ from stratgauge.ml.training_datasets import (
     label_contract_id_for,
 )
 from stratgauge.ml.training_feature_lightgbm import (
+    FEATURE_LIGHTGBM_EVALUATION_VERSION,
     FEATURE_LIGHTGBM_MODEL_TYPE,
     FEATURE_LIGHTGBM_REPORT_VERSION,
     FeatureLightGBMEvaluationEvidence,
@@ -127,11 +128,31 @@ class FeatureCalibratedModel(DomainModel):
         expected_labels = _labels_for(self.purpose)
         if set(self.calibration_target_counts) != {label.value for label in expected_labels}:
             raise ValueError("feature calibration target counts do not match purpose")
+        if any(count <= 0 for count in self.calibration_target_counts.values()):
+            raise ValueError("feature calibration validation must contain every purpose class")
         expected_bin_labels = (
             {expected_labels[-1]} if len(expected_labels) == 2 else set(expected_labels)
         )
         if {item.label for item in self.bins} != expected_bin_labels:
             raise ValueError("feature calibration bins do not match purpose classes")
+        for label in expected_bin_labels:
+            bins = tuple(item for item in self.bins if item.label is label)
+            if sum(item.sample_count for item in bins) != self.calibration_row_count:
+                raise ValueError("feature calibration bins do not cover validation rows")
+            if (
+                sum(item.positive_count for item in bins)
+                != self.calibration_target_counts[label.value]
+            ):
+                raise ValueError("feature calibration bins do not match validation targets")
+            if tuple(item.lower_probability for item in bins) != tuple(
+                sorted(item.lower_probability for item in bins)
+            ):
+                raise ValueError("feature calibration bins are not ordered")
+            if any(
+                left.upper_probability > right.lower_probability
+                for left, right in zip(bins, bins[1:], strict=False)
+            ):
+                raise ValueError("feature calibration bins overlap")
         return self
 
 
@@ -160,6 +181,10 @@ class FeatureCalibratedPrediction(DomainModel):
 
     @model_validator(mode="after")
     def validate_probabilities(self) -> FeatureCalibratedPrediction:
+        if self.label_available_at.date() < self.observation_date:
+            raise ValueError(
+                "feature calibration label availability cannot precede observation date"
+            )
         labels = set(self.predicted_probabilities)
         if labels != set(self.calibrated_probabilities):
             raise ValueError("feature calibration probability labels do not match")
@@ -231,6 +256,63 @@ class FeatureCalibrationResult:
     source_manifest_sha256: str
 
 
+@dataclass(frozen=True)
+class FeatureCalibrationOutput:
+    """Verified immutable outputs from one feature calibration directory."""
+
+    model: FeatureCalibratedModel
+    metrics: FeatureCalibrationEvaluationEvidence
+    predictions: tuple[FeatureCalibratedPrediction, ...]
+    manifest: Mapping[str, object]
+    calibration_sha256: str
+    metrics_sha256: str
+    calibrated_predictions_sha256: str
+    manifest_sha256: str
+
+
+def read_feature_calibration_output(output_dir: str | Path) -> FeatureCalibrationOutput:
+    """Read and verify every artifact in one purpose-aware calibration directory."""
+
+    directory = Path(output_dir)
+    try:
+        calibration_content = (directory / "calibration.json").read_bytes()
+        metrics_content = (directory / "metrics.json").read_bytes()
+        predictions_content = (directory / "calibrated_predictions.jsonl").read_bytes()
+        manifest_content = (directory / "manifest.json").read_bytes()
+        model = FeatureCalibratedModel.model_validate_json(calibration_content)
+        metrics = FeatureCalibrationEvaluationEvidence.model_validate_json(metrics_content)
+        predictions = _read_calibrated_predictions(predictions_content)
+        manifest = _read_json_object(manifest_content, "feature calibration manifest")
+    except (OSError, TypeError, ValueError) as exc:
+        raise FeatureCalibrationError(
+            f"invalid feature calibration output: {directory}: {exc}"
+        ) from exc
+
+    calibration_sha256 = _sha256(calibration_content)
+    metrics_sha256 = _sha256(metrics_content)
+    calibrated_predictions_sha256 = _sha256(predictions_content)
+    manifest_sha256 = _sha256(manifest_content)
+    _validate_calibration_output(
+        model,
+        metrics,
+        predictions,
+        manifest,
+        calibration_sha256=calibration_sha256,
+        metrics_sha256=metrics_sha256,
+        calibrated_predictions_sha256=calibrated_predictions_sha256,
+    )
+    return FeatureCalibrationOutput(
+        model=model,
+        metrics=metrics,
+        predictions=predictions,
+        manifest=manifest,
+        calibration_sha256=calibration_sha256,
+        metrics_sha256=metrics_sha256,
+        calibrated_predictions_sha256=calibrated_predictions_sha256,
+        manifest_sha256=manifest_sha256,
+    )
+
+
 def read_feature_lightgbm_output(output_dir: str | Path) -> FeatureLightGBMOutput:
     """Read and verify all model, evaluation, prediction and manifest evidence."""
 
@@ -274,6 +356,29 @@ def read_feature_lightgbm_output(output_dir: str | Path) -> FeatureLightGBMOutpu
         predictions_sha256=predictions_sha256,
         manifest_sha256=manifest_sha256,
     )
+
+
+def _read_calibrated_predictions(content: bytes) -> tuple[FeatureCalibratedPrediction, ...]:
+    try:
+        lines = content.decode("utf-8").splitlines()
+    except UnicodeDecodeError as exc:
+        raise FeatureCalibrationError("feature calibrated predictions are not UTF-8") from exc
+    predictions: list[FeatureCalibratedPrediction] = []
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+            if not isinstance(payload, dict):
+                raise ValueError("calibrated prediction row must be a JSON object")
+            predictions.append(FeatureCalibratedPrediction.model_validate(payload))
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise FeatureCalibrationError(
+                f"invalid feature calibrated prediction at line {line_number}: {exc}"
+            ) from exc
+    if not predictions:
+        raise FeatureCalibrationError("feature calibrated predictions contain no rows")
+    return tuple(predictions)
 
 
 def calibrate_feature_lightgbm(
@@ -445,6 +550,109 @@ def write_feature_calibration_result(
     _write_outputs(Path(output_dir), outputs)
 
 
+def _validate_calibration_output(
+    model: FeatureCalibratedModel,
+    metrics: FeatureCalibrationEvaluationEvidence,
+    predictions: Sequence[FeatureCalibratedPrediction],
+    manifest: Mapping[str, object],
+    *,
+    calibration_sha256: str,
+    metrics_sha256: str,
+    calibrated_predictions_sha256: str,
+) -> None:
+    if manifest.get("calibration_version") != FEATURE_CALIBRATION_VERSION:
+        raise FeatureCalibrationError("unsupported feature calibration manifest version")
+    for name, expected in (
+        ("calibration_id", model.calibration_id),
+        ("base_model_version_id", model.base_model_version_id),
+        ("purpose", model.purpose.value),
+        ("label_contract_id", model.label_contract_id),
+        ("feature_set_version_id", model.feature_set_version_id),
+        ("source_prediction_sha256", model.source_prediction_sha256),
+        ("source_model_sha256", model.source_model_sha256),
+        ("source_manifest_sha256", model.source_manifest_sha256),
+        ("calibration_sha256", calibration_sha256),
+        ("metrics_sha256", metrics_sha256),
+        ("calibrated_predictions_sha256", calibrated_predictions_sha256),
+    ):
+        _require_manifest_equal(manifest, name, expected)
+    if manifest.get("calibrated") is not True or manifest.get("calibration_split") != "validation":
+        raise FeatureCalibrationError("feature calibration manifest is not validation-only")
+    if _manifest_sequence(manifest, "feature_names") != model.feature_names:
+        raise FeatureCalibrationError("feature calibration manifest feature columns do not match")
+    if manifest.get("calibration_row_count") != model.calibration_row_count:
+        raise FeatureCalibrationError("feature calibration manifest row count does not match")
+    if manifest.get("test_row_count") != model.test_row_count:
+        raise FeatureCalibrationError("feature calibration manifest test count does not match")
+    if manifest.get("calibrated_at") != model.calibrated_at.isoformat():
+        raise FeatureCalibrationError("feature calibration manifest timestamp does not match")
+    if manifest.get("calibration_date_start") != model.calibration_date_start.isoformat():
+        raise FeatureCalibrationError("feature calibration manifest start date does not match")
+    if manifest.get("calibration_date_end") != model.calibration_date_end.isoformat():
+        raise FeatureCalibrationError("feature calibration manifest end date does not match")
+    if (
+        metrics.evaluation_version != FEATURE_CALIBRATION_EVALUATION_VERSION
+        or metrics.model_version_id != model.calibration_id
+        or metrics.purpose is not model.purpose
+        or metrics.label_contract_id != model.label_contract_id
+        or metrics.feature_set_version_id != model.feature_set_version_id
+        or metrics.source_prediction_sha256 != model.source_prediction_sha256
+        or metrics.source_model_sha256 != model.source_model_sha256
+        or metrics.source_manifest_sha256 != model.source_manifest_sha256
+        or not metrics.calibrated
+    ):
+        raise FeatureCalibrationError("feature calibration evaluation evidence does not match")
+    _validate_calibrated_prediction_evidence(model, metrics, predictions)
+
+
+def _validate_calibrated_prediction_evidence(
+    model: FeatureCalibratedModel,
+    metrics: FeatureCalibrationEvaluationEvidence,
+    predictions: Sequence[FeatureCalibratedPrediction],
+) -> None:
+    labels = _labels_for(model.purpose)
+    expected_count = model.calibration_row_count + model.test_row_count
+    if len(predictions) != expected_count:
+        raise FeatureCalibrationError("feature calibrated prediction count does not match model")
+    sample_ids = tuple(row.sample_id for row in predictions)
+    if len(sample_ids) != len(set(sample_ids)):
+        raise FeatureCalibrationError("feature calibrated predictions contain duplicate sample IDs")
+    split_counts = {"validation": 0, "test": 0}
+    target_counts = {
+        "validation": {label.value: 0 for label in labels},
+        "test": {label.value: 0 for label in labels},
+    }
+    validation_dates: list[date] = []
+    test_dates: list[date] = []
+    for row in predictions:
+        if set(row.predicted_probabilities) != {label.value for label in labels}:
+            raise FeatureCalibrationError("feature calibrated prediction classes do not match")
+        if row.label not in labels or row.predicted_label not in labels:
+            raise FeatureCalibrationError("feature calibrated prediction label does not match")
+        if row.label_available_at > model.calibrated_at:
+            raise FeatureCalibrationError(
+                "feature calibrated prediction label availability follows calibration time"
+            )
+        if not row.feature_snapshot_id.strip() or not _is_sha256(row.source_label_row_sha256):
+            raise FeatureCalibrationError("feature calibrated prediction lineage is incomplete")
+        (validation_dates if row.split == "validation" else test_dates).append(row.observation_date)
+        split_counts[row.split] += 1
+        target_counts[row.split][row.label.value] += 1
+    if test_dates and validation_dates and min(test_dates) <= max(validation_dates):
+        raise FeatureCalibrationError(
+            "feature calibrated test predictions overlap validation period"
+        )
+    if split_counts != {"validation": model.calibration_row_count, "test": model.test_row_count}:
+        raise FeatureCalibrationError("feature calibrated prediction partitions do not match")
+    metrics_by_split = {metric.split: metric for metric in metrics.metrics}
+    if set(metrics_by_split) != {"validation", "test"}:
+        raise FeatureCalibrationError("feature calibration metrics are incomplete")
+    for split in ("validation", "test"):
+        metric = metrics_by_split[split]
+        if metric.row_count != split_counts[split] or metric.target_counts != target_counts[split]:
+            raise FeatureCalibrationError("feature calibration metric counts do not match")
+
+
 def _validate_output_manifest(
     model: FeatureLightGBMModel,
     metrics: FeatureLightGBMEvaluationEvidence,
@@ -492,7 +700,7 @@ def _validate_output_manifest(
     if _sha256(artifact_content) != model.artifact_sha256:
         raise FeatureCalibrationError("feature LightGBM runtime artifact hash does not match model")
     if (
-        metrics.evaluation_version != "selection-purpose-lightgbm-evaluation-v1"
+        metrics.evaluation_version != FEATURE_LIGHTGBM_EVALUATION_VERSION
         or metrics.model_version_id != model.model_version_id
         or metrics.model_type != FEATURE_LIGHTGBM_MODEL_TYPE
         or metrics.purpose is not model.purpose

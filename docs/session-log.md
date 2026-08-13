@@ -460,6 +460,13 @@
 - 实际验证：前端 `pnpm typecheck`、`pnpm lint` 通过；受控权限下 `pnpm build` 通过（Vite 处理 1874 个模块）；`git diff --check` 通过。说明面板在 640px 以下单列排列，避免移动端文字和按钮拥挤。
 - 遗留问题：实际成交仍需用户在持仓台账单独录入；本次未把成交日期并入冻结标签模型。
 
+### 2026-08-11 可复用人工评审标签 Web 切片
+
+- 完成内容：前端评审对话框按 `position`、`pattern`、`price_volume`、`sector` 展示活跃可复用标签；支持同分类输入后创建并立即选中，提交只发送 `reusable_tag_ids`。数据管理新增标签目录，支持改名、归档和恢复；候选列表展示 Annotation 内嵌的历史标签快照。
+- 文档：`docs/使用文档.md` 增加创建、选择、归档/恢复、改名和 ML 隔离说明；`docs/系统规格说明.md`、`docs/current-state.md`、`docs/decisions.md` 同步当前事实与决策。
+- 实际验证：后端完整 `PYTHONPATH=src uv run python -m unittest discover -s tests -t . -q` 通过（306 项，1 项跳过）；后端 `uv run ruff check .` 通过；`uv run mypy src` 通过（87 个源文件）；前端 `corepack pnpm typecheck`、`corepack pnpm build`、`corepack pnpm lint` 通过；目标标签/API/存储/ML 边界文件 `uv run ruff format --check ...` 通过（9 个文件已格式化）；`git diff --check` 通过。
+- 遗留问题：完整后端 `uv run ruff format --check .` 仍报告 9 个既有未格式化文件；`uv run mypy src tests scripts` 仍报告 10 个既有测试类型错误，未为标签切片扩大修改范围；不执行提交或推送。
+
 ### 2026-08-11 人工评审、候选交易关联和多用途数据集
 
 - 完成内容：新增追加式 `SelectionAnnotation`、固定 taxonomy v1、独立候选排除事件和观察池状态投影；评分/观点/决策必填，复查可在后续交易日追加，旧 `ManualSelectionLabel` 保留只读兼容。
@@ -479,4 +486,46 @@
 - 实际验证：新增 LightGBM mock 测试 4 项；后端完整 `unittest discover` 277 项通过、1 项跳过；源代码 MyPy（83 个文件）、Ruff、全部 CLI `--help` 和 `git diff --check` 通过；`uv run --extra ml` 可加载 LightGBM 4.7.0。
 - 完成内容：完成 SG-ML-02F；新增共享无依赖 `isotonic.py`、用途感知 `training_feature_lightgbm_calibration.py` 和 `calibrate_selection_feature_probabilities.py`。二分类只校准正类并取补集，人工决策三分类按 one-vs-rest PAVA 后归一化；只用 validation 拟合，test 隔离评估；读取训练输出时校验模型/运行工件/指标/预测/manifest 哈希、用途、标签契约、特征列、分区计数和 `purged` 证据，校准时间不得早于预测标签可用时间；旧二分类校准复用共享 PAVA 且回归保持兼容。
 - 实际验证：新增用途校准测试 4 项；后端完整 `unittest discover` 281 项通过、1 项跳过；源代码 MyPy（85 个文件）、目标脚本 MyPy、Ruff 和全部相关 CLI 帮助通过；`uv run --extra ml` 实际三分类 LightGBM 训练、输出读取和校准写入通过；`git diff --check` 通过。
-- 遗留问题：四用途校准尚未接入模型注册、影子评分、推荐工作台或批次自动接入；后续需先扩展注册/影子契约以表达用途、标签空间和校准工件血缘。
+- 完成内容：完成 SG-ML-02G；新增用途感知独立注册表 `training_feature_registry.py` 和 CLI `register_selection_feature_model.py`。注册入口重新读取并校验完整训练目录，可选校准目录必须与训练模型、预测、manifest、用途、标签契约、类别和特征列精确匹配；复制模型、运行工件、指标、预测和 manifest 全部证据，记录 SHA-256、标签/特征/源数据血缘，注册固定为 `challenger`，不可覆盖。
+- 实际验证：新增注册测试 5 项，覆盖二分类未校准、三分类校准、校准源不匹配、注册时间边界和副本篡改；后端完整 `unittest discover` 286 项通过、1 项跳过；新增校准输出读取和完整哈希/分区/类别/时间校验；Ruff、MyPy、注册 CLI `--help` 和 `git diff --check` 通过；`uv run --extra ml` 实际三分类训练、校准、独立注册和回读通过。
+- 完成内容：完成 SG-ML-02H；新增用途模型追加式 `challenger → shadow → retired` 生命周期、`transition_selection_feature_model.py`、`training_feature_shadow.py`、`score_selection_feature_shadow.py` 和独立 shadow 证据存储。shadow 输入显式绑定用途/标签契约且拒绝结果标签；二分类/三分类 raw 概率和注册同源校准概率均校验模型/特征/时序血缘；候选级特征失败保留在报告，运行库或注册工件错误阻断整次运行，结果固定 `used_for_decision=false`。
+- 实际验证：新增用途 shadow 测试 4 项，覆盖人工生命周期授权、二分类 raw 分数、结果标签拒绝、候选级特征失败、三分类注册校准和生命周期时间倒退；后端完整 `unittest discover` 290 项通过、1 项跳过；Ruff、MyPy、全部 CLI `--help`、`git diff --check` 通过。
+- 遗留问题：用途模型尚未接入用途感知比较门禁、API/前端、推荐工作台、批次自动组装或交易；当前 shadow 仅支持显式离线 CLI，继续保持人工确认。
+
+### 2026-08-11 ML-02I/ML-02J 走步验证与用途感知比较
+
+- 完成内容：新增 `training_feature_walk_forward.py` 与 `validate_selection_feature_walk_forward.py`，实现四用途独立走步验证。显式 folds 内折内 train-only 训练，按 `label_available_at` 清除训练数据；校验用途/标签契约/类别/特征列、注册训练校准特征时间和完整血缘哈希。`purged` 永不消费，final test 仅记录边界和计数，不参加训练、校准、指标或比较；报告保存到 `models/feature-registry/walk-forward-reports/`，不可覆盖。
+- 完成内容：新增 `training_feature_comparison.py` 与 `compare_selection_feature_models.py`，只读取独立用途注册证据及 ML-02I 报告，按 validation 行数聚合 raw 概率指标；比较政策显式声明指标方向、绝对阈值、最大相对退化、参考模型和校准要求。缺失指标、用途/类别/特征列、split/manifest/source/注册/报告哈希或时间边界不一致均形成阻断；比较报告保存到 `models/feature-registry/comparisons/`，内容不可变，仅允许字节相同幂等重试。
+- 边界：比较仅产生人工审阅证据，不迁移 `challenger → shadow → retired`，不自动晋升、推荐、交易、API/UI 或新批次评分；不复用旧 `walk_forward.py`、`comparison.py`、`registry.py` 契约，可复用人工标签仍排除在所有 ML 路径之外。
+- 实际验证：ML-02J 针对性测试 6 项通过；ML-02I/ML-02J 及相关注册、shadow、LightGBM 测试共 24 项通过；后端完整 `PYTHONPATH=src uv run python -m unittest discover -s tests -t . -q` 为 322 项通过、1 项跳过；相关文件 `ruff format --check`、`ruff check` 通过；后端 `uv run mypy src` 通过（89 个源文件）；两个新增 CLI `--help` 通过；前端 `corepack pnpm typecheck`、`build`、`lint` 通过；`git diff --check` 通过。
+- 遗留问题：完整 Ruff format 检查仍有既有 9 个未格式化文件；`mypy src tests scripts` 的既有测试类型错误仍未扩大修复；Tushare 原生 `trade_cal` 独立溯源验证仍受 Token 配额限制。工作树保留大量既有未提交改动，未执行 add/commit/push。
+
+### 2026-08-13 桌面研究工作台 UI-01/UI-02
+
+- 完成内容：补齐手动 UI 任务跟踪并实现 `desktop-shell` 与 `daily-signals-detail`。前端新增固定左导航、顶部运行状态栏、中央工作区、响应式 token 和 420–520px 右侧 Stock Detail Drawer；工作台、今日信号、观察池、持仓、交易记录、策略和分析接入 `/v1/workbench/*` 只读 API。
+- 完成内容：统一股票详情抽屉提供行情/判断/信号/交易/分析五个 Tab；行情缺失明确显示不可用/不完整；判断支持 1–5 分、观点、操作意图、四类固定标签和备注，POST 只追加 `SelectionAnnotation`；保留现有手工台账录入入口，未把信号自动转换为交易。
+- 实际验证：`cd frontend && npm run typecheck` 通过；`npm run build` 通过（Vite 转换 1874 个模块）；`npm run lint` 通过；`git diff --check` 通过；此前后端工作台/组合针对性测试 12 项通过、目标 Ruff 和 MyPy 通过。
+- 后续完成：统一 Drawer 的交易 Tab 接入用户显式确认 BUY/SELL；BUY 使用候选关联的原子成交接口，SELL 必须选择结构化原因并使用原子确认交易接口；缺少成交价不提交，交易成功后刷新详情与工作台投影。
+- 后续完成：工作台默认按未判断、观察复评、其他已判断、已买入排序；新增“连续处理待办”入口；观察池新增复评数量、判断变化和准备买入摘要，并列出最近发生变化的追加判断。
+- 实际验证：`cd frontend && npm run typecheck`、`npm run build`、`npm run lint` 和 `git diff --check` 通过；未执行 add/commit/push。
+- 后续修复：桌面壳层迁移后旧研究分支没有可见入口，导致通达信导入表单在 UI 中不可达；新增左侧“导入数据”路由，恢复通达信文件导入、批次列表、手工候选、成熟任务和标注流程。
+- 实际验证：`cd frontend && npm run typecheck`、`npm run build`、`npm run lint` 和 `git diff --check` 通过。
+- 后续修正：导入数据页的旧候选标记入口容易与新 Annotation 评审混淆，现改为只读候选和历史标签展示；新的人工判断、复评和交易记录统一从工作台股票详情进入，未删除后端旧标签数据/API。
+- 实际验证：`cd frontend && npm run typecheck`、`npm run build`、`npm run lint` 和 `git diff --check` 通过。
+- 后续调整：按用户要求移除导入数据页的批次成熟操作区和前端成熟任务请求；已有成熟结果、任务账本和后端兼容接口不删除，继续作为历史只读证据保留，后续改用全市场主板行情同步流程。
+- 实际验证：`cd frontend && npm run typecheck`、`npm run build`、`npm run lint` 和 `git diff --check` 通过。
+- 后续完成：导入数据页新增“同步收盘行情”面板；新增 `POST /v1/market-sync/main-board`，按交易日读取批准的沪深主板 universe，校验主板代码范围后同步 Tushare 日线和同源复权因子；已批准快照幂等跳过，非交易日或非主板股票池拒绝。
+- 实际验证：前端 typecheck、build、lint；后端目标 Ruff、MyPy、工作台/组合 API 测试 8 项；`git diff --check` 均通过。
+- 后续修复：发现本地交易日历缓存只到 2026-08-11，导致 2026-08-13 的“同步今日主板行情”被错误阻断；同步接口不再以本地日历缓存作为当前日期硬门槛，改为直接请求明确日期并由 Tushare 返回和行情质量门判断是否为交易日。历史批处理仍继续使用缓存日历。
+- 实际验证：后端目标 Ruff、MyPy、工作台/组合 API 测试 8 项；前端 typecheck、build、lint；`git diff --check` 均通过。
+- 后续修复：主板收盘同步改为从该股票池最后一个已批准日线快照之后开始，逐个补齐至用户选择日期的工作日；因此漏掉前一交易日时，点击“同步今日主板行情”会先补缺口再同步今天，已有快照幂等跳过。
+- 实际验证：后端目标 Ruff、MyPy、工作台/组合 API 测试 8 项；前端 typecheck、build、lint；`git diff --check` 均通过。
+- 后续完成：同步面板现在展示本次从最后已批准日期到目标日期的逐日明细，包括日期、已批准/未批准和已存在跳过状态；可直接检查漏掉的日期是否被补回，而不是只看总数。
+- 实际验证：前端 typecheck、build、lint；后端目标 Ruff、MyPy；`git diff --check` 均通过。
+- 后续修复：当目标日期已经存在批准快照时，补缺同步不再返回 `no missing weekday sessions through the requested date` 错误；现在返回该日期的“已有快照，已跳过”明细，并同时显示同源复权因子状态。只有目标日期确实没有批准快照且没有可补工作日时才报错。
+- 实际验证：后端目标 Ruff、MyPy；前端 typecheck；`git diff --check` 均通过。
+- 后续完成：放大工作台股票列表、持仓/交易列表的股票代码和辅助信息字号，并放大状态标记；导入数据页候选股票名称、源字段和状态徽章同步放大，改善高密度桌面列表可读性。
+- 实际验证：`cd frontend && npm run typecheck`、`npm run build`、`npm run lint` 和 `git diff --check` 通过。
+- 后续修复：主板行情同步不再只从最后快照向后补。现在以目标日期向前最近 10 个自然日为检查窗口，逐日检查同一主板股票池的批准快照，发现缺失工作日就补同步；因此即使 13 号已同步、12 号遗漏，也能再次点击同步发现并补回 12 号。目标日期已有快照时仍返回已跳过明细。
+- 实际验证：后端目标 Ruff、MyPy、工作台/组合 API 测试 8 项；前端 typecheck、build、lint；`git diff --check` 均通过。
+- 遗留问题：真实 Tushare 网络同步尚未执行；未执行 add/commit/push。
