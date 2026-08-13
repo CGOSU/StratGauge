@@ -700,11 +700,18 @@ class SelectionApiTests(unittest.TestCase):
                     "evaluated_at": "2026-01-07T17:00:00+08:00",
                     "horizon_sessions": 1,
                     "position_notional": "10000",
+                    "target_return": "0.02",
                 },
             )
 
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["outcomes_written"], 1)
+            self.assertEqual(response.json()["performances_written"], 1)
+            fetched = client.get(f"/v1/selection-batches/{imported['batch']['batch_id']}")
+            self.assertEqual(len(fetched.json()["candidates"][0]["performances"]), 1)
+            self.assertTrue(
+                fetched.json()["candidates"][0]["performances"][0]["points"][0]["target_achieved"]
+            )
             stats = client.get(f"/v1/selection-batches/{imported['batch']['batch_id']}/stats")
             self.assertEqual(stats.json()["summary"]["completed"], 1)
 

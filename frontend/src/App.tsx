@@ -69,6 +69,27 @@ type Outcome = {
   reason: string
 }
 
+type PerformancePoint = {
+  horizon_sessions: number
+  session_date: string | null
+  close_price: string | null
+  return_from_anchor: string | null
+  maximum_rise: string | null
+  maximum_drawdown: string | null
+  target_achieved: boolean | null
+}
+
+type Performance = {
+  status: 'resolved' | 'no_entry' | 'unresolved'
+  evaluated_at: string
+  performance_policy_id: string
+  anchor_session: string | null
+  anchor_price: string | null
+  target_return: string | null
+  points: PerformancePoint[]
+  reason: string
+}
+
 type Label = {
   candidate_id: string
   decision: Decision
@@ -128,6 +149,7 @@ type CandidateView = {
   review_state: ReviewState
   excluded: boolean
   outcomes: Outcome[]
+  performances: Performance[]
 }
 
 type BatchView = {
@@ -472,6 +494,10 @@ function latestLabel(labels: Label[]): Label | null {
 
 function latestOutcome(outcomes: Outcome[]): Outcome | null {
   return outcomes.length === 0 ? null : outcomes[outcomes.length - 1]
+}
+
+function latestPerformance(performances: Performance[]): Performance | null {
+  return performances.length === 0 ? null : performances[performances.length - 1]
 }
 
 type CalendarInputProps = {
@@ -1029,6 +1055,7 @@ function App() {
   const [evaluatedAt, setEvaluatedAt] = useState('')
   const [horizonSessions, setHorizonSessions] = useState('5')
   const [positionNotional, setPositionNotional] = useState('10000')
+  const [targetReturn, setTargetReturn] = useState('')
   const [maxRetries, setMaxRetries] = useState('2')
   const [timeoutSeconds, setTimeoutSeconds] = useState('900')
   const [maturityTasks, setMaturityTasks] = useState<MaturityTask[]>([])
@@ -1250,6 +1277,7 @@ function App() {
     const retries = Number(maxRetries)
     const timeout = Number(timeoutSeconds)
     const notional = Number(positionNotional)
+    const target = targetReturn === '' ? null : Number(targetReturn)
     if (!Number.isInteger(horizon) || horizon < 1) {
       setError('持有交易日必须是正整数。')
       return
@@ -1264,6 +1292,10 @@ function App() {
     }
     if (!Number.isFinite(notional) || notional <= 0) {
       setError('单笔名义金额必须是正数。')
+      return
+    }
+    if (target !== null && (!Number.isFinite(target) || target < 0)) {
+      setError('目标收益必须是非负数，例如 0.10 表示 10%。')
       return
     }
 
@@ -1281,6 +1313,7 @@ function App() {
             evaluated_at: toShanghaiDateTime(evaluatedAt),
             horizon_sessions: horizon,
             position_notional: positionNotional,
+            target_return: targetReturn === '' ? null : targetReturn,
             max_retries: retries,
             timeout_seconds: timeout,
           }),
@@ -2146,9 +2179,10 @@ function App() {
         ) : (
           <div className="candidate-list">
             {selectedBatch.candidates.map((candidateView) => {
-              const { candidate, labels, outcomes } = candidateView
+              const { candidate, labels, outcomes, performances } = candidateView
               const label = latestLabel(labels)
               const outcome = latestOutcome(outcomes)
+              const performance = latestPerformance(performances)
               return (
                 <article className="candidate-row" key={candidate.candidate_id}>
                   <div className="candidate-identity">
@@ -2186,6 +2220,17 @@ function App() {
                         {outcome ? outcomeLabel(outcome.status) : '结果待跟踪'}
                       </Badge>
                     </div>
+                    {performance && (
+                      <div className="performance-strip" aria-label={`${candidate.symbol} 未来表现`}>
+                        <span>未来表现</span>
+                        {performance.points.map((point) => (
+                          <span key={point.horizon_sessions}>
+                            T+{point.horizon_sessions} {formatPercent(point.return_from_anchor)}
+                            {point.target_achieved === true ? ' · 达标' : ''}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     <div className="candidate-analysis-actions">
                       <Button
                         type="button"
@@ -2467,6 +2512,20 @@ function App() {
               disabled={maturityTaskAction !== null}
               required
             />
+          </div>
+          <div className="field">
+            <Label htmlFor="target-return">目标收益（可选）</Label>
+            <Input
+              id="target-return"
+              type="number"
+              min="0"
+              step="0.01"
+              value={targetReturn}
+              onChange={(event) => setTargetReturn(event.target.value)}
+              disabled={maturityTaskAction !== null}
+              placeholder="例如 0.10"
+            />
+            <small>留空不判断达标；0.10 表示 10%。</small>
           </div>
           <div className="field">
             <Label htmlFor="max-retries">最大重试次数</Label>

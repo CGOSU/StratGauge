@@ -1,5 +1,6 @@
 import unittest
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -15,6 +16,9 @@ from stratgauge.domain.selections import (
     SelectionLifecycleStatus,
     SelectionOutcome,
     SelectionOutcomeStatus,
+    SelectionPerformance,
+    SelectionPerformancePoint,
+    SelectionPerformanceStatus,
     TdxSelectionImport,
 )
 
@@ -227,6 +231,44 @@ class SelectionImportStoreTests(unittest.TestCase):
                     recorded_at=exclusion.recorded_at,
                     reason=" ",
                 )
+
+    def test_performances_are_content_addressed_and_linked_to_maturity_tasks(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SelectionImportStore(directory)
+            parsed = parsed_import()
+            store.write(CONTENT, parsed)
+            performance = SelectionPerformance(
+                candidate_id=parsed.candidates[0].candidate_id,
+                batch_id=parsed.batch.batch_id,
+                selection_date=parsed.batch.selection_date,
+                status=SelectionPerformanceStatus.RESOLVED,
+                evaluated_at=datetime(2026, 1, 10, 17, tzinfo=UTC),
+                performance_policy_id="selection-performance-t1-t3-t5-t10-v1",
+                anchor_session=datetime(2026, 1, 6, tzinfo=UTC).date(),
+                anchor_price=Decimal("10"),
+                points=(
+                    SelectionPerformancePoint(
+                        horizon_sessions=1,
+                        session_date=datetime(2026, 1, 6, tzinfo=UTC).date(),
+                        close_price=Decimal("10.2"),
+                        return_from_anchor=Decimal("0.02"),
+                        maximum_rise=Decimal("0.05"),
+                        maximum_drawdown=Decimal("0"),
+                    ),
+                ),
+                reason="forward_windows",
+                maturity_task_id="maturity-task-1",
+            )
+
+            first = store.write_performance(performance)
+            second = store.write_performance(performance)
+
+            self.assertEqual(first, second)
+            self.assertEqual(store.list_performances(performance.candidate_id), (performance,))
+            self.assertEqual(
+                store.find_performance_for_task("maturity-task-1", performance.candidate_id),
+                performance,
+            )
 
     def test_outcomes_are_content_addressed_and_listed(self) -> None:
         with TemporaryDirectory() as directory:

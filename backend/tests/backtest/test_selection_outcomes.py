@@ -4,9 +4,11 @@ from decimal import Decimal
 
 from stratgauge.backtest.models import BacktestPolicy
 from stratgauge.backtest.selection_outcomes import (
+    SelectionPerformancePolicy,
     SelectionTrackingPolicy,
     evaluate_selection_batch,
     evaluate_selection_outcome,
+    evaluate_selection_performance,
     latest_selection_outcomes,
     selection_outcome_policy_id,
 )
@@ -17,6 +19,7 @@ from stratgauge.domain.selections import (
     SelectionCandidate,
     SelectionOutcome,
     SelectionOutcomeStatus,
+    SelectionPerformanceStatus,
     TdxSelectionImport,
 )
 
@@ -76,6 +79,65 @@ def make_outcome(status: SelectionOutcomeStatus, net_return: Decimal | None) -> 
 
 
 class SelectionOutcomeTests(unittest.TestCase):
+    def test_forward_performance_records_requested_windows_rise_drawdown_and_target(self) -> None:
+        bars = [
+            make_bar(
+                date(2026, 1, 6), open=Decimal("10"), high=Decimal("10.5"), close=Decimal("10.2")
+            ),
+            make_bar(date(2026, 1, 7), high=Decimal("10.8"), close=Decimal("10.0")),
+            make_bar(date(2026, 1, 8), high=Decimal("11.5"), close=Decimal("11.0")),
+            make_bar(date(2026, 1, 9), high=Decimal("11.2"), close=Decimal("10.8")),
+            make_bar(date(2026, 1, 10), high=Decimal("12.0"), close=Decimal("11.5")),
+        ]
+
+        result = evaluate_selection_performance(
+            candidate(),
+            selection_date=date(2026, 1, 5),
+            bars=bars,
+            evaluated_at=datetime(2026, 1, 10, 17, tzinfo=UTC),
+            policy=SelectionPerformancePolicy(
+                target_return=Decimal("0.1"),
+                horizons=(1, 3, 5),
+            ),
+            source_snapshot_ids=("snapshot-2", "snapshot-1"),
+        )
+
+        self.assertEqual(result.status, SelectionPerformanceStatus.RESOLVED)
+        self.assertTrue(result.performance_policy_id.startswith("selection-performance-"))
+        self.assertEqual(result.anchor_session, date(2026, 1, 6))
+        self.assertEqual(result.anchor_price, Decimal("10"))
+        self.assertEqual(result.source_snapshot_ids, ("snapshot-1", "snapshot-2"))
+        self.assertEqual(result.points[0].return_from_anchor, Decimal("0.02"))
+        self.assertEqual(result.points[1].maximum_rise, Decimal("0.15"))
+        self.assertEqual(
+            result.points[1].maximum_drawdown, Decimal("-0.0196078431372549019607843137")
+        )
+        self.assertTrue(result.points[1].target_achieved)
+        self.assertEqual(result.points[2].session_date, date(2026, 1, 10))
+
+    def test_forward_performance_distinguishes_non_tradable_anchor_from_missing_data(self) -> None:
+        result = evaluate_selection_performance(
+            candidate(),
+            selection_date=date(2026, 1, 5),
+            bars=[make_bar(date(2026, 1, 6), suspended=True, tradable=False)],
+            evaluated_at=datetime(2026, 1, 6, 17, tzinfo=UTC),
+        )
+
+        self.assertEqual(result.status, SelectionPerformanceStatus.NO_ENTRY)
+        self.assertEqual(result.reason, "anchor_bar_not_tradable")
+
+    def test_forward_performance_keeps_partial_windows_unresolved(self) -> None:
+        result = evaluate_selection_performance(
+            candidate(),
+            selection_date=date(2026, 1, 5),
+            bars=[make_bar(date(2026, 1, 6))],
+            evaluated_at=datetime(2026, 1, 6, 17, tzinfo=UTC),
+        )
+
+        self.assertEqual(result.status, SelectionPerformanceStatus.UNRESOLVED)
+        self.assertEqual(result.points[0].session_date, date(2026, 1, 6))
+        self.assertIsNone(result.points[1].session_date)
+
     def test_default_policy_uses_ten_sessions_and_records_its_policy_id(self) -> None:
         entry_session = date(2026, 1, 6)
         bars = [make_bar(entry_session, open=Decimal("10.00"))]

@@ -13,7 +13,9 @@ from stratgauge.backtest.selection_job import (
     run_selection_outcome_snapshot_job,
 )
 from stratgauge.backtest.selection_outcomes import (
+    SelectionPerformancePolicy,
     SelectionTrackingPolicy,
+    selection_performance_policy_id,
     selection_tracking_policy_id,
     validate_selection_tracking_policy,
 )
@@ -42,6 +44,7 @@ def build_maturity_task(
     provider: Literal["tushare", "akshare", "baostock", "waizao"],
     evaluated_at: datetime,
     policy: SelectionTrackingPolicy,
+    performance_policy: SelectionPerformancePolicy | None = None,
     market_data_mode: Literal["provider", "approved_snapshots"] = "provider",
     universe_snapshot_id: str | None = None,
     input_market_snapshot_ids: tuple[str, ...] = (),
@@ -54,6 +57,7 @@ def build_maturity_task(
     _require_aware(evaluated_at, "evaluated_at")
     _require_aware(created_at, "created_at")
     validate_selection_tracking_policy(policy)
+    measurement_policy = performance_policy or SelectionPerformancePolicy()
     if evaluated_at.date() <= imported.batch.selection_date:
         raise SelectionMaturityTaskError("evaluated_at must follow the selection date")
     if not provider.strip():
@@ -82,6 +86,7 @@ def build_maturity_task(
         provider=provider,
         evaluated_at=evaluated_at,
         tracking_policy_id=selection_tracking_policy_id(policy),
+        performance_policy_id=selection_performance_policy_id(measurement_policy),
         market_data_mode=market_data_mode,
         universe_snapshot_id=universe_snapshot_id,
         input_market_snapshot_ids=input_market_snapshot_ids,
@@ -96,6 +101,8 @@ def build_maturity_task(
         evaluated_at=evaluated_at,
         target_evaluation_date=evaluated_at.date(),
         tracking_policy_id=selection_tracking_policy_id(policy),
+        performance_policy_id=selection_performance_policy_id(measurement_policy),
+        performance_target_return=measurement_policy.target_return,
         horizon_sessions=policy.horizon_sessions,
         position_notional=policy.position_notional,
         max_retries=max_retries,
@@ -111,6 +118,7 @@ def maturity_task_id(
     provider: str,
     evaluated_at: datetime,
     tracking_policy_id: str,
+    performance_policy_id: str = "selection-performance-t1-t3-t5-t10-v1",
     market_data_mode: Literal["provider", "approved_snapshots"] = "provider",
     universe_snapshot_id: str | None = None,
     input_market_snapshot_ids: tuple[str, ...] = (),
@@ -123,6 +131,7 @@ def maturity_task_id(
         "evaluated_at": evaluated_at.astimezone(UTC).isoformat(),
         "provider": provider.strip().lower(),
         "tracking_policy_id": tracking_policy_id,
+        "performance_policy_id": performance_policy_id,
     }
     if market_data_mode == "approved_snapshots":
         identity_payload.update(
@@ -226,6 +235,9 @@ def run_maturity_task(
                 market_snapshot_ids=running.input_market_snapshot_ids,
                 evaluated_at=running.evaluated_at,
                 policy=policy,
+                performance_policy=SelectionPerformancePolicy(
+                    target_return=running.performance_target_return,
+                ),
                 selection_store=selection_store,
                 maturity_task_id=running.task_id,
                 provider=running.provider,
@@ -240,6 +252,9 @@ def run_maturity_task(
                 evaluated_at=running.evaluated_at,
                 policy=policy,
                 maturity_task_id=running.task_id,
+                performance_policy=SelectionPerformancePolicy(
+                    target_return=running.performance_target_return,
+                ),
             )
     except Exception as exc:
         return _finish_exception(running, selection_store, exc, now)

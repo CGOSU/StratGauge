@@ -1,5 +1,5 @@
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from tempfile import TemporaryDirectory
 
@@ -79,6 +79,8 @@ class SelectionOutcomeJobTests(unittest.TestCase):
 
             self.assertEqual(result.rejected_candidates, ())
             self.assertEqual(result.outcomes[0].status, SelectionOutcomeStatus.WIN)
+            self.assertEqual(len(result.performances), 1)
+            self.assertEqual(result.performances[0].anchor_session, date(2026, 1, 6))
             self.assertEqual(len(result.market_snapshot_ids), 1)
             self.assertEqual(
                 market_store.list_manifests(SnapshotStatus.APPROVED)[0].snapshot_id,

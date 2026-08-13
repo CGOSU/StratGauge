@@ -23,6 +23,7 @@ from stratgauge.domain.selections import (
     SelectionMaturityTaskEvent,
     SelectionMaturityTaskStatus,
     SelectionOutcome,
+    SelectionPerformance,
     TdxSelectionImport,
 )
 
@@ -53,6 +54,7 @@ class SelectionImportStore:
         self.annotation_dir = self.root / "tdx" / "annotations"
         self.exclusion_dir = self.root / "tdx" / "exclusions"
         self.outcome_dir = self.root / "tdx" / "outcomes"
+        self.performance_dir = self.root / "tdx" / "performances"
         self.formula_dir = self.root / "tdx" / "formulas"
         self.lifecycle_dir = self.root / "tdx" / "lifecycle"
         self.maturity_task_dir = self.root / "tdx" / "maturity_tasks"
@@ -65,6 +67,7 @@ class SelectionImportStore:
             self.annotation_dir,
             self.exclusion_dir,
             self.outcome_dir,
+            self.performance_dir,
             self.formula_dir,
             self.lifecycle_dir,
             self.maturity_task_dir,
@@ -396,6 +399,100 @@ class SelectionImportStore:
             return existing
         _atomic_write_text(path, outcome.model_dump_json(indent=2))
         return outcome
+
+    def write_performance(self, performance: SelectionPerformance) -> SelectionPerformance:
+        with local_write_lock(self.root):
+            return self._write_performance_unlocked(performance)
+
+    def _write_performance_unlocked(
+        self,
+        performance: SelectionPerformance,
+    ) -> SelectionPerformance:
+        imported = self.load_import(performance.batch_id)
+        if not any(
+            candidate.candidate_id == performance.candidate_id for candidate in imported.candidates
+        ):
+            raise SelectionStoreError(
+                f"candidate does not belong to selection batch: {performance.candidate_id}"
+            )
+        if performance.maturity_task_id is not None:
+            existing = self.find_performance_for_task(
+                performance.maturity_task_id,
+                performance.candidate_id,
+            )
+            if existing is not None:
+                if existing == performance:
+                    return existing
+                raise SelectionStoreError(
+                    "maturity task candidate already has a different performance: "
+                    f"{performance.maturity_task_id}/{performance.candidate_id}"
+                )
+        performance_id = (
+            "performance-"
+            f"{hashlib.sha256(performance.model_dump_json().encode('utf-8')).hexdigest()[:20]}"
+        )
+        path = self.performance_dir / f"{performance_id}.json"
+        if path.exists():
+            try:
+                existing = SelectionPerformance.model_validate_json(
+                    path.read_text(encoding="utf-8")
+                )
+            except Exception as exc:
+                raise SelectionStoreError(
+                    f"selection performance is invalid: {performance_id}"
+                ) from exc
+            if existing != performance:
+                raise SelectionStoreError(
+                    f"selection performance identity has different content: {performance_id}"
+                )
+            return existing
+        _atomic_write_text(path, performance.model_dump_json(indent=2))
+        return performance
+
+    def find_performance_for_task(
+        self,
+        maturity_task_id: str,
+        candidate_id: str,
+    ) -> SelectionPerformance | None:
+        matches = tuple(
+            performance
+            for performance in self._list_all_performances()
+            if performance.maturity_task_id == maturity_task_id
+            and performance.candidate_id == candidate_id
+        )
+        if len(matches) > 1:
+            raise SelectionStoreError(
+                "maturity task candidate has more than one performance: "
+                f"{maturity_task_id}/{candidate_id}"
+            )
+        return matches[0] if matches else None
+
+    def list_performances(self, candidate_id: str) -> tuple[SelectionPerformance, ...]:
+        performances = [
+            performance
+            for performance in self._list_all_performances()
+            if performance.candidate_id == candidate_id
+        ]
+        return tuple(
+            sorted(
+                performances,
+                key=lambda performance: (
+                    performance.performance_policy_id,
+                    performance.evaluated_at,
+                ),
+            )
+        )
+
+    def _list_all_performances(self) -> tuple[SelectionPerformance, ...]:
+        performances: list[SelectionPerformance] = []
+        for path in sorted(self.performance_dir.glob("performance-*.json")):
+            try:
+                performances.append(
+                    SelectionPerformance.model_validate_json(path.read_text(encoding="utf-8"))
+                )
+            except Exception as exc:
+                raise SelectionStoreError(f"selection performance is invalid: {path.name}") from exc
+        return tuple(performances)
 
     def find_outcome_for_task(
         self,
@@ -735,6 +832,8 @@ def _same_maturity_task_configuration(
         and first.evaluated_at == second.evaluated_at
         and first.target_evaluation_date == second.target_evaluation_date
         and first.tracking_policy_id == second.tracking_policy_id
+        and first.performance_policy_id == second.performance_policy_id
+        and first.performance_target_return == second.performance_target_return
         and first.horizon_sessions == second.horizon_sessions
         and first.position_notional == second.position_notional
         and first.max_retries == second.max_retries

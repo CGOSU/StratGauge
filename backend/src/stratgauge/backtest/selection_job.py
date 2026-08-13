@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from stratgauge.backtest.selection_outcomes import (
+    SelectionPerformancePolicy,
     SelectionTrackingPolicy,
     evaluate_selection_outcome,
+    evaluate_selection_performance,
     validate_selection_tracking_policy,
 )
 from stratgauge.data_pipeline.data_access import DataAccessPlan, build_data_access_plan
@@ -21,7 +23,11 @@ from stratgauge.data_sources.base import (
     RetryableAdapterError,
 )
 from stratgauge.domain.models import Security, canonical_symbol
-from stratgauge.domain.selections import SelectionOutcome, TdxSelectionImport
+from stratgauge.domain.selections import (
+    SelectionOutcome,
+    SelectionPerformance,
+    TdxSelectionImport,
+)
 
 
 @dataclass(frozen=True)
@@ -29,6 +35,7 @@ class SelectionOutcomeJobResult:
     outcomes: tuple[SelectionOutcome, ...]
     rejected_candidates: tuple[tuple[str, str], ...]
     market_snapshot_ids: tuple[str, ...]
+    performances: tuple[SelectionPerformance, ...] = ()
     retryable_rejections: tuple[tuple[str, str], ...] = ()
     access_plans: tuple[DataAccessPlan, ...] = ()
 
@@ -42,6 +49,7 @@ def run_selection_outcome_job(
     evaluated_at: datetime,
     policy: SelectionTrackingPolicy,
     maturity_task_id: str | None = None,
+    performance_policy: SelectionPerformancePolicy | None = None,
 ) -> SelectionOutcomeJobResult:
     """Fetch approved daily bars and persist only quality-safe outcomes.
 
@@ -54,6 +62,7 @@ def run_selection_outcome_job(
     if evaluated_at.tzinfo is None or evaluated_at.utcoffset() is None:
         raise ValueError("evaluated_at must include a timezone")
     validate_selection_tracking_policy(policy)
+    measurement_policy = performance_policy or SelectionPerformancePolicy()
     start_date = imported.batch.selection_date + timedelta(days=1)
     end_date = evaluated_at.date()
     if end_date < start_date:
@@ -63,6 +72,7 @@ def run_selection_outcome_job(
     rejected: list[tuple[str, str]] = []
     retryable_rejections: list[tuple[str, str]] = []
     market_snapshot_ids: list[str] = []
+    performances: list[SelectionPerformance] = []
     access_plans: list[DataAccessPlan] = []
     for candidate in imported.candidates:
         if maturity_task_id is not None:
@@ -72,6 +82,12 @@ def run_selection_outcome_job(
             )
             if existing is not None:
                 outcomes.append(existing)
+                existing_performance = selection_store.find_performance_for_task(
+                    maturity_task_id,
+                    candidate.candidate_id,
+                )
+                if existing_performance is not None:
+                    performances.append(existing_performance)
                 _append_unique(market_snapshot_ids, existing.source_snapshot_ids)
                 continue
 
@@ -127,9 +143,20 @@ def run_selection_outcome_job(
             outcome = outcome.model_copy(update={"maturity_task_id": maturity_task_id})
         persisted = selection_store.write_outcome(outcome)
         outcomes.append(persisted)
+        performance = evaluate_selection_performance(
+            candidate,
+            selection_date=imported.batch.selection_date,
+            bars=ingested.bars,
+            evaluated_at=evaluated_at,
+            policy=measurement_policy,
+            source_snapshot_ids=[ingested.manifest.snapshot_id],
+            maturity_task_id=maturity_task_id,
+        )
+        performances.append(selection_store.write_performance(performance))
 
     return SelectionOutcomeJobResult(
         outcomes=tuple(outcomes),
+        performances=tuple(performances),
         rejected_candidates=tuple(rejected),
         market_snapshot_ids=tuple(market_snapshot_ids),
         retryable_rejections=tuple(retryable_rejections),
@@ -146,6 +173,7 @@ def run_selection_outcome_snapshot_job(
     policy: SelectionTrackingPolicy,
     selection_store: SelectionImportStore,
     maturity_task_id: str | None = None,
+    performance_policy: SelectionPerformancePolicy | None = None,
     provider: str | None = None,
     universe_snapshot_id: str | None = None,
 ) -> SelectionOutcomeJobResult:
@@ -154,6 +182,7 @@ def run_selection_outcome_snapshot_job(
     if evaluated_at.tzinfo is None or evaluated_at.utcoffset() is None:
         raise ValueError("evaluated_at must include a timezone")
     validate_selection_tracking_policy(policy)
+    measurement_policy = performance_policy or SelectionPerformancePolicy()
     if not market_snapshot_ids:
         raise ValueError("snapshot-backed maturity requires market snapshots")
     manifests = tuple(
@@ -196,6 +225,7 @@ def run_selection_outcome_snapshot_job(
         for manifest in ordered_manifests
     )
     outcomes: list[SelectionOutcome] = []
+    performances: list[SelectionPerformance] = []
     rejected: list[tuple[str, str]] = []
     for candidate in imported.candidates:
         if maturity_task_id is not None:
@@ -205,6 +235,12 @@ def run_selection_outcome_snapshot_job(
             )
             if existing is not None:
                 outcomes.append(existing)
+                existing_performance = selection_store.find_performance_for_task(
+                    maturity_task_id,
+                    candidate.candidate_id,
+                )
+                if existing_performance is not None:
+                    performances.append(existing_performance)
                 continue
         outcome = evaluate_selection_outcome(
             candidate,
@@ -217,8 +253,19 @@ def run_selection_outcome_snapshot_job(
         if maturity_task_id is not None:
             outcome = outcome.model_copy(update={"maturity_task_id": maturity_task_id})
         outcomes.append(selection_store.write_outcome(outcome))
+        performance = evaluate_selection_performance(
+            candidate,
+            selection_date=imported.batch.selection_date,
+            bars=bars,
+            evaluated_at=evaluated_at,
+            policy=measurement_policy,
+            source_snapshot_ids=source_snapshot_ids,
+            maturity_task_id=maturity_task_id,
+        )
+        performances.append(selection_store.write_performance(performance))
     return SelectionOutcomeJobResult(
         outcomes=tuple(outcomes),
+        performances=tuple(performances),
         rejected_candidates=tuple(rejected),
         market_snapshot_ids=source_snapshot_ids,
         access_plans=access_plans,

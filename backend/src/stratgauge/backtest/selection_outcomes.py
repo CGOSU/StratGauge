@@ -13,9 +13,14 @@ from stratgauge.backtest.models import BacktestPolicy
 from stratgauge.domain.models import DailyBar
 from stratgauge.domain.selections import (
     DEFAULT_OUTCOME_POLICY_ID,
+    DEFAULT_PERFORMANCE_HORIZONS,
+    DEFAULT_SELECTION_PERFORMANCE_POLICY_ID,
     SelectionCandidate,
     SelectionOutcome,
     SelectionOutcomeStatus,
+    SelectionPerformance,
+    SelectionPerformancePoint,
+    SelectionPerformanceStatus,
     TdxSelectionImport,
 )
 
@@ -41,6 +46,36 @@ class SelectionTrackingPolicy(BaseModel):
         return result
 
 
+class SelectionPerformancePolicy(BaseModel):
+    """Explicit forward-window measurement policy."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    horizons: tuple[int, ...] = DEFAULT_PERFORMANCE_HORIZONS
+    target_return: Decimal | None = None
+
+    @field_validator("horizons")
+    @classmethod
+    def validate_horizons(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        normalized = tuple(sorted(set(value)))
+        if not normalized or any(item <= 0 for item in normalized):
+            raise ValueError("performance horizons must contain positive sessions")
+        return normalized
+
+    @field_validator("target_return", mode="before")
+    @classmethod
+    def normalize_target_return(
+        cls,
+        value: Decimal | str | int | float | None,
+    ) -> Decimal | None:
+        if value is None:
+            return None
+        result = Decimal(str(value))
+        if not result.is_finite() or result < 0:
+            raise ValueError("target_return must be finite and non-negative")
+        return result
+
+
 def validate_selection_tracking_policy(policy: SelectionTrackingPolicy) -> None:
     if policy.cost_policy.minimum_commission > 0 and policy.position_notional is None:
         raise ValueError("position_notional is required when minimum_commission is non-zero")
@@ -60,6 +95,149 @@ def selection_outcome_policy_id(policy: SelectionTrackingPolicy) -> str:
         f"fixed-close|{policy.horizon_sessions}|{policy.win_threshold}".encode()
     ).hexdigest()
     return f"outcome-fixed-{digest[:20]}"
+
+
+def selection_performance_policy_id(policy: SelectionPerformancePolicy) -> str:
+    """Return the immutable ID for the fixed forward-window semantics."""
+
+    if policy == SelectionPerformancePolicy():
+        return DEFAULT_SELECTION_PERFORMANCE_POLICY_ID
+    digest = hashlib.sha256(policy.model_dump_json().encode("utf-8")).hexdigest()
+    return f"selection-performance-{digest[:20]}"
+
+
+def evaluate_selection_performance(
+    candidate: SelectionCandidate,
+    *,
+    selection_date: date,
+    bars: Sequence[DailyBar],
+    evaluated_at: datetime,
+    policy: SelectionPerformancePolicy | None = None,
+    source_snapshot_ids: Sequence[str] = (),
+    maturity_task_id: str | None = None,
+) -> SelectionPerformance:
+    """Measure fixed forward windows from the next tradable session's open.
+
+    Maximum rise uses daily highs from the anchor. Maximum drawdown uses the
+    close-to-close peak-to-trough path because daily OHLC does not reveal the
+    intraday order of highs and lows.
+    """
+
+    if evaluated_at.tzinfo is None or evaluated_at.utcoffset() is None:
+        raise ValueError("evaluated_at must include a timezone")
+    measurement_policy = policy or SelectionPerformancePolicy()
+    performance_policy_id = selection_performance_policy_id(measurement_policy)
+    lineage = tuple(sorted(set(source_snapshot_ids)))
+    available_bars = sorted(
+        (
+            bar
+            for bar in bars
+            if bar.symbol == candidate.symbol
+            and bar.session_date > selection_date
+            and bar.available_at <= evaluated_at
+        ),
+        key=lambda bar: bar.session_date,
+    )
+    empty_points = tuple(
+        SelectionPerformancePoint(horizon_sessions=horizon)
+        for horizon in measurement_policy.horizons
+    )
+    if not available_bars:
+        return SelectionPerformance(
+            candidate_id=candidate.candidate_id,
+            batch_id=candidate.batch_id,
+            selection_date=selection_date,
+            status=SelectionPerformanceStatus.UNRESOLVED,
+            evaluated_at=evaluated_at,
+            performance_policy_id=performance_policy_id,
+            target_return=measurement_policy.target_return,
+            points=empty_points,
+            reason="no_market_data",
+            source_snapshot_ids=lineage,
+            maturity_task_id=maturity_task_id,
+        )
+    if not available_bars[0].tradable or available_bars[0].suspended:
+        return SelectionPerformance(
+            candidate_id=candidate.candidate_id,
+            batch_id=candidate.batch_id,
+            selection_date=selection_date,
+            status=SelectionPerformanceStatus.NO_ENTRY,
+            evaluated_at=evaluated_at,
+            performance_policy_id=performance_policy_id,
+            target_return=measurement_policy.target_return,
+            points=empty_points,
+            reason="anchor_bar_not_tradable",
+            source_snapshot_ids=lineage,
+            maturity_task_id=maturity_task_id,
+        )
+    candidate_bars = [bar for bar in available_bars if bar.tradable and not bar.suspended]
+    anchor = candidate_bars[0]
+    if anchor.open <= 0:
+        return SelectionPerformance(
+            candidate_id=candidate.candidate_id,
+            batch_id=candidate.batch_id,
+            selection_date=selection_date,
+            status=SelectionPerformanceStatus.UNRESOLVED,
+            evaluated_at=evaluated_at,
+            performance_policy_id=performance_policy_id,
+            target_return=measurement_policy.target_return,
+            points=empty_points,
+            reason="invalid_anchor_price",
+            source_snapshot_ids=lineage,
+            maturity_task_id=maturity_task_id,
+        )
+    anchor_price = anchor.open
+    points: list[SelectionPerformancePoint] = []
+    for horizon in measurement_policy.horizons:
+        window = candidate_bars[:horizon]
+        if len(window) < horizon:
+            points.append(SelectionPerformancePoint(horizon_sessions=horizon))
+            continue
+        terminal = window[-1]
+        running_peak: Decimal | None = None
+        maximum_drawdown = Decimal("0")
+        for bar in window:
+            running_peak = bar.close if running_peak is None else max(running_peak, bar.close)
+            maximum_drawdown = min(maximum_drawdown, bar.close / running_peak - Decimal("1"))
+        maximum_rise = max(bar.high / anchor_price - Decimal("1") for bar in window)
+        return_from_anchor = terminal.close / anchor_price - Decimal("1")
+        points.append(
+            SelectionPerformancePoint(
+                horizon_sessions=horizon,
+                session_date=terminal.session_date,
+                close_price=terminal.close,
+                return_from_anchor=return_from_anchor,
+                maximum_rise=maximum_rise,
+                maximum_drawdown=maximum_drawdown,
+                target_achieved=(
+                    maximum_rise >= measurement_policy.target_return
+                    if measurement_policy.target_return is not None
+                    else None
+                ),
+            )
+        )
+    status = (
+        SelectionPerformanceStatus.RESOLVED
+        if all(point.session_date is not None for point in points)
+        else SelectionPerformanceStatus.UNRESOLVED
+    )
+    return SelectionPerformance(
+        candidate_id=candidate.candidate_id,
+        batch_id=candidate.batch_id,
+        selection_date=selection_date,
+        status=status,
+        evaluated_at=evaluated_at,
+        performance_policy_id=performance_policy_id,
+        anchor_session=anchor.session_date,
+        anchor_price=anchor_price,
+        target_return=measurement_policy.target_return,
+        points=tuple(points),
+        reason="forward_windows"
+        if status is SelectionPerformanceStatus.RESOLVED
+        else "insufficient_horizon_data",
+        source_snapshot_ids=lineage,
+        maturity_task_id=maturity_task_id,
+    )
 
 
 def latest_selection_outcomes(

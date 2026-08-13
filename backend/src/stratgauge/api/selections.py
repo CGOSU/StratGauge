@@ -24,6 +24,7 @@ from stratgauge.backtest.selection_dataset import (
 )
 from stratgauge.backtest.selection_job import run_selection_outcome_job
 from stratgauge.backtest.selection_outcomes import (
+    SelectionPerformancePolicy,
     SelectionTrackingPolicy,
     latest_selection_outcomes,
 )
@@ -60,6 +61,7 @@ from stratgauge.domain.selections import (
     SelectionMaturityTask,
     SelectionOutcome,
     SelectionPatternTag,
+    SelectionPerformance,
     SelectionPositionTag,
     SelectionPriceVolumeTag,
     SelectionSectorTag,
@@ -224,6 +226,7 @@ class SelectionMatureRequest(BaseModel):
     position_notional: Decimal = Field(gt=0)
     max_retries: int = Field(default=2, ge=0, le=5)
     timeout_seconds: int = Field(default=900, gt=0, le=86400)
+    target_return: Decimal | None = Field(default=None, ge=0)
 
     @field_validator("evaluated_at")
     @classmethod
@@ -273,6 +276,7 @@ class SelectionMatureView(BaseModel):
     batch_id: str
     provider: str
     outcomes_written: int = Field(ge=0)
+    performances_written: int = Field(default=0, ge=0)
     rejected_candidates: tuple[tuple[str, str], ...]
     market_snapshot_ids: tuple[str, ...]
 
@@ -289,6 +293,7 @@ class SelectionCandidateView(BaseModel):
     review_state: SelectionCandidateReviewState = SelectionCandidateReviewState.UNREVIEWED
     excluded: bool = False
     outcomes: tuple[SelectionOutcome, ...] = ()
+    performances: tuple[SelectionPerformance, ...] = ()
 
 
 class SelectionObservationView(BaseModel):
@@ -680,6 +685,9 @@ class SelectionService:
                 provider=request.provider,
                 evaluated_at=request.evaluated_at,
                 policy=policy,
+                performance_policy=SelectionPerformancePolicy(
+                    target_return=request.target_return,
+                ),
                 max_retries=request.max_retries,
                 timeout_seconds=request.timeout_seconds,
                 created_at=datetime.now(UTC),
@@ -774,11 +782,15 @@ class SelectionService:
                     horizon_sessions=request.horizon_sessions,
                     position_notional=request.position_notional,
                 ),
+                performance_policy=SelectionPerformancePolicy(
+                    target_return=request.target_return,
+                ),
             )
             return SelectionMatureView(
                 batch_id=batch_id,
                 provider=request.provider,
                 outcomes_written=len(result.outcomes),
+                performances_written=len(result.performances),
                 rejected_candidates=result.rejected_candidates,
                 market_snapshot_ids=result.market_snapshot_ids,
             )
@@ -1067,6 +1079,7 @@ class SelectionService:
             review_state=_review_state(latest_annotation),
             excluded=latest_exclusion is not None,
             outcomes=self._store.list_outcomes(candidate.candidate_id),
+            performances=self._store.list_performances(candidate.candidate_id),
         )
 
     def _view(self, imported: TdxSelectionImport) -> SelectionBatchView:
