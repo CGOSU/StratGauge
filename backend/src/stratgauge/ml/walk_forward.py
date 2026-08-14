@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -16,6 +14,7 @@ from pydantic import Field, field_validator, model_validator
 from stratgauge.backtest.selection_dataset import SelectionDatasetRow
 from stratgauge.domain.models import DomainModel
 from stratgauge.domain.selections import SelectionOutcomeStatus
+from stratgauge.ml._hashing import sha256_json
 from stratgauge.ml.selection_training import SelectionFeatureRow
 
 WALK_FORWARD_REPORT_VERSION = "selection-walk-forward-v2"
@@ -165,11 +164,7 @@ def validate_walk_forward(
         "source_file_sha256": source_file_sha256,
         "tracking_policy_id": next(iter(policies)),
     }
-    digest = hashlib.sha256(
-        json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
-            "utf-8"
-        )
-    ).hexdigest()
+    digest = sha256_json(identity)
     return WalkForwardReport(
         report_id=f"walk-forward-{digest[:20]}",
         source_file_sha256=source_file_sha256,

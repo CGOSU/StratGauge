@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from collections.abc import Mapping, Sequence
@@ -15,6 +14,7 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from stratgauge.domain.models import DomainModel
+from stratgauge.ml._hashing import sha256_bytes, sha256_json
 from stratgauge.ml.isotonic import IsotonicBin, apply_isotonic_bin, fit_isotonic_bins
 from stratgauge.ml.training_datasets import (
     TrainingDatasetPurpose,
@@ -288,10 +288,10 @@ def read_feature_calibration_output(output_dir: str | Path) -> FeatureCalibratio
             f"invalid feature calibration output: {directory}: {exc}"
         ) from exc
 
-    calibration_sha256 = _sha256(calibration_content)
-    metrics_sha256 = _sha256(metrics_content)
-    calibrated_predictions_sha256 = _sha256(predictions_content)
-    manifest_sha256 = _sha256(manifest_content)
+    calibration_sha256 = sha256_bytes(calibration_content)
+    metrics_sha256 = sha256_bytes(metrics_content)
+    calibrated_predictions_sha256 = sha256_bytes(predictions_content)
+    manifest_sha256 = sha256_bytes(manifest_content)
     _validate_calibration_output(
         model,
         metrics,
@@ -332,10 +332,10 @@ def read_feature_lightgbm_output(output_dir: str | Path) -> FeatureLightGBMOutpu
             f"invalid feature LightGBM output: {directory}: {exc}"
         ) from exc
 
-    model_sha256 = _sha256(model_content)
-    metrics_sha256 = _sha256(metrics_content)
-    predictions_sha256 = _sha256(predictions_content)
-    manifest_sha256 = _sha256(manifest_content)
+    model_sha256 = sha256_bytes(model_content)
+    metrics_sha256 = sha256_bytes(metrics_content)
+    predictions_sha256 = sha256_bytes(predictions_content)
+    manifest_sha256 = sha256_bytes(manifest_content)
     _validate_output_manifest(
         model,
         metrics,
@@ -446,7 +446,7 @@ def calibrate_feature_lightgbm(
         "source_model_sha256": source_model_sha256,
         "source_prediction_sha256": source_prediction_sha256,
     }
-    calibration_id = f"feature-calibration-{_sha256_json(identity)[:20]}"
+    calibration_id = f"feature-calibration-{sha256_json(identity)[:20]}"
     metrics = tuple(
         _metrics(split, tuple(row for row in calibrated_predictions if row.split == split), labels)
         for split in ("validation", "test")
@@ -530,9 +530,9 @@ def write_feature_calibration_result(
                     "source_prediction_sha256": result.source_prediction_sha256,
                     "source_model_sha256": result.source_model_sha256,
                     "source_manifest_sha256": result.source_manifest_sha256,
-                    "calibration_sha256": _sha256(calibration_content),
-                    "metrics_sha256": _sha256(metrics_content),
-                    "calibrated_predictions_sha256": _sha256(predictions_content),
+                    "calibration_sha256": sha256_bytes(calibration_content),
+                    "metrics_sha256": sha256_bytes(metrics_content),
+                    "calibrated_predictions_sha256": sha256_bytes(predictions_content),
                     "calibrated": True,
                     "calibration_split": "validation",
                     "calibration_row_count": result.model.calibration_row_count,
@@ -697,7 +697,7 @@ def _validate_output_manifest(
         raise FeatureCalibrationError("feature LightGBM manifest row counts do not match model")
     if manifest.get("purged_row_count") != model.purged_row_count:
         raise FeatureCalibrationError("feature LightGBM manifest purged count does not match model")
-    if _sha256(artifact_content) != model.artifact_sha256:
+    if sha256_bytes(artifact_content) != model.artifact_sha256:
         raise FeatureCalibrationError("feature LightGBM runtime artifact hash does not match model")
     if (
         metrics.evaluation_version != FEATURE_LIGHTGBM_EVALUATION_VERSION
@@ -1033,13 +1033,3 @@ def _write_outputs(destination: Path, outputs: Mapping[str, bytes]) -> None:
 def _is_sha256(value: str) -> bool:
     normalized = value.strip().lower()
     return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
-
-
-def _sha256(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()
-
-
-def _sha256_json(value: object) -> str:
-    return _sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    )

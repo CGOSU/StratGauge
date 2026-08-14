@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-from collections.abc import Mapping
 from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
@@ -13,6 +10,7 @@ from pydantic import field_validator, model_validator
 
 from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.domain.models import DomainModel
+from stratgauge.ml._hashing import sha256_bytes, sha256_json
 from stratgauge.ml.training_datasets import (
     TrainingDatasetPurpose,
     TrainingLabel,
@@ -353,7 +351,7 @@ class FeatureModelRegistryStore:
                 "to_lifecycle": to_lifecycle,
             }
             event = FeatureModelLifecycleEvent(
-                event_id=f"feature-model-event-{_sha256_json(identity)[:20]}",
+                event_id=f"feature-model-event-{sha256_json(identity)[:20]}",
                 registration_id=registration_id,
                 from_lifecycle=current.lifecycle,
                 to_lifecycle=to_lifecycle,
@@ -435,7 +433,7 @@ class FeatureModelRegistryStore:
             content = path.read_bytes()
         except OSError as exc:
             raise FeatureModelRegistryError("feature model runtime artifact is missing") from exc
-        if hashlib.sha256(content).hexdigest() != registration.training_runtime_artifact_sha256:
+        if sha256_bytes(content) != registration.training_runtime_artifact_sha256:
             raise FeatureModelRegistryError(
                 "feature model runtime artifact hash does not match registration"
             )
@@ -739,7 +737,7 @@ def _registration_id(model_version_id: str, calibration_id: str | None) -> str:
         "model_version_id": model_version_id,
         "registry_version": FEATURE_MODEL_REGISTRY_VERSION,
     }
-    return f"feature-registration-{_sha256_json(identity)[:20]}"
+    return f"feature-registration-{sha256_json(identity)[:20]}"
 
 
 def _sort_key(registration: FeatureModelRegistration) -> tuple[datetime, str]:
@@ -755,7 +753,7 @@ def _lifecycle_event_id(event: FeatureModelLifecycleEvent) -> str:
         "registration_id": event.registration_id,
         "to_lifecycle": event.to_lifecycle,
     }
-    return f"feature-model-event-{_sha256_json(identity)[:20]}"
+    return f"feature-model-event-{sha256_json(identity)[:20]}"
 
 
 def _safe_identifier(value: str) -> str:
@@ -782,9 +780,3 @@ def _require_aware(value: datetime, name: str) -> None:
 def _is_sha256(value: str) -> bool:
     normalized = value.strip().lower()
     return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
-
-
-def _sha256_json(value: Mapping[str, object]) -> str:
-    return hashlib.sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()

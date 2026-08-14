@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from datetime import date, datetime
 from decimal import Decimal
 from importlib import import_module
@@ -15,6 +13,7 @@ from typing import Any, Literal
 from pydantic import Field, field_validator, model_validator
 
 from stratgauge.domain.models import DomainModel
+from stratgauge.ml._hashing import sha256_json
 from stratgauge.ml.training_datasets import (
     TrainingDatasetPurpose,
     TrainingLabel,
@@ -475,7 +474,7 @@ def validate_feature_walk_forward(
     )
     report_data = report.model_dump(mode="json")
     report_data.pop("report_id")
-    report_id = f"feature-walk-forward-{_sha256_json(report_data)[:20]}"
+    report_id = f"feature-walk-forward-{sha256_json(report_data)[:20]}"
     return report.model_copy(update={"report_id": report_id})
 
 
@@ -880,7 +879,7 @@ def _load_numpy() -> Any:
 def _validate_report_identity(report: FeatureWalkForwardReport) -> None:
     data = report.model_dump(mode="json")
     report_id = data.pop("report_id")
-    expected = f"feature-walk-forward-{_sha256_json(data)[:20]}"
+    expected = f"feature-walk-forward-{sha256_json(data)[:20]}"
     if report_id != expected:
         raise ValueError("feature walk-forward report identity does not match content")
 
@@ -901,9 +900,3 @@ def _require_aware(value: datetime, name: str) -> None:
 
 def _is_sha256(value: str) -> bool:
     return len(value) == 64 and all(char in "0123456789abcdef" for char in value)
-
-
-def _sha256_json(value: Mapping[str, object]) -> str:
-    return hashlib.sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()

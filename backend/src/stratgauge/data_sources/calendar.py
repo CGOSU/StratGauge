@@ -14,6 +14,7 @@ from typing import Any, NoReturn, Protocol
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from stratgauge._files import atomic_write_text
 from stratgauge.data_sources.base import (
     AdapterError,
     RetryableAdapterError,
@@ -116,8 +117,9 @@ class CalendarReferenceStore:
                     "calendar reference snapshot identity already has different content"
                 )
             return existing
-        _atomic_write_text(self.root / snapshot.raw_path, content)
-        _atomic_write_text(manifest_path, snapshot.model_dump_json(indent=2))
+        raw_path = self.root / snapshot.raw_path
+        _write_calendar_reference(raw_path, content)
+        _write_calendar_reference(manifest_path, snapshot.model_dump_json(indent=2))
         return snapshot
 
     def load(self, snapshot_id: str) -> CalendarReferenceSnapshot:
@@ -259,12 +261,9 @@ def _sorted_unique_sessions(values: Iterable[date]) -> tuple[date, ...]:
     return tuple(sorted(set(values)))
 
 
-def _atomic_write_text(path: Path, content: str) -> None:
+def _write_calendar_reference(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(f"{path.suffix}.tmp")
     try:
-        temporary.write_text(content, encoding="utf-8", newline="\n")
-        temporary.replace(path)
+        atomic_write_text(path, content)
     except OSError as exc:
-        temporary.unlink(missing_ok=True)
         raise CalendarReferenceStoreError(f"failed to write calendar reference: {path}") from exc

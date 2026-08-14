@@ -133,9 +133,7 @@ class SelectionFeatureTests(unittest.TestCase):
             market_store = SnapshotStore(market_directory)
             result = sync_market_session(
                 adapter=TushareAdapter(
-                    market_fetcher=lambda request: [
-                        _row(request.session_date, "000001.SZ")
-                    ],
+                    market_fetcher=lambda request: [_row(request.session_date, "000001.SZ")],
                     clock=lambda: datetime(2026, 2, 1, 15, tzinfo=UTC),
                 ),
                 session_date=SELECTION_DATE - timedelta(days=1),
@@ -154,10 +152,7 @@ class SelectionFeatureTests(unittest.TestCase):
             self.assertEqual(len(report.candidate_snapshot_ids), 1)
             self.assertEqual(len(report.failures), 1)
             self.assertTrue(
-                any(
-                    failure.candidate_id.endswith(":000002.SZ")
-                    for failure in report.failures
-                )
+                any(failure.candidate_id.endswith(":000002.SZ") for failure in report.failures)
             )
 
 

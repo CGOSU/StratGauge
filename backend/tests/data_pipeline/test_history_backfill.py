@@ -117,11 +117,10 @@ class HistoryBackfillTests(unittest.TestCase):
         self.assertEqual(calls, 1)
         self.assertTrue(report.ready)
         self.assertFalse(report.remote_allowed)
-        self.assertEqual(
-            report.target_reports[0].access_plan.decision,
-            DataAccessDecision.CACHE_HIT,
-        )
-
+        access_plan = report.target_reports[0].access_plan
+        self.assertIsNotNone(access_plan)
+        assert access_plan is not None
+        self.assertEqual(access_plan.decision, DataAccessDecision.CACHE_HIT)
 
     def test_empty_provider_response_is_reported_as_missing_security(self) -> None:
         with TemporaryDirectory() as directory:

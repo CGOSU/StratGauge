@@ -47,9 +47,7 @@ def build_data_access_plan(
     local_available = local_snapshot_id is not None
     if force_refresh:
         decision = (
-            DataAccessDecision.FORCED_REFRESH
-            if remote_allowed
-            else DataAccessDecision.BLOCKED
+            DataAccessDecision.FORCED_REFRESH if remote_allowed else DataAccessDecision.BLOCKED
         )
         reason = (
             "forced refresh is allowed"

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import platform
@@ -15,6 +14,7 @@ from typing import Literal, cast
 from pydantic import Field, field_validator, model_validator
 
 from stratgauge.domain.models import DomainModel
+from stratgauge.ml._hashing import sha256_bytes
 from stratgauge.ml.evaluation import ModelEvaluationEvidence
 
 FEATURE_DATASET_SCHEMA_VERSION = "selection-feature-dataset-v1"
@@ -286,9 +286,9 @@ def train_constant_baseline(
         "train_row_count": len(train_rows),
         "validation_end": validation_end.isoformat(),
     }
-    model_digest = hashlib.sha256(
+    model_digest = sha256_bytes(
         json.dumps(model_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+    )
     model = BaselineModel(
         model_version_id=f"baseline-{model_digest[:20]}",
         feature_set_version_id=next(iter(feature_sets)),

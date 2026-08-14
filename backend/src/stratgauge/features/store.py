@@ -31,9 +31,7 @@ class FeatureSnapshotStore:
                     )
                 return existing
             try:
-                path.write_text(
-                    snapshot.model_dump_json(indent=2), encoding="utf-8", newline="\n"
-                )
+                path.write_text(snapshot.model_dump_json(indent=2), encoding="utf-8", newline="\n")
             except OSError as exc:
                 raise FeatureStoreError("failed to write feature snapshot") from exc
             return snapshot

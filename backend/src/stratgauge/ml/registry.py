@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping
 from datetime import datetime
@@ -12,6 +11,7 @@ from typing import Any, Literal
 from pydantic import field_validator
 
 from stratgauge.domain.models import DomainModel, ModelLifecycle
+from stratgauge.ml._hashing import sha256_bytes, sha256_json
 from stratgauge.ml.lightgbm_training import LightGBMModel
 from stratgauge.ml.selection_training import BaselineModel
 
@@ -149,12 +149,12 @@ class ModelRegistryStore:
             feature_set_version_id=model.feature_set_version_id,
             tracking_policy_id=model.tracking_policy_id,
             source_file_sha256=model.source_file_sha256,
-            artifact_sha256=_sha256(model_artifact),
+            artifact_sha256=sha256_bytes(model_artifact),
             runtime_artifact_sha256=(
-                _sha256(runtime_artifact) if runtime_artifact is not None else None
+                sha256_bytes(runtime_artifact) if runtime_artifact is not None else None
             ),
-            evaluation_sha256=_sha256(evaluation_report),
-            training_manifest_sha256=_sha256(training_manifest),
+            evaluation_sha256=sha256_bytes(evaluation_report),
+            training_manifest_sha256=sha256_bytes(training_manifest),
             random_seed=model.random_seed,
             registered_at=registered_at,
             registered_by=registered_by,
@@ -222,7 +222,7 @@ class ModelRegistryStore:
                 "model evaluation report",
             )
             manifest_bytes = self._training_manifest_path(model_version_id).read_bytes()
-            if _sha256(manifest_bytes) != base.training_manifest_sha256:
+            if sha256_bytes(manifest_bytes) != base.training_manifest_sha256:
                 raise ModelRegistryError("model training manifest hash does not match registration")
             _validate_json_object(manifest_bytes, "model training manifest")
             events = self.list_events(model_version_id)
@@ -539,7 +539,7 @@ class ModelRegistryStore:
             "reason": reason.strip(),
             "to_lifecycle": to_lifecycle.value,
         }
-        event_id = f"model-event-{_sha256(_canonical_json(identity))[:20]}"
+        event_id = f"model-event-{sha256_json(identity)[:20]}"
         event = ModelLifecycleEvent(
             event_id=event_id,
             model_version_id=current.model_version_id,
@@ -615,7 +615,7 @@ class ModelRegistryStore:
             content = path.read_bytes()
         except OSError as exc:
             raise ModelRegistryError(f"{artifact_name} is missing") from exc
-        if _sha256(content) != expected_sha256:
+        if sha256_bytes(content) != expected_sha256:
             raise ModelRegistryError(f"{artifact_name} hash does not match registration")
 
 
@@ -636,7 +636,7 @@ def _validate_model_artifact(
         return
     if runtime_artifact is None:
         raise ModelRegistryError("LightGBM model requires a runtime artifact")
-    if _sha256(runtime_artifact) != model.artifact_sha256:
+    if sha256_bytes(runtime_artifact) != model.artifact_sha256:
         raise ModelRegistryError("LightGBM runtime artifact hash does not match model metadata")
     try:
         parsed_lightgbm = LightGBMModel.model_validate_json(content)
@@ -682,16 +682,6 @@ def _parse_json(content: bytes, name: str) -> Any:
         return json.loads(content)
     except (TypeError, json.JSONDecodeError) as exc:
         raise ModelRegistryError(f"{name} is not valid JSON") from exc
-
-
-def _canonical_json(value: Mapping[str, Any]) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
-
-
-def _sha256(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()
 
 
 def _safe_identifier(value: str) -> str:

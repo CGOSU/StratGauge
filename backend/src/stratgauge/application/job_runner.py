@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import Field
 
+from stratgauge._files import atomic_write_text
 from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.domain.models import DomainModel
 
@@ -73,7 +74,7 @@ class LocalJobStore:
                 if not _same_configuration(existing, job):
                     raise LocalJobError("job identity already exists with different configuration")
                 return existing
-            _atomic_write(path, job.model_dump_json(indent=2))
+            _write_job_record(path, job.model_dump_json(indent=2))
             return job
 
     def load(self, job_id: str) -> JobRecord:
@@ -136,7 +137,7 @@ class LocalJobStore:
             return self._save(updated)
 
     def _save(self, job: JobRecord) -> JobRecord:
-        _atomic_write(self._path(job.job_id), job.model_dump_json(indent=2))
+        _write_job_record(self._path(job.job_id), job.model_dump_json(indent=2))
         return job
 
     def _path(self, job_id: str) -> Path:
@@ -163,11 +164,8 @@ def _same_configuration(first: JobRecord, second: JobRecord) -> bool:
     )
 
 
-def _atomic_write(path: Path, content: str) -> None:
-    temporary = path.with_suffix(f"{path.suffix}.tmp")
+def _write_job_record(path: Path, content: str) -> None:
     try:
-        temporary.write_text(content, encoding="utf-8", newline="\n")
-        temporary.replace(path)
+        atomic_write_text(path, content)
     except OSError as exc:
-        temporary.unlink(missing_ok=True)
         raise LocalJobError(f"failed to write job: {path.name}") from exc

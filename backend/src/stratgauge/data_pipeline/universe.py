@@ -275,13 +275,9 @@ class SecurityMasterStore:
                     )
                 return existing
             try:
-                path.write_text(
-                    snapshot.model_dump_json(indent=2), encoding="utf-8", newline="\n"
-                )
+                path.write_text(snapshot.model_dump_json(indent=2), encoding="utf-8", newline="\n")
             except OSError as exc:
-                raise SecurityMasterStoreError(
-                    "failed to write security master snapshot"
-                ) from exc
+                raise SecurityMasterStoreError("failed to write security master snapshot") from exc
             return snapshot
 
     def load(self, snapshot_id: str) -> SecurityMasterSnapshot:
@@ -334,9 +330,7 @@ class UniverseOverrideStore:
                     )
                 return existing
             try:
-                path.write_text(
-                    override.model_dump_json(indent=2), encoding="utf-8", newline="\n"
-                )
+                path.write_text(override.model_dump_json(indent=2), encoding="utf-8", newline="\n")
             except OSError as exc:
                 raise UniverseOverrideStoreError("failed to write security override") from exc
             return override
@@ -393,9 +387,7 @@ class UniverseSnapshotStore:
                     )
                 return existing
             try:
-                path.write_text(
-                    snapshot.model_dump_json(indent=2), encoding="utf-8", newline="\n"
-                )
+                path.write_text(snapshot.model_dump_json(indent=2), encoding="utf-8", newline="\n")
             except OSError as exc:
                 raise UniverseSnapshotStoreError("failed to write universe snapshot") from exc
             return snapshot

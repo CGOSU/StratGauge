@@ -10,6 +10,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from stratgauge._files import atomic_write_text
 from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.domain.models import DomainModel
 from stratgauge.domain.selections import (
@@ -112,7 +113,7 @@ class SelectionImportStore:
                 if existing.category != tag.category or existing.label != tag.label:
                     raise SelectionStoreError("reusable tag identity already has different content")
                 return existing
-            _atomic_write_text(path, tag.model_dump_json(indent=2))
+            _write_selection_text(path, tag.model_dump_json(indent=2))
             return tag
 
     def load_reusable_tag(self, tag_id: str) -> SelectionReusableTag:
@@ -271,7 +272,7 @@ class SelectionImportStore:
                     "reusable tag event identity already has different content"
                 )
             return existing
-        _atomic_write_text(path, event.model_dump_json(indent=2))
+        _write_selection_text(path, event.model_dump_json(indent=2))
         return event
 
     def create_formula(
@@ -316,7 +317,7 @@ class SelectionImportStore:
             ):
                 raise SelectionStoreError("formula identity already exists with different metadata")
             return existing
-        _atomic_write_text(path, formula.model_dump_json(indent=2))
+        _write_selection_text(path, formula.model_dump_json(indent=2))
         return formula
 
     def list_formulas(self, *, include_archived: bool = False) -> tuple[SelectionFormula, ...]:
@@ -376,7 +377,7 @@ class SelectionImportStore:
         raw_path = self.raw_dir / f"{actual_hash}.bin"
         import_path = self.import_dir / f"{parsed.batch.batch_id}.json"
         _atomic_write_bytes(raw_path, raw_content)
-        _atomic_write_text(import_path, parsed.model_dump_json(indent=2))
+        _write_selection_text(import_path, parsed.model_dump_json(indent=2))
         manifest = SelectionImportManifest(
             batch_id=parsed.batch.batch_id,
             source_file_sha256=actual_hash,
@@ -384,7 +385,7 @@ class SelectionImportStore:
             raw_path=str(raw_path.relative_to(self.root)),
             import_path=str(import_path.relative_to(self.root)),
         )
-        _atomic_write_text(manifest_path, manifest.model_dump_json(indent=2))
+        _write_selection_text(manifest_path, manifest.model_dump_json(indent=2))
         return manifest
 
     def load_import(self, batch_id: str) -> TdxSelectionImport:
@@ -431,7 +432,7 @@ class SelectionImportStore:
                 return ManualSelectionLabel.model_validate_json(path.read_text(encoding="utf-8"))
             except Exception as exc:
                 raise SelectionStoreError(f"selection label is invalid: {label_id}") from exc
-        _atomic_write_text(path, label.model_dump_json(indent=2))
+        _write_selection_text(path, label.model_dump_json(indent=2))
         return label
 
     def write_annotation(
@@ -467,7 +468,7 @@ class SelectionImportStore:
                     "selection annotation identity already has different content"
                 )
             return existing
-        _atomic_write_text(path, annotation.model_dump_json(indent=2))
+        _write_selection_text(path, annotation.model_dump_json(indent=2))
         return annotation
 
     def list_annotations(self, candidate_id: str) -> tuple[SelectionAnnotation, ...]:
@@ -529,7 +530,7 @@ class SelectionImportStore:
                     "selection exclusion identity already has different content"
                 )
             return existing
-        _atomic_write_text(path, exclusion.model_dump_json(indent=2))
+        _write_selection_text(path, exclusion.model_dump_json(indent=2))
         return exclusion
 
     def list_exclusions(self, candidate_id: str) -> tuple[SelectionCandidateExclusion, ...]:
@@ -596,7 +597,7 @@ class SelectionImportStore:
                     f"selection outcome identity has different content: {outcome_id}"
                 )
             return existing
-        _atomic_write_text(path, outcome.model_dump_json(indent=2))
+        _write_selection_text(path, outcome.model_dump_json(indent=2))
         return outcome
 
     def write_performance(self, performance: SelectionPerformance) -> SelectionPerformance:
@@ -645,7 +646,7 @@ class SelectionImportStore:
                     f"selection performance identity has different content: {performance_id}"
                 )
             return existing
-        _atomic_write_text(path, performance.model_dump_json(indent=2))
+        _write_selection_text(path, performance.model_dump_json(indent=2))
         return performance
 
     def find_performance_for_task(
@@ -770,7 +771,7 @@ class SelectionImportStore:
                     "maturity task identity already exists with different configuration"
                 )
             return existing
-        _atomic_write_text(path, _task_storage_json(task))
+        _write_selection_text(path, _task_storage_json(task))
         return self.load_maturity_task(task.task_id)
 
     def save_maturity_task(self, task: SelectionMaturityTask) -> SelectionMaturityTask:
@@ -792,7 +793,7 @@ class SelectionImportStore:
             raise SelectionStoreError(
                 "maturity task configuration cannot be changed after creation"
             )
-        _atomic_write_text(path, _task_storage_json(task))
+        _write_selection_text(path, _task_storage_json(task))
         return self.load_maturity_task(task.task_id)
 
     def load_maturity_task(self, task_id: str) -> SelectionMaturityTask:
@@ -859,7 +860,7 @@ class SelectionImportStore:
                     f"maturity task event identity has different content: {event_id}"
                 )
             return existing
-        _atomic_write_text(path, event.model_dump_json(indent=2))
+        _write_selection_text(path, event.model_dump_json(indent=2))
         return event
 
     def list_maturity_task_events(self, task_id: str) -> tuple[SelectionMaturityTaskEvent, ...]:
@@ -987,7 +988,7 @@ class SelectionImportStore:
                 raise SelectionStoreError(
                     f"selection lifecycle event is invalid: {event_id}"
                 ) from exc
-        _atomic_write_text(path, event.model_dump_json(indent=2))
+        _write_selection_text(path, event.model_dump_json(indent=2))
         return event
 
     def _maturity_task_path(self, task_id: str) -> Path:
@@ -1054,11 +1055,8 @@ def _atomic_write_bytes(path: Path, content: bytes) -> None:
         raise SelectionStoreError(f"failed to write selection file: {path}") from exc
 
 
-def _atomic_write_text(path: Path, content: str) -> None:
-    temporary = path.with_suffix(f"{path.suffix}.tmp")
+def _write_selection_text(path: Path, content: str) -> None:
     try:
-        temporary.write_text(content, encoding="utf-8", newline="\n")
-        temporary.replace(path)
+        atomic_write_text(path, content)
     except OSError as exc:
-        temporary.unlink(missing_ok=True)
         raise SelectionStoreError(f"failed to write selection file: {path}") from exc

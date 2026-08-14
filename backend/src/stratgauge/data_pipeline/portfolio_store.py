@@ -9,6 +9,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from stratgauge._files import atomic_write_text
 from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.domain.portfolio import (
     ManualFill,
@@ -45,7 +46,7 @@ class ManualPortfolioStore:
             if existing != order:
                 raise PortfolioStoreError("order identity already has different content")
             return existing
-        _atomic_write(path, order.model_dump_json(indent=2))
+        _write_portfolio_record(path, order.model_dump_json(indent=2))
         return order
 
     def record_order_and_fill(
@@ -83,9 +84,9 @@ class ManualPortfolioStore:
             held = self._quantity_for_symbol(order.security.symbol)
             if fill.quantity > held:
                 raise PortfolioStoreError("sell fill exceeds current position")
-        _atomic_write(order_path, order.model_dump_json(indent=2))
+        _write_portfolio_record(order_path, order.model_dump_json(indent=2))
         try:
-            _atomic_write(fill_path, fill.model_dump_json(indent=2))
+            _write_portfolio_record(fill_path, fill.model_dump_json(indent=2))
         except Exception:
             order_path.unlink(missing_ok=True)
             raise
@@ -113,7 +114,7 @@ class ManualPortfolioStore:
             held = self._quantity_for_symbol(order.security.symbol)
             if fill.quantity > held:
                 raise PortfolioStoreError("sell fill exceeds current position")
-        _atomic_write(path, fill.model_dump_json(indent=2))
+        _write_portfolio_record(path, fill.model_dump_json(indent=2))
         return fill
 
     def write_review(self, review: PortfolioReview) -> PortfolioReview:
@@ -127,7 +128,7 @@ class ManualPortfolioStore:
             if existing != review:
                 raise PortfolioStoreError("review identity already has different content")
             return existing
-        _atomic_write(path, review.model_dump_json(indent=2))
+        _write_portfolio_record(path, review.model_dump_json(indent=2))
         return review
 
     def list_orders(self) -> tuple[ManualOrder, ...]:
@@ -220,11 +221,8 @@ def _load[ModelT: BaseModel](path: Path, model: type[ModelT], label: str) -> Mod
         raise PortfolioStoreError(f"{label} is invalid: {path.stem}") from exc
 
 
-def _atomic_write(path: Path, content: str) -> None:
-    temporary = path.with_suffix(f"{path.suffix}.tmp")
+def _write_portfolio_record(path: Path, content: str) -> None:
     try:
-        temporary.write_text(content, encoding="utf-8", newline="\n")
-        temporary.replace(path)
+        atomic_write_text(path, content)
     except OSError as exc:
-        temporary.unlink(missing_ok=True)
         raise PortfolioStoreError(f"failed to write portfolio record: {path.name}") from exc

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -12,6 +10,7 @@ from typing import Final, Literal
 from pydantic import Field, field_validator, model_validator
 
 from stratgauge.domain.models import DomainModel, ModelLifecycle
+from stratgauge.ml._hashing import sha256_bytes, sha256_json
 from stratgauge.ml.evaluation import ModelEvaluationEvidence, read_model_evaluation
 from stratgauge.ml.registry import ModelRegistryError, ModelRegistryStore, RegisteredModel
 
@@ -81,7 +80,7 @@ class ComparisonPolicy(DomainModel):
 
     @property
     def policy_sha256(self) -> str:
-        return _sha256(_canonical_json(self.model_dump(mode="json")))
+        return sha256_json(self.model_dump(mode="json"))
 
 
 class MetricComparison(DomainModel):
@@ -213,7 +212,7 @@ class ModelComparisonStore:
             content = path.read_bytes()
         except OSError as exc:
             raise ModelComparisonError(f"failed to read comparison report: {report_id}") from exc
-        return self.load(report_id), _sha256(content)
+        return self.load(report_id), sha256_bytes(content)
 
 
 def compare_models(
@@ -285,7 +284,7 @@ def compare_models(
     }
     gate_passed = all(check.passed for check in checks) and calibration_reason is None
     report = ModelComparisonReport(
-        report_id=f"comparison-{_sha256(_canonical_json(identity))[:20]}",
+        report_id=f"comparison-{sha256_json(identity)[:20]}",
         policy=policy,
         policy_sha256=policy.policy_sha256,
         tracking_policy_id=policy.tracking_policy_id,
@@ -390,13 +389,7 @@ def _report_id_from_report(report: ModelComparisonReport) -> str:
         "report_version": report.report_version,
         "tracking_policy_id": report.tracking_policy_id,
     }
-    return f"comparison-{_sha256(_canonical_json(identity))[:20]}"
-
-
-def _canonical_json(value: object) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
+    return f"comparison-{sha256_json(identity)[:20]}"
 
 
 def _require_aware(value: datetime, name: str) -> None:
@@ -414,7 +407,3 @@ def _safe_identifier(value: str) -> str:
     if not normalized or any(character in normalized for character in ("/", "\\", "\0")):
         raise ModelComparisonError("comparison identifier contains an invalid path character")
     return normalized
-
-
-def _sha256(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()

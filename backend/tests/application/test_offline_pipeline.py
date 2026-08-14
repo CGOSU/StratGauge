@@ -60,13 +60,13 @@ class OfflinePipelineTests(unittest.TestCase):
                 clock=lambda: datetime(2026, 1, 8, 17, tzinfo=UTC),
             )
             for session in (datetime(2026, 1, 6).date(), datetime(2026, 1, 7).date()):
-                result = sync_market_session(
+                sync_result = sync_market_session(
                     adapter=adapter,
                     session_date=session,
                     universe=universe,
                     store=market_store,
                 )
-                self.assertEqual(result.status, "approved")
+                self.assertEqual(sync_result.status, "approved")
 
             result = run_offline_maturity_pipeline(
                 directory,

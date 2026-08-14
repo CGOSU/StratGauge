@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from collections.abc import Mapping, Sequence
@@ -15,6 +14,7 @@ from typing import Literal
 from pydantic import Field, field_validator
 
 from stratgauge.domain.models import DomainModel
+from stratgauge.ml._hashing import sha256_json
 from stratgauge.ml.evaluation import ModelEvaluationEvidence
 from stratgauge.ml.isotonic import IsotonicBin, apply_isotonic_bin, fit_isotonic_bins
 
@@ -237,7 +237,7 @@ def calibrate_predictions(
         "source_prediction_sha256": source_prediction_sha256,
         "tracking_policy_id": tracking_policy_id,
     }
-    calibration_id = f"calibration-{_sha256(_canonical_json(identity))[:20]}"
+    calibration_id = f"calibration-{sha256_json(identity)[:20]}"
     metrics = tuple(
         _metrics(split, tuple(row for row in calibrated_predictions if row.split == split))
         for split in ("validation", "test")
@@ -429,13 +429,3 @@ def _manifest_text(manifest: Mapping[str, object], field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise CalibrationError(f"LightGBM manifest field is missing: {field_name}")
     return value.strip()
-
-
-def _canonical_json(value: Mapping[str, object]) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
-
-
-def _sha256(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()

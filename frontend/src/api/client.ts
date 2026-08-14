@@ -9,14 +9,14 @@ export type ApiErrorPayload = {
 export class ApiClientError extends Error {
   readonly status: number
   readonly code: string | undefined
-  readonly details: Record<string, unknown> | undefined
+  readonly details: Record<string, unknown>
 
   constructor(status: number, payload: ApiErrorPayload | undefined) {
     super(payload?.error?.message ?? `请求失败：${status}`)
     this.name = 'ApiClientError'
     this.status = status
     this.code = payload?.error?.code
-    this.details = payload?.error?.details
+    this.details = payload?.error?.details ?? {}
   }
 }
 
@@ -33,12 +33,7 @@ export async function requestJson<T>(
   init?: RequestInit,
   fetcher: FetchLike = fetch,
 ): Promise<T> {
-  const response = await fetcher(resolveUrl(path), init)
-  const payload = await readPayload(response)
-  if (!response.ok) {
-    throw new ApiClientError(response.status, payload as ApiErrorPayload | undefined)
-  }
-  return payload as T
+  return requestJsonAtBase<T>(path, apiBaseUrl, init, fetcher)
 }
 
 export function createApiClient(
@@ -49,15 +44,32 @@ export function createApiClient(
   return {
     baseUrl: normalizedBaseUrl,
     requestJson: <T>(path: string, init?: RequestInit) =>
-      requestJson<T>(`${normalizedBaseUrl}${path.startsWith('/') ? path : `/${path}`}`, init, fetcher),
+      requestJsonAtBase<T>(path, normalizedBaseUrl, init, fetcher),
   }
 }
 
-function resolveUrl(path: string): string {
+async function requestJsonAtBase<T>(
+  path: string,
+  baseUrl: string,
+  init: RequestInit | undefined,
+  fetcher: FetchLike,
+): Promise<T> {
+  const response = await fetcher(resolveUrl(path, baseUrl), init)
+  const payload = await readPayload(response)
+  if (!response.ok) {
+    throw new ApiClientError(response.status, payload as ApiErrorPayload | undefined)
+  }
+  return payload as T
+}
+
+function resolveUrl(path: string, baseUrl: string): string {
   if (/^https?:\/\//i.test(path)) {
     return path
   }
-  return `${apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`
+  if (path === baseUrl || path.startsWith(`${baseUrl}/`)) {
+    return path
+  }
+  return `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`
 }
 
 async function readPayload(response: Response): Promise<unknown> {

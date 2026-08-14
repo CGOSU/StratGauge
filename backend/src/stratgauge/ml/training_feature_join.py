@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Iterable, Sequence
 from datetime import date, datetime
 from decimal import Decimal
@@ -13,6 +12,7 @@ from pydantic import Field, field_validator, model_validator
 from stratgauge.domain.models import DomainModel
 from stratgauge.features.contract import FeatureSnapshot
 from stratgauge.features.store import FeatureSnapshotStore, FeatureStoreError
+from stratgauge.ml._hashing import sha256_bytes
 from stratgauge.ml.training_datasets import (
     SelectionTrainingLabelRow,
     TrainingDatasetPurpose,
@@ -435,10 +435,10 @@ def build_training_feature_split_manifest(
         purpose=split.report.purpose,
         label_contract_id=split.report.label_contract_id,
         feature_set_version_id=split.report.feature_set_version_id,
-        label_split_manifest_sha256=_sha256(
+        label_split_manifest_sha256=sha256_bytes(
             _serialize_label_split_manifest(split.label_split_manifest).encode("utf-8")
         ),
-        label_readiness_sha256=_sha256(
+        label_readiness_sha256=sha256_bytes(
             _serialize_label_readiness(split.label_readiness).encode("utf-8")
         ),
         source_label_dataset_sha256=split.report.source_label_dataset_sha256,
@@ -447,14 +447,12 @@ def build_training_feature_split_manifest(
         label_row_counts={
             name: len(content.splitlines()) for name, content in label_partitions.items()
         },
-        partition_sha256={
-            name: hashlib.sha256(content).hexdigest() for name, content in partitions.items()
-        },
+        partition_sha256={name: sha256_bytes(content) for name, content in partitions.items()},
         label_partition_sha256={
-            name: hashlib.sha256(content).hexdigest() for name, content in label_partitions.items()
+            name: sha256_bytes(content) for name, content in label_partitions.items()
         },
         feature_names=feature_names,
-        join_report_sha256=_sha256(_serialize_join_report(split.report).encode("utf-8")),
+        join_report_sha256=sha256_bytes(_serialize_join_report(split.report).encode("utf-8")),
     )
 
 
@@ -547,10 +545,6 @@ def _feature_row(
         source_snapshot_ids=snapshot.source_snapshot_ids,
         features=snapshot.values,
     )
-
-
-def _sha256(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()
 
 
 def _validate_digest_fields(*values: str) -> None:

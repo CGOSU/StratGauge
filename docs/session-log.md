@@ -8,6 +8,13 @@
 
 ## 会话
 
+### 2026-08-14 第一轮 clean-code 代码整理
+
+- 完成内容：依据 `docs/clean-code.md` 做行为保持型整理。后端补齐 Ruff 格式基线和严格 MyPy 输入，修复测试中的可选值收窄、类型返回和变量复用问题；将 ML 模块重复的规范 JSON/字节 SHA-256 实现收敛到 `backend/src/stratgauge/ml/_hashing.py`；将 8 处重复的 UTF-8/LF 原子文本写入收敛到 `backend/src/stratgauge/_files.py`，保留调用方的目录创建、领域异常和字节写入边界。前端统一 `api/client.ts` 的 `ApiClientError`/`requestJson`，修复自定义 base URL 解析；抽出 `CalendarInput`、主板行情同步面板和同步 API 合约类型；删除全仓无消费者的 `api/provider.tsx`、`useApiResource.ts` 和 `decisionDescription`。
+- 审计结论：后端 API、CLI、数据源适配器、历史数据模型和 `legacy-unknown` 兼容路径均有公开入口、测试引用或历史证据约束，本轮未删除；`App.tsx` 工作台/管理/持仓大组件、`SelectionService` 和 ML 大训练模块列为后续分批拆分项。
+- 实际验证：`cd backend && uv run ruff format --check .` 通过（221 个文件已格式化）；`cd backend && uv run ruff check .` 通过；`cd backend && uv run mypy` 通过（222 个源文件）；`cd backend && PYTHONPATH=src uv run python -m unittest discover -s tests -q` 通过（339 项，1 项跳过；仅出现 Starlette/httpx 弃用警告）；`cd frontend && npm run typecheck && npm run lint && npm run build` 通过（Vite 转换 1875 个模块）；`git diff --check` 通过，仅有既有 LF/CRLF 工作树换行警告。
+- 遗留问题：本轮整理尚未提交或推送；`.agents/` 未跟踪且未纳入。浏览器视觉回归、未成交/部分成交独立前端入口、同步进度轮询/取消操作以及大组件/综合服务的进一步拆分仍待后续小步实施。
+
 ### 2026-08-14 主板收盘行情同步诊断 API/UI
 
 - 完成内容：主板收盘同步 API 新增逐 session 的日线/复权因子阶段诊断，返回状态、覆盖率、预期/实际证券数、质量问题、中文处理建议、快照 ID 和 `quality_run_id`，并用 `research_ready` 标记是否可进入研究。质量拒绝继续返回 HTTP 200 但明确为不可用快照；供应商、存储、前置条件和未知异常返回稳定 code、中文原因/建议且不泄露凭据。前端同步面板展示阶段证据和行动建议，区分完整成功与含未批准数据的完成状态，明确未批准数据不会进入研究；窄屏改为单列并允许长证据 ID 换行。

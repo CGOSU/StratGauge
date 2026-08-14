@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import platform
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -17,6 +16,7 @@ from typing import Any, Literal, cast
 from pydantic import Field, field_validator
 
 from stratgauge.domain.models import DomainModel
+from stratgauge.ml._hashing import sha256_bytes, sha256_json
 from stratgauge.ml.evaluation import ModelEvaluationEvidence
 from stratgauge.ml.selection_training import (
     SelectionFeatureRow,
@@ -172,7 +172,7 @@ def train_lightgbm(
         num_boost_round=int(parameters["num_boost_round"]),
     )
     artifact = booster.model_to_string().encode("utf-8")
-    artifact_sha256 = _sha256(artifact)
+    artifact_sha256 = sha256_bytes(artifact)
     feature_set_version_id = train_rows[0].feature_set_version_id
     tracking_policy_id = train_rows[0].tracking_policy_id
     model_identity = {
@@ -186,7 +186,7 @@ def train_lightgbm(
         "validation_end": validation_end.isoformat(),
     }
     model = LightGBMModel(
-        model_version_id=f"lightgbm-{_sha256(_canonical_json(model_identity))[:20]}",
+        model_version_id=f"lightgbm-{sha256_json(model_identity)[:20]}",
         feature_set_version_id=feature_set_version_id,
         tracking_policy_id=tracking_policy_id,
         feature_names=feature_names,
@@ -418,13 +418,3 @@ def _evaluation_metrics(metrics: Sequence[LightGBMMetrics]) -> dict[str, Decimal
             None if metric.brier_score is None else Decimal(str(metric.brier_score))
         )
     return values
-
-
-def _canonical_json(value: Mapping[str, object]) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
-
-
-def _sha256(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()

@@ -14,6 +14,7 @@ import duckdb
 import polars as pl
 from pydantic import BaseModel, ConfigDict, Field
 
+from stratgauge._files import atomic_write_text
 from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.data_pipeline.quality import QualityReport
 from stratgauge.data_sources.base import (
@@ -132,7 +133,7 @@ class SnapshotStore:
 
         raw_path = self.raw_dir / f"{snapshot_id}.json"
         normalized_path = self.normalized_dir / f"{snapshot_id}.parquet"
-        _atomic_write_text(raw_path, canonical_payload)
+        _write_snapshot_file(raw_path, canonical_payload)
         normalized_rows: tuple[Any, ...]
         if isinstance(result, AdjustmentFactorAdapterResult):
             normalized_rows = result.factors
@@ -162,7 +163,7 @@ class SnapshotStore:
             source_daily_snapshot_id=getattr(result.request, "source_daily_snapshot_id", None),
             request_sha256=_canonical_sha256(request_payload),
         )
-        _atomic_write_text(
+        _write_snapshot_file(
             manifest_path,
             manifest.model_dump_json(indent=2),
         )
@@ -231,7 +232,7 @@ class SnapshotStore:
     ) -> SnapshotManifest:
         manifest = self.load_manifest(snapshot_id)
         updated = manifest.model_copy(update={"status": status, "quality_run_id": quality_run_id})
-        _atomic_write_text(
+        _write_snapshot_file(
             self.manifest_dir / f"{snapshot_id}.json",
             updated.model_dump_json(indent=2),
         )
@@ -244,7 +245,7 @@ class SnapshotStore:
 
     def _save_quality_report_unlocked(self, report: QualityReport, quality_run_id: str) -> str:
         path = self.quality_dir / f"{quality_run_id}.json"
-        _atomic_write_text(path, report.model_dump_json(indent=2))
+        _write_snapshot_file(path, report.model_dump_json(indent=2))
         with duckdb.connect(str(self.catalog_path)) as connection:
             connection.execute(
                 """
@@ -291,8 +292,7 @@ class SnapshotStore:
                     if not raw_path.exists():
                         missing_files.append(f"{snapshot_id}:raw")
                     elif (
-                        hashlib.sha256(raw_path.read_bytes()).hexdigest()
-                        != manifest.content_sha256
+                        hashlib.sha256(raw_path.read_bytes()).hexdigest() != manifest.content_sha256
                     ):
                         invalid.append(f"{snapshot_id}:raw_hash")
                     if not normalized_path.exists():
@@ -511,11 +511,8 @@ def _raw_request_sha256(manifest: SnapshotManifest, root: Path) -> str | None:
         return None
 
 
-def _atomic_write_text(path: Path, content: str) -> None:
-    temporary = path.with_suffix(f"{path.suffix}.tmp")
+def _write_snapshot_file(path: Path, content: str) -> None:
     try:
-        temporary.write_text(content, encoding="utf-8", newline="\n")
-        temporary.replace(path)
+        atomic_write_text(path, content)
     except OSError as exc:
-        temporary.unlink(missing_ok=True)
         raise SnapshotStoreError(f"failed to write snapshot file: {path}") from exc

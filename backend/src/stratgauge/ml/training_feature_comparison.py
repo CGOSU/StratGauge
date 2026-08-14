@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -15,6 +13,7 @@ from pydantic import Field, field_validator, model_validator
 
 from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.domain.models import DomainModel
+from stratgauge.ml._hashing import sha256_bytes, sha256_json
 from stratgauge.ml.training_datasets import (
     TrainingDatasetPurpose,
     TrainingLabel,
@@ -119,7 +118,7 @@ class FeatureComparisonPolicy(DomainModel):
 
     @property
     def policy_sha256(self) -> str:
-        return _sha256(_canonical_json(self.model_dump(mode="json")))
+        return sha256_json(self.model_dump(mode="json"))
 
 
 class FeatureMetricComparison(DomainModel):
@@ -357,7 +356,7 @@ class FeatureComparisonStore:
             raise FeatureComparisonError(
                 f"feature comparison report does not exist: {normalized}"
             ) from exc
-        return self.load(normalized), _sha256(content)
+        return self.load(normalized), sha256_bytes(content)
 
     def _path(self, report_id: str) -> Path:
         return self.comparison_dir / f"{_safe_identifier(report_id)}.json"
@@ -538,7 +537,7 @@ def compare_feature_model_evidence(
     )
     report_data = report.model_dump(mode="json")
     report_data.pop("report_id")
-    report_id = f"feature-comparison-{_sha256(_canonical_json(report_data))[:20]}"
+    report_id = f"feature-comparison-{sha256_json(report_data)[:20]}"
     return report.model_copy(update={"report_id": report_id})
 
 
@@ -574,7 +573,7 @@ def _load_model_evidence(
         registration, training, calibration = registry.load_outputs(registration_id)
         report = walk_forward_store.load(report_id)
         report_path = walk_forward_store.report_dir / f"{report_id}.json"
-        report_sha256 = _sha256(report_path.read_bytes())
+        report_sha256 = sha256_bytes(report_path.read_bytes())
     except (FeatureModelRegistryError, OSError, TypeError, ValueError) as exc:
         raise FeatureComparisonError(
             f"feature comparison evidence could not be loaded: {registration_id}/{report_id}"
@@ -597,7 +596,7 @@ def _validate_model_evidence(
     report = evidence.walk_forward
     report_data = report.model_dump(mode="json")
     report_id = report_data.pop("report_id")
-    expected_report_id = f"feature-walk-forward-{_sha256(_canonical_json(report_data))[:20]}"
+    expected_report_id = f"feature-walk-forward-{sha256_json(report_data)[:20]}"
     if report_id != expected_report_id:
         raise FeatureComparisonError("walk-forward report identity does not match its content")
     if registration.registration_id != report.registration_id:
@@ -915,7 +914,7 @@ def _weighted_metric(
 def _validate_report_identity(report: FeatureComparisonReport) -> None:
     data = report.model_dump(mode="json")
     report_id = data.pop("report_id")
-    expected = f"feature-comparison-{_sha256(_canonical_json(data))[:20]}"
+    expected = f"feature-comparison-{sha256_json(data)[:20]}"
     if report_id != expected:
         raise ValueError("feature comparison report identity does not match content")
 
@@ -962,16 +961,3 @@ def _is_sha256(value: str | None) -> bool:
     return (
         value is not None and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
     )
-
-
-def _canonical_json(value: object) -> bytes:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-
-
-def _sha256(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()

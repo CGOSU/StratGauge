@@ -6,10 +6,10 @@ import hashlib
 from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from stratgauge._files import atomic_write_text
 from stratgauge.backtest.selection_dataset import (
     DATASET_SCHEMA_VERSION as _DATASET_SCHEMA_VERSION,
 )
@@ -95,35 +95,13 @@ def write_selection_dataset_split(
         raise FileExistsError(f"dataset split output already exists: {destination}")
     try:
         for name, split_rows in splits.items():
-            _atomic_write(
+            atomic_write_text(
                 paths[name],
                 "".join(f"{row.model_dump_json()}\n" for row in split_rows),
             )
-        _atomic_write(manifest_path, manifest.model_dump_json(indent=2))
+        atomic_write_text(manifest_path, manifest.model_dump_json(indent=2))
     except OSError:
         for path in (*paths.values(), manifest_path):
             path.unlink(missing_ok=True)
         raise
     return manifest
-
-
-def _atomic_write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary: Path | None = None
-    try:
-        with NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            newline="\n",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            temporary = Path(handle.name)
-            handle.write(content)
-        temporary.replace(path)
-    except OSError:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-        raise

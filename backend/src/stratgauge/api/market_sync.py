@@ -344,11 +344,7 @@ def _build_stage_diagnostic(
     )
     if status is SnapshotStatus.REJECTED:
         summary = f"{phase_label}未通过质量门，快照已保存但不会进入研究。"
-        action = (
-            issues[0].action
-            if issues
-            else "打开质量报告核对失败原因，修复数据后重新同步。"
-        )
+        action = issues[0].action if issues else "打开质量报告核对失败原因，修复数据后重新同步。"
     elif status is SnapshotStatus.APPROVED and issues:
         summary = f"{phase_label}已通过质量门，但有 {len(issues)} 条提示。"
         action = "核对提示项；当前快照已批准，可以用于研究。"

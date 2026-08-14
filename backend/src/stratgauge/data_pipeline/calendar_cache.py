@@ -9,6 +9,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+from stratgauge._files import atomic_write_text
 from stratgauge.data_sources.calendar import CalendarReferenceStore, CalendarSource
 from stratgauge.data_sources.tushare_reference import (
     TushareReferenceClient,
@@ -330,8 +331,8 @@ class TradeCalendarCache:
             updated_at=now.astimezone(UTC),
         )
         output = "".join(f"{session.isoformat()}\n" for session in sessions)
-        _atomic_write(self.output_path, output)
-        _atomic_write(self.manifest_path, manifest.model_dump_json(indent=2) + "\n")
+        _write_calendar_file(self.output_path, output)
+        _write_calendar_file(self.manifest_path, manifest.model_dump_json(indent=2) + "\n")
         return manifest
 
 
@@ -391,12 +392,9 @@ def _read_sessions(path: Path) -> tuple[date, ...]:
     return result
 
 
-def _atomic_write(path: Path, content: str) -> None:
+def _write_calendar_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(f"{path.suffix}.tmp")
     try:
-        temporary.write_text(content, encoding="utf-8", newline="\n")
-        temporary.replace(path)
+        atomic_write_text(path, content)
     except OSError as exc:
-        temporary.unlink(missing_ok=True)
         raise CalendarCacheError(f"failed to write calendar cache: {path}") from exc

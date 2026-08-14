@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
 from collections.abc import Mapping, Sequence
 from datetime import datetime
@@ -14,6 +12,7 @@ from typing import Any, Literal
 from pydantic import Field, field_validator, model_validator
 
 from stratgauge.domain.models import DomainModel
+from stratgauge.ml._hashing import sha256_json
 
 DRIFT_REPORT_VERSION: Literal["selection-feature-drift-v1"] = "selection-feature-drift-v1"
 
@@ -263,7 +262,5 @@ def _bin_index(value: float, low: float, high: float, width: float, bin_count: i
 def _report_id(report: FeatureDriftReport) -> str:
     payload = report.model_dump(mode="json")
     payload.pop("report_id", None)
-    digest = hashlib.sha256(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    digest = sha256_json(payload)
     return f"drift-{digest[:20]}"

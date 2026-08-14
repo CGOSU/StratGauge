@@ -11,7 +11,7 @@ from stratgauge.features.contract import FeatureSnapshot
 from stratgauge.features.store import FeatureSnapshotStore
 from stratgauge.ml.registry import ModelRegistryStore
 from stratgauge.ml.selection_training import BaselineModel
-from stratgauge.ml.shadow import ShadowScoreStore, shadow_input_sha256
+from stratgauge.ml.shadow import ShadowScoreStore, ShadowScoringInput, shadow_input_sha256
 
 
 class SelectionShadowTests(unittest.TestCase):
@@ -75,19 +75,18 @@ class SelectionShadowTests(unittest.TestCase):
             self.assertEqual(len(scored.score_ids), 1)
             self.assertEqual(scored.failures, ())
             self.assertEqual(scored.model_lifecycle, "shadow")
-            self.assertEqual(scored.source_input_sha256, shadow_input_sha256(
-                (self._input(report, snapshot),)
-            ))
+            self.assertEqual(
+                scored.source_input_sha256, shadow_input_sha256((self._input(report, snapshot),))
+            )
             score = ShadowScoreStore(directory).load_score(scored.score_ids[0])
             self.assertEqual(score.uncalibrated_model_score, Decimal("0.6"))
             self.assertFalse(score.used_for_decision)
 
     @staticmethod
     def _input(
-        report: SelectionFeatureSnapshotReport, snapshot: FeatureSnapshot
-    ) -> object:
-        from stratgauge.ml.shadow import ShadowScoringInput
-
+        report: SelectionFeatureSnapshotReport,
+        snapshot: FeatureSnapshot,
+    ) -> ShadowScoringInput:
         return ShadowScoringInput(
             candidate_id=report.candidate_snapshot_ids[0][0],
             feature_snapshot=snapshot,

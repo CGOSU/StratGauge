@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from collections import Counter
@@ -14,6 +13,7 @@ from typing import Literal, cast
 from pydantic import Field, field_validator, model_validator
 
 from stratgauge.domain.models import DomainModel
+from stratgauge.ml._hashing import sha256_bytes, sha256_json
 from stratgauge.ml.training_datasets import (
     PreparedTrainingLabelDataset,
     SelectionTrainingLabelRow,
@@ -272,7 +272,7 @@ def read_training_feature_split(output_dir: str | Path) -> TrainingFeatureSplitI
         train_rows=partitions["train"],
         validation_rows=partitions["validation"],
         test_rows=partitions["test"],
-        manifest_sha256=hashlib.sha256(manifest_content).hexdigest(),
+        manifest_sha256=sha256_bytes(manifest_content),
     )
 
 
@@ -324,7 +324,7 @@ def train_constant_feature_baseline(
         "source_label_dataset_sha256": split_input.manifest.source_label_dataset_sha256,
     }
     model = FeatureBaselineModel(
-        model_version_id=f"feature-label-baseline-{_sha256_json(identity)[:20]}",
+        model_version_id=f"feature-label-baseline-{sha256_json(identity)[:20]}",
         purpose=split_input.manifest.purpose,
         label_contract_id=split_input.manifest.label_contract_id,
         feature_set_version_id=split_input.manifest.feature_set_version_id,
@@ -482,12 +482,9 @@ def _validate_manifest(
         raise ValueError("training feature readiness purpose does not match")
     if label_readiness.label_contract_id != manifest.label_contract_id:
         raise ValueError("training feature readiness contract does not match")
-    if (
-        manifest.label_split_manifest_sha256
-        != hashlib.sha256(label_split_manifest_content).hexdigest()
-    ):
+    if manifest.label_split_manifest_sha256 != sha256_bytes(label_split_manifest_content):
         raise ValueError("training feature manifest hash does not match label split manifest")
-    if manifest.label_readiness_sha256 != hashlib.sha256(label_readiness_content).hexdigest():
+    if manifest.label_readiness_sha256 != sha256_bytes(label_readiness_content):
         raise ValueError("training feature manifest hash does not match label readiness")
     expected_contents = {
         name: serialize_training_feature_dataset(rows).encode("utf-8")
@@ -509,14 +506,14 @@ def _validate_manifest(
     for name, content in expected_contents.items():
         if manifest.row_counts[name] != len(content.splitlines()):
             raise ValueError(f"training feature manifest row count does not match {name}")
-        if manifest.partition_sha256[name] != hashlib.sha256(content).hexdigest():
+        if manifest.partition_sha256[name] != sha256_bytes(content):
             raise ValueError(f"training feature manifest hash does not match {name}")
         label_content = expected_label_contents[name]
         if manifest.label_row_counts[name] != len(label_content.splitlines()):
             raise ValueError(f"training feature label row count does not match {name}")
-        if manifest.label_partition_sha256[name] != hashlib.sha256(label_content).hexdigest():
+        if manifest.label_partition_sha256[name] != sha256_bytes(label_content):
             raise ValueError(f"training feature label hash does not match {name}")
-    if manifest.join_report_sha256 != hashlib.sha256(report_content).hexdigest():
+    if manifest.join_report_sha256 != sha256_bytes(report_content):
         raise ValueError("training feature manifest hash does not match join report")
     if manifest.prepared_label_dataset_sha256 != label_readiness.prepared_dataset_sha256:
         raise ValueError("training feature prepared label hash does not match readiness")
@@ -736,12 +733,6 @@ def _predictions(
 
 def _labels_for(purpose: TrainingDatasetPurpose) -> tuple[TrainingLabel, ...]:
     return _PURPOSE_LABEL_ORDER[purpose]
-
-
-def _sha256_json(value: object) -> str:
-    return hashlib.sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
 
 
 def _sha256_text(value: str, name: str) -> str:

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from datetime import date, datetime
 from decimal import Decimal
 from importlib import import_module
@@ -16,6 +15,7 @@ from pydantic import Field, field_validator
 from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.domain.models import DomainModel, ModelLifecycle
 from stratgauge.features.contract import FeatureSnapshot
+from stratgauge.ml._hashing import sha256_bytes, sha256_json
 from stratgauge.ml.calibration import CalibratedModel
 from stratgauge.ml.lightgbm_training import LightGBMModel
 from stratgauge.ml.registry import (
@@ -189,7 +189,7 @@ def serialize_shadow_inputs(inputs: Iterable[ShadowScoringInput]) -> bytes:
 def shadow_input_sha256(inputs: Iterable[ShadowScoringInput]) -> str:
     """Return the content identity used to audit a shadow scoring batch."""
 
-    return _sha256(serialize_shadow_inputs(inputs))
+    return sha256_bytes(serialize_shadow_inputs(inputs))
 
 
 def score_shadow_batch(
@@ -264,7 +264,7 @@ def score_shadow_batch(
         "source_input_sha256": source_input_sha256,
         "tracking_policy_id": registered.tracking_policy_id,
     }
-    report_id = f"shadow-report-{_sha256(_canonical_json(identity))[:20]}"
+    report_id = f"shadow-report-{sha256_json(identity)[:20]}"
     report = ShadowScoringReport(
         report_id=report_id,
         model_version_id=model_version_id,
@@ -310,7 +310,7 @@ def _score_one(
         "tracking_policy_id": registered.tracking_policy_id,
     }
     return ShadowScore(
-        score_id=f"shadow-score-{_sha256(_canonical_json(identity))[:20]}",
+        score_id=f"shadow-score-{sha256_json(identity)[:20]}",
         model_version_id=registered.model_version_id,
         model_lifecycle=_lifecycle_value(registered.lifecycle),
         candidate_id=row.candidate_id,
@@ -425,13 +425,3 @@ def _safe_identifier(value: str) -> str:
     ):
         raise ShadowScoreError("shadow identifier contains an invalid path character")
     return normalized
-
-
-def _canonical_json(value: Mapping[str, object]) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
-
-
-def _sha256(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()

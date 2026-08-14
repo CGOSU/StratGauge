@@ -76,9 +76,7 @@ def build_selection_feature_snapshots(
         manifests.append(manifest)
     try:
         bars = tuple(
-            bar
-            for snapshot_id in snapshot_ids
-            for bar in market_store.load_bars(snapshot_id)
+            bar for snapshot_id in snapshot_ids for bar in market_store.load_bars(snapshot_id)
         )
     except SnapshotStoreError as exc:
         raise SelectionFeatureError(str(exc)) from exc
@@ -108,9 +106,7 @@ def build_selection_feature_snapshots(
                 source_snapshot_ids=source_ids,
                 feature_set=resolved_set,
                 benchmark_bars=benchmark_bars,
-                benchmark_source_snapshot_ids=(
-                    source_ids if benchmark_bars else ()
-                ),
+                benchmark_source_snapshot_ids=(source_ids if benchmark_bars else ()),
             )
             feature_store.write(snapshot)
         except (FeatureComputationError, FeatureStoreError) as exc:
@@ -145,11 +141,7 @@ def _bars_for_symbol(
 ) -> tuple[DailyBar, ...]:
     return tuple(
         sorted(
-            (
-                bar
-                for bar in bars
-                if bar.symbol == symbol and bar.session_date < selection_date
-            ),
+            (bar for bar in bars if bar.symbol == symbol and bar.session_date < selection_date),
             key=lambda bar: bar.session_date,
         )
     )

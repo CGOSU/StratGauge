@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import platform
@@ -17,6 +16,7 @@ from typing import Any, Literal, cast
 from pydantic import Field, field_validator, model_validator
 
 from stratgauge.domain.models import DomainModel
+from stratgauge.ml._hashing import sha256_bytes, sha256_json
 from stratgauge.ml.training_datasets import (
     TrainingDatasetPurpose,
     TrainingLabel,
@@ -257,7 +257,7 @@ def train_feature_lightgbm(
         num_boost_round=FEATURE_LIGHTGBM_BOOST_ROUNDS,
     )
     artifact = booster.model_to_string().encode("utf-8")
-    artifact_sha256 = _sha256(artifact)
+    artifact_sha256 = sha256_bytes(artifact)
     model_identity = {
         "artifact_sha256": artifact_sha256,
         "class_labels": [label.value for label in labels],
@@ -276,7 +276,7 @@ def train_feature_lightgbm(
         },
     }
     model = FeatureLightGBMModel(
-        model_version_id=f"feature-lightgbm-{_sha256_json(model_identity)[:20]}",
+        model_version_id=f"feature-lightgbm-{sha256_json(model_identity)[:20]}",
         purpose=split_input.manifest.purpose,
         label_contract_id=split_input.manifest.label_contract_id,
         feature_set_version_id=split_input.manifest.feature_set_version_id,
@@ -368,9 +368,9 @@ def write_feature_lightgbm_result(
                     "source_label_dataset_sha256": result.model.source_label_dataset_sha256,
                     "label_split_manifest_sha256": result.model.label_split_manifest_sha256,
                     "artifact_sha256": result.model.artifact_sha256,
-                    "model_sha256": _sha256(model_content),
-                    "metrics_sha256": _sha256(metrics_content),
-                    "predictions_sha256": _sha256(predictions_content),
+                    "model_sha256": sha256_bytes(model_content),
+                    "metrics_sha256": sha256_bytes(metrics_content),
+                    "predictions_sha256": sha256_bytes(predictions_content),
                     "training_parameters": result.model.parameters,
                     "environment": {
                         "python_implementation": platform.python_implementation(),
@@ -662,13 +662,3 @@ def _labels_for(purpose: TrainingDatasetPurpose) -> tuple[TrainingLabel, ...]:
 def _is_sha256(value: str) -> bool:
     normalized = value.strip().lower()
     return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
-
-
-def _sha256(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()
-
-
-def _sha256_json(value: object) -> str:
-    return _sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    )

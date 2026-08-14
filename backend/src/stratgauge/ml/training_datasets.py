@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from collections import Counter
@@ -31,6 +30,7 @@ from stratgauge.backtest.selection_ml_datasets import (
 )
 from stratgauge.domain.models import DomainModel
 from stratgauge.domain.selections import SelectionOutcomeStatus
+from stratgauge.ml._hashing import sha256_bytes, sha256_json
 
 TRAINING_LABEL_DATASET_SCHEMA_VERSION = "selection-training-label-dataset-v2"
 TRAINING_LABEL_SPLIT_MANIFEST_VERSION = "selection-training-label-split-v1"
@@ -353,7 +353,7 @@ def prepare_training_label_dataset(
     """Normalize one raw research dataset into one target-only training contract."""
 
     resolved_purpose = TrainingDatasetPurpose(purpose)
-    source_file_sha256 = _sha256(content)
+    source_file_sha256 = sha256_bytes(content)
     if resolved_purpose is TrainingDatasetPurpose.CANDIDATE_SUCCESS:
         return _prepare_candidate_success_labels(
             read_selection_dataset(content),
@@ -950,11 +950,11 @@ def _require_aware(value: datetime, name: str) -> None:
 
 
 def _source_row_sha256(row: BaseModel) -> str:
-    return _sha256(_canonical_json(row.model_dump(mode="json")))
+    return sha256_json(row.model_dump(mode="json"))
 
 
 def _prepared_dataset_sha256(rows: Iterable[SelectionTrainingLabelRow]) -> str:
-    return _sha256(serialize_training_label_dataset(rows).encode("utf-8"))
+    return sha256_bytes(serialize_training_label_dataset(rows).encode("utf-8"))
 
 
 def _stable_identifier(
@@ -962,20 +962,7 @@ def _stable_identifier(
     identity: dict[str, str | int],
 ) -> str:
     payload = {"purpose": purpose.value, **identity}
-    return f"training-{purpose.value}-{_sha256(_canonical_json(payload))[:20]}"
-
-
-def _canonical_json(value: object) -> bytes:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-
-
-def _sha256(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()
+    return f"training-{purpose.value}-{sha256_json(payload)[:20]}"
 
 
 def _sorted_rows(

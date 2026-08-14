@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from collections import Counter
@@ -15,6 +14,7 @@ from typing import Literal, cast
 from pydantic import Field, field_validator, model_validator
 
 from stratgauge.domain.models import DomainModel
+from stratgauge.ml._hashing import sha256_bytes, sha256_json
 from stratgauge.ml.training_datasets import (
     TRAINING_LABEL_DATASET_SCHEMA_VERSION,
     PreparedTrainingLabelDataset,
@@ -280,7 +280,7 @@ def read_training_label_split(output_dir: str | Path) -> TrainingLabelSplitInput
         split=expected_split,
         manifest=manifest,
         readiness=readiness,
-        split_manifest_sha256=_sha256(manifest_content),
+        split_manifest_sha256=sha256_bytes(manifest_content),
     )
 
 
@@ -320,7 +320,7 @@ def train_constant_label_baseline(
         "train_end": split_input.manifest.train_end.isoformat(),
         "validation_end": split_input.manifest.validation_end.isoformat(),
     }
-    model_version_id = f"label-baseline-{_sha256(_canonical_json(model_identity))[:20]}"
+    model_version_id = f"label-baseline-{sha256_json(model_identity)[:20]}"
     model = LabelBaselineModel(
         model_version_id=model_version_id,
         purpose=split_input.manifest.purpose,
@@ -535,16 +535,3 @@ def _validate_readiness(
     )
     if readiness != expected:
         raise ValueError("training label readiness report does not match split files")
-
-
-def _canonical_json(value: object) -> bytes:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-
-
-def _sha256(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()

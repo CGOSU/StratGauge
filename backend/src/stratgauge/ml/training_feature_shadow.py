@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime
@@ -16,6 +15,7 @@ from pydantic import Field, field_validator, model_validator
 from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.domain.models import DomainModel
 from stratgauge.features.contract import FeatureSnapshot
+from stratgauge.ml._hashing import sha256_bytes, sha256_json
 from stratgauge.ml.isotonic import IsotonicBin
 from stratgauge.ml.training_datasets import (
     TrainingDatasetPurpose,
@@ -390,7 +390,7 @@ def serialize_feature_shadow_inputs(inputs: Iterable[FeatureShadowInput]) -> byt
 def feature_shadow_input_sha256(inputs: Iterable[FeatureShadowInput]) -> str:
     """Return the canonical identity of one feature shadow input set."""
 
-    return _sha256(serialize_feature_shadow_inputs(inputs))
+    return sha256_bytes(serialize_feature_shadow_inputs(inputs))
 
 
 def score_feature_shadow_batch(
@@ -718,13 +718,13 @@ def _write_once(path: Path, content: bytes) -> None:
 def _score_id(score: FeatureShadowScore) -> str:
     identity = score.model_dump(mode="json")
     identity.pop("score_id", None)
-    return f"feature-shadow-score-{_sha256_json(identity)[:20]}"
+    return f"feature-shadow-score-{sha256_json(identity)[:20]}"
 
 
 def _report_id(report: FeatureShadowReport) -> str:
     identity = report.model_dump(mode="json")
     identity.pop("report_id", None)
-    return f"feature-shadow-report-{_sha256_json(identity)[:20]}"
+    return f"feature-shadow-report-{sha256_json(identity)[:20]}"
 
 
 def _safe_identifier(value: str) -> str:
@@ -749,13 +749,3 @@ def _require_text(value: str, name: str) -> None:
 def _is_sha256(value: str) -> bool:
     normalized = value.strip().lower()
     return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
-
-
-def _sha256(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()
-
-
-def _sha256_json(value: Mapping[str, object]) -> str:
-    return _sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    )

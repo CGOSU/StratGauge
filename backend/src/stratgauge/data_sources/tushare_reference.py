@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from stratgauge._files import atomic_write_text
 from stratgauge.data_pipeline.locking import local_write_lock
 from stratgauge.data_pipeline.store import SnapshotStatus
 from stratgauge.data_sources.base import AdapterError
@@ -67,9 +68,7 @@ class TushareReferenceStore:
                 "records": ordered_records,
                 "request": dict(sorted(request.items())),
             }
-            content = json.dumps(
-                payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-            )
+            content = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
             snapshot = TushareReferenceSnapshot(
                 snapshot_id=f"tushare-reference-{digest[:20]}",
@@ -87,8 +86,8 @@ class TushareReferenceStore:
                         "Tushare reference snapshot identity already has different content"
                     )
                 return existing
-            _atomic_write_text(self.root / snapshot.raw_path, content)
-            _atomic_write_text(manifest_path, snapshot.model_dump_json(indent=2))
+            _write_tushare_reference_file(self.root / snapshot.raw_path, content)
+            _write_tushare_reference_file(manifest_path, snapshot.model_dump_json(indent=2))
             return snapshot
 
     def load_manifest(self, snapshot_id: str) -> TushareReferenceSnapshot:
@@ -275,12 +274,9 @@ def _parse_optional_date(value: Any) -> date | None:
         raise AdapterError(f"Tushare returned invalid date: {value!r}") from exc
 
 
-def _atomic_write_text(path: Path, content: str) -> None:
+def _write_tushare_reference_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(f"{path.suffix}.tmp")
     try:
-        temporary.write_text(content, encoding="utf-8", newline="\n")
-        temporary.replace(path)
+        atomic_write_text(path, content)
     except OSError as exc:
-        temporary.unlink(missing_ok=True)
         raise TushareReferenceStoreError(f"failed to write Tushare reference file: {path}") from exc
