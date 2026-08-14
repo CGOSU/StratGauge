@@ -8,6 +8,13 @@
 
 ## 会话
 
+### 2026-08-14 合并手工订单与成交录入
+
+- 完成内容：将持仓/交易记录中旧手工台账的“录入订单”和“录入成交”合并为一个“录入订单与成交”表单，改用 `/v1/manual-trades/confirm` 原子写入；自动生成订单 ID 与成交 ID，卖出增加卖出原因，复盘表单保持独立；桌面端录入区域改为两列布局。
+- 文档：同步更新 `docs/使用文档.md`、`docs/current-state.md` 和 `docs/decisions.md`，说明统一录入字段、原子接口和未成交订单 API 的兼容边界。
+- 实际验证：`cd frontend && npm run typecheck && npm run lint && npm run build` 通过；`cd backend && PYTHONPATH=src uv run python -m unittest tests.api.test_portfolio -v` 6 项通过；`git diff --check` 通过。
+- 遗留问题：旧手工台账仍位于持仓/交易记录的折叠区域；未成交/部分成交仅能通过后端独立 API 记录，尚未提供单独的前端入口。
+
 ### 2026-08-11 统一启动器
 
 - 完成内容：新增根目录 `start.py` 和 Windows `start.cmd`；统一并发启动 backend Uvicorn 与 frontend Vite，固定工作目录和命令，日志使用 `[backend]`/`[frontend]` 前缀；启动/运行失败传播非零状态，Ctrl+C/终止时清理 Uvicorn reload、pnpm、Vite 及其子进程。新增 `backend/tests/test_start_launcher.py` 5 项测试。
@@ -535,3 +542,8 @@
 - 完成内容：完成浅色金融研究台 token、中文系统字体、字号/字重/行高/间距、卡片/表格/Drawer 和 A 股红涨绿跌、独立错误、蓝色信息、琥珀待处理等语义收敛；补充导航 aria-label/title、数字样式 hook 和 confirmed KPI 状态。
 - 实际验证：`cd frontend && corepack pnpm typecheck`、`corepack pnpm lint`、`corepack pnpm build`、`git diff --check` 均通过；Python CSS 变量扫描 used=103/defined=130、undefined=[]；权重仅 500/600/700；未发现外部字体、渐变或玻璃拟态。Vite 本地 5175 返回 HTTP 200；Chrome headless 在 390/1024/1440 视口检查无页面级横向溢出，字体为中文系统栈，body 为 14px。
 - 说明：无后端 API 时页面显示既有 JSON 错误提示，属于数据服务不可用，不是本次视觉改造引入的业务变更；浏览器 automation 因禁止访问 localhost 未使用。未执行 git add/commit/push。
+
+### 2026-08-13 前端布局滚动收尾
+
+- 完成内容：应用壳固定为 `100dvh`，body/#root 高度与 body `overflow: hidden`，主内容改为独立纵向滚动；顶部状态栏固定 60px（移动端 72px），Drawer layer 从状态栏底部开始，Drawer 内部保持 body 滚动，避免详情覆盖顶部导航。
+- 实际验证：`cd frontend && corepack pnpm typecheck`、`corepack pnpm lint`、`corepack pnpm build`、`git diff --check` 通过；Chrome CDP 在 1440 视口确认 bar top=0 height=60、drawer layer top=60 height=784、document scrollHeight=clientHeight=844；此前 390/720/1024/1440 视口均确认整体无滚动条。未执行 git add/commit/push。

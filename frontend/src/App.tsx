@@ -931,13 +931,13 @@ function PortfolioWorkspace({ apiBase }: { apiBase: string }) {
   const [masterEffectiveDate, setMasterEffectiveDate] = useState(new Date().toISOString().slice(0, 10))
   const [masterResults, setMasterResults] = useState<SecurityMasterRecord[]>([])
   const [masterBusy, setMasterBusy] = useState(false)
-  const [orderCode, setOrderCode] = useState('')
-  const [orderExchange, setOrderExchange] = useState<Exchange>('SZ')
-  const [orderSide, setOrderSide] = useState<'buy' | 'sell'>('buy')
-  const [orderQuantity, setOrderQuantity] = useState('100')
-  const [fillOrderId, setFillOrderId] = useState('')
-  const [fillQuantity, setFillQuantity] = useState('100')
-  const [fillPrice, setFillPrice] = useState('')
+  const [tradeCode, setTradeCode] = useState('')
+  const [tradeName, setTradeName] = useState('')
+  const [tradeExchange, setTradeExchange] = useState<Exchange>('SZ')
+  const [tradeSide, setTradeSide] = useState<'buy' | 'sell'>('buy')
+  const [tradeQuantity, setTradeQuantity] = useState('100')
+  const [tradePrice, setTradePrice] = useState('')
+  const [tradeSellReason, setTradeSellReason] = useState<ManualSellReason>('target_reached')
   const [reviewSymbol, setReviewSymbol] = useState('')
   const [reviewNote, setReviewNote] = useState('')
   const [ledgerBusy, setLedgerBusy] = useState(false)
@@ -992,55 +992,38 @@ function PortfolioWorkspace({ apiBase }: { apiBase: string }) {
     }
   }
 
-  async function createOrder(event: FormEvent<HTMLFormElement>) {
+  async function createTrade(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setLedgerBusy(true)
     setError(null)
+    const timestamp = new Date().toISOString()
     try {
-      const order = await requestJson<ManualOrder>(`${apiBase}/v1/manual-orders`, {
+      const [order, fill] = await requestJson<[ManualOrder, ManualFill]>(`${apiBase}/v1/manual-trades/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           order_id: crypto.randomUUID(),
-          local_code: orderCode,
-          exchange: orderExchange,
-          side: orderSide,
-          ordered_at: new Date().toISOString(),
-          quantity: orderQuantity,
+          fill_id: crypto.randomUUID(),
+          local_code: tradeCode,
+          name: tradeName.trim() || null,
+          exchange: tradeExchange,
+          side: tradeSide,
+          ordered_at: timestamp,
+          filled_at: timestamp,
+          quantity: tradeQuantity,
+          price: tradePrice,
+          sell_reason: tradeSide === 'sell' ? tradeSellReason : null,
         }),
       })
       setOrders((current) => [...current, order])
-      setOrderCode('')
-    } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : '录入订单失败。')
-    } finally {
-      setLedgerBusy(false)
-    }
-  }
-
-  async function createFill(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setLedgerBusy(true)
-    setError(null)
-    try {
-      const fill = await requestJson<ManualFill>(`${apiBase}/v1/manual-fills`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fill_id: crypto.randomUUID(),
-          order_id: fillOrderId,
-          filled_at: new Date().toISOString(),
-          quantity: fillQuantity,
-          price: fillPrice,
-        }),
-      })
       setFills((current) => [...current, fill])
       const nextPositions = await requestJson<PortfolioPosition[]>(`${apiBase}/v1/positions`)
       setPositions(nextPositions)
-      setFillOrderId('')
-      setFillPrice('')
+      setTradeCode('')
+      setTradeName('')
+      setTradePrice('')
     } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : '录入成交失败。')
+      setError(reason instanceof Error ? reason.message : '保存订单与成交失败。')
     } finally {
       setLedgerBusy(false)
     }
@@ -1083,45 +1066,46 @@ function PortfolioWorkspace({ apiBase }: { apiBase: string }) {
       </div>
       {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
       <div className="portfolio-entry-grid">
-        <form className="portfolio-entry-form" onSubmit={createOrder} aria-busy={ledgerBusy}>
-          <h3>录入订单</h3>
+        <form className="portfolio-entry-form" onSubmit={createTrade} aria-busy={ledgerBusy}>
+          <h3>录入订单与成交</h3>
+          <p className="form-hint">一次保存已确认的订单和成交，订单 ID 与成交 ID 由系统自动生成。</p>
           <div className="field">
-            <Label htmlFor="order-code">证券代码</Label>
-            <Input id="order-code" value={orderCode} onChange={(event) => setOrderCode(event.target.value)} placeholder="六位代码" required />
+            <Label htmlFor="trade-code">证券代码</Label>
+            <Input id="trade-code" value={tradeCode} onChange={(event) => setTradeCode(event.target.value)} placeholder="六位代码" required />
           </div>
           <div className="field">
-            <Label htmlFor="order-exchange">交易所</Label>
-            <select id="order-exchange" className="native-select" value={orderExchange} onChange={(event) => setOrderExchange(event.target.value as Exchange)}>
+            <Label htmlFor="trade-name">证券名称（可选）</Label>
+            <Input id="trade-name" value={tradeName} onChange={(event) => setTradeName(event.target.value)} placeholder="例如 平安银行" />
+          </div>
+          <div className="field">
+            <Label htmlFor="trade-exchange">交易所</Label>
+            <select id="trade-exchange" className="native-select" value={tradeExchange} onChange={(event) => setTradeExchange(event.target.value as Exchange)}>
               <option value="SZ">SZ</option><option value="SH">SH</option><option value="BJ">BJ</option>
             </select>
           </div>
           <div className="field">
-            <Label htmlFor="order-side">订单方向</Label>
-            <select id="order-side" className="native-select" value={orderSide} onChange={(event) => setOrderSide(event.target.value as 'buy' | 'sell')}>
+            <Label htmlFor="trade-side">交易方向</Label>
+            <select id="trade-side" className="native-select" value={tradeSide} onChange={(event) => setTradeSide(event.target.value as 'buy' | 'sell')}>
               <option value="buy">买入</option><option value="sell">卖出</option>
             </select>
           </div>
+          {tradeSide === 'sell' && (
+            <div className="field">
+              <Label htmlFor="trade-sell-reason">卖出原因</Label>
+              <select id="trade-sell-reason" className="native-select" value={tradeSellReason} onChange={(event) => setTradeSellReason(event.target.value as ManualSellReason)}>
+                {(Object.keys(manualSellReasonLabels) as ManualSellReason[]).map((value) => <option value={value} key={value}>{manualSellReasonLabels[value]}</option>)}
+              </select>
+            </div>
+          )}
           <div className="field">
-            <Label htmlFor="order-quantity">数量</Label>
-            <Input id="order-quantity" type="number" min="1" value={orderQuantity} onChange={(event) => setOrderQuantity(event.target.value)} required />
-          </div>
-          <Button type="submit" size="sm" disabled={ledgerBusy}>{ledgerBusy ? '保存中…' : '保存订单'}</Button>
-        </form>
-        <form className="portfolio-entry-form" onSubmit={createFill} aria-busy={ledgerBusy}>
-          <h3>录入成交</h3>
-          <div className="field">
-            <Label htmlFor="fill-order-id">订单 ID</Label>
-            <Input id="fill-order-id" value={fillOrderId} onChange={(event) => setFillOrderId(event.target.value)} required />
-          </div>
-          <div className="field">
-            <Label htmlFor="fill-quantity">成交数量</Label>
-            <Input id="fill-quantity" type="number" min="1" value={fillQuantity} onChange={(event) => setFillQuantity(event.target.value)} required />
+            <Label htmlFor="trade-quantity">成交数量</Label>
+            <Input id="trade-quantity" type="number" min="1" step="1" value={tradeQuantity} onChange={(event) => setTradeQuantity(event.target.value)} required />
           </div>
           <div className="field">
-            <Label htmlFor="fill-price">成交价</Label>
-            <Input id="fill-price" type="number" min="0.0001" step="0.0001" value={fillPrice} onChange={(event) => setFillPrice(event.target.value)} required />
+            <Label htmlFor="trade-price">成交价</Label>
+            <Input id="trade-price" type="number" min="0.0001" step="0.0001" value={tradePrice} onChange={(event) => setTradePrice(event.target.value)} required />
           </div>
-          <Button type="submit" size="sm" disabled={ledgerBusy}>{ledgerBusy ? '保存中…' : '保存成交'}</Button>
+          <Button type="submit" size="sm" disabled={ledgerBusy}>{ledgerBusy ? '保存中…' : '保存订单与成交'}</Button>
         </form>
         <form className="portfolio-entry-form" onSubmit={createReview} aria-busy={ledgerBusy}>
           <h3>添加复盘</h3>
