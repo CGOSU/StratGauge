@@ -14,74 +14,22 @@
 
 是一个把个人选股和买卖策略自动化、用历史数据与机器学习评估胜率和风险，并由用户手动决策交易的 A 股 AI 策略助手
 
-## 自动角色编排
+## 任务执行流程
 
-当用户请求包含“实现、开发、修复、重构、迁移或完整交付”时，自动按以下顺序执行。
+- 默认按“架构分析 → 任务拆分 → 开发测试逐项执行 → 文档与收尾”的流水线工作；除非用户一开始明确要求先审阅架构，否则架构师完成规划后不得停下来询问下一步选择。
+- 项目任务工作流策略由 `.pi/role-models.json` 顶层 `workflowMode` 控制，默认是 `auto`：`off` 拒绝新的 `plan`，`on` 始终编排，`auto` 对不超过 2 个任务的规划跳过编排并由当前架构角色直接顺序执行，超过 2 个任务才进入自动工作流。可通过 `/pi-init config workflow` 持久选择，或直接修改该配置字段。旧项目缺失 `workflowMode` 时，`workflowEnabled: true/false` 兼容映射为 `on/off`；关闭时不要调用 `plan`。
+- 工作流启用并创建任务后，每个任务完成时，开发测试工程师必须实际执行验证，并调用 `task_workflow` 的 `complete` 动作提交摘要和真实结果；完成时还要输出任务完成报告，包含任务 ID、任务内容、角色、开始时间、结束时间、总耗时、完成摘要和验证结果；工作流会自动推进、自动切换到任务指定角色并开始下一个可执行任务。
+- 工作流执行器由 `.pi/role-models.json` 顶层 `workflowExecutor` 配置，默认是 `local`；`subagents` 只通过 `pi.events` RPC 顺序委派，并且缺少扩展、RPC 错误或异常回复都必须安全阻塞任务。
+- 使用 `subagents` 时，主会话是 `task_workflow` 状态的唯一写入者；子代理只执行当前任务，不调用 `task_workflow`，并且必须返回严格的 `pi-init/task-result@1` JSON 结果，只有合法 `complete` 才能完成任务。
+- 子代理在共享工作区执行；不得创建 worktree、合并分支、自动提交或推送。reload 后已绑定的非终态子代理不会自动重生，应先查看持久化绑定再人工恢复。
+- 不要因为偏好、风格或可选方案向用户提问。只有用户明确要求架构审阅，或遇到缺少产品决策、权限/凭据、破坏性操作确认、不可恢复失败或真正阻塞的信息时才暂停；把合理假设记录在任务结果中。
+- 用户明确要求先看架构时，且工作流已启用，架构师将 `reviewRequired` 设为 `true`，保存规划后暂停；用户审阅后执行 `/pi-init workflow resume`。阻塞任务使用 `block`，处理完原因后使用 `/pi-init workflow retry <taskId>`。
 
-### 阶段一：架构分析
+## 工具调用规则
 
-首先调用 `architect` Agent。
-
-等待架构师返回 `ARCHITECT_HANDOFF`。
-
-如果 `status` 是 `BLOCKED` 或 `NEEDS_USER_INPUT`，立即停止自动流程，向用户说明阻塞原因和待确认问题。
-
-只有当 `ARCHITECT_HANDOFF.status = READY_FOR_IMPLEMENTATION` 时，才能进入开发测试阶段。
-
-### 阶段二：开发和测试
-
-把架构师的交接结果完整传递给 `test-engineer` Agent。
-
-开发测试工程师必须：
-
-- 按架构范围实施最小代码修改；
-- 补充针对性测试；
-- 执行真实验证命令；
-- 输出 `TEST_HANDOFF`；
-- 不覆盖其他协作者已有的未提交改动。
-
-如果 `TEST_HANDOFF.status = FAIL`：
-
-- 将失败命令、真实输出和失败原因返回给 `test-engineer`；
-- 最多自动修复和重试两轮；
-- 两轮后仍失败时停止流程并向用户报告。
-
-如果 `TEST_HANDOFF.status = BLOCKED`，停止流程并向用户询问。
-
-只有当 `TEST_HANDOFF.status = PASS` 时，才能进入文档收尾阶段。
-
-### 阶段三：文档和发布收尾
-
-把以下内容传递给 `docs-release-engineer` Agent：
-
-- 架构师交接结果；
-- 测试交接结果；
-- 当前 `git diff`；
-- 已执行的验证命令；
-- 验证命令的真实结果。
-
-文档收尾工程师负责：
-
-- 更新 README、技术文档、使用文档和变更摘要；
-- 核对版本号；
-- 执行 `git status`、`git diff --stat` 和 `git diff --check`；
-- 核对文档链接、命令、路径和版本信息；
-- 输出提交范围和建议提交信息；
-- 默认不执行 `git add`、`git commit` 或 `git push`。
-
-### 总体约束
-
-- 三个 Agent 必须按顺序运行，不要并行修改同一个工作区。
-- `architect` 只负责分析，不负责实现。
-- `test-engineer` 只负责实现和验证，不负责发布文档。
-- `docs-release-engineer` 不修改业务代码。
-- 任一阶段遇到关键歧义、权限问题或阻塞，都必须停止并询问用户。
-- 不得跳过架构交接、测试验证和收尾检查。
-- 只记录真实执行过的命令和结果。
-- 用户只要求分析时，只调用 `architect`。
-- 用户只要求修复测试问题时，可直接调用 `test-engineer`。
-- 用户只要求更新文档时，可直接调用 `docs-release-engineer`。
-- 除非用户明确要求，不执行提交和推送。
+- `read` 只使用 `path`、`offset`、`limit` 参数；`edit` 只使用 `path` 和 `edits`，其中每项必须包含 `oldText` 与 `newText`。
+- 调用 `edit` 前必须先读取文件最新内容，直接复制实际文本作为 `oldText`；不要手动改写单双引号、缩进、空格或换行。
+- `oldText` 匹配失败后必须重新读取并检查实际内容，不要重复提交相同的替换文本；不要用模糊匹配绕过精确编辑保护。
 
 ## 运行环境与命令约定
 

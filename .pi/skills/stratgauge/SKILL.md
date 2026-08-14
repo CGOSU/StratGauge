@@ -19,7 +19,7 @@ description: "处理 StratGauge 的代码修改、调试、测试、文档维护
 
 | 职责 | 技术水平 | 交付范围 | 模型类型 | 默认模型 | Pi 推理强度 |
 | --- | --- | --- | --- | --- | --- |
-| 架构师 | 专家级（Staff / Principal）：能完成系统边界、技术权衡、数据与接口设计、迁移及非功能风险分析 | 架构决策、约束、风险和验收标准；默认不改代码 | 旗舰通用推理模型，长上下文且擅长复杂权衡 | `openai-codex/gpt-5.6-sol` | `max` |
+| 架构师 | 专家级（Staff / Principal）：能完成系统边界、技术权衡、数据与接口设计、迁移及非功能风险分析 | 架构决策、约束、风险和验收标准；默认不改代码 | 旗舰通用推理模型，长上下文且擅长复杂权衡 | `openai-codex/gpt-5.6-terra` | `max` |
 | 开发测试工程师 | 资深级（Senior / SDET）：能实现、调试、重构，并设计单元、集成和回归验证 | 最小代码改动、测试实现、命令与真实结果 | 代码专用或强工具调用模型，擅长代码理解与测试 | `openai-codex/gpt-5.6-luna` | `max` |
 | 文档与收尾工程师 | 资深级（Technical Writer / Release Engineer）：能维护文档、更新版本号、核对变更并完成收尾交付 | 文档、版本号、变更摘要、收尾检查、提交边界和提交信息 | 快速通用模型，指令遵循和结构化写作能力强 | `openai-codex/gpt-5.6-luna` | `medium` |
 
@@ -30,6 +30,18 @@ description: "处理 StratGauge 的代码修改、调试、测试、文档维护
 3. 纯文档任务直接交给文档与收尾工程师；代码任务仅在验证完成后进入文档与提交阶段。
 4. 混合任务按“架构师 → 开发测试工程师 → 文档与收尾工程师”串行交接，不为简单任务启动全部职责。
 5. 提交前必须检查实际 diff 和验证结果；只有用户明确要求提交时才执行 `git commit`，明确要求推送时才执行 `git push`。
+
+## 架构拆分与自动任务工作流
+
+- 项目任务工作流由 `.pi/role-models.json` 顶层 `workflowMode` 控制，默认是 `auto`：`off` 拒绝新的 `task_workflow(action=plan)`，`on` 对所有合法规划始终编排，`auto` 对不超过 2 个任务的规划跳过状态持久化、角色切换和隐藏续跑，由当前架构师直接按顺序执行；超过 2 个任务才采用连续流程。可用 `/pi-init config workflow` 持久选择。旧项目缺失 `workflowMode` 时，`workflowEnabled: true/false` 兼容映射为 `on/off`；两个字段同时存在时以 `workflowMode` 为准。
+- 架构师的每个任务必须包含唯一 `id`、目标 `task`、允许修改的 `files`、可验证的 `acceptanceCriteria`，并在有顺序约束时填写 `dependsOn`；任务默认按依赖就绪顺序串行执行。
+- 工作流启用且用户在初始请求中明确要求“先看架构/先审阅方案”时，才把 `reviewRequired` 设为 `true`。此时保存计划后暂停，用户审阅后执行 `/pi-init workflow resume`；默认值必须是自动推进。
+- 工作流启用并收到任务后，开发测试工程师应直接实现、测试和修正，不因可选偏好停顿；完成时必须调用 `task_workflow(action=complete, taskId=..., completionSummary=..., verification=[...])`，并输出包含任务 ID、任务内容、角色、开始时间、结束时间、总耗时、完成摘要和验证结果的任务完成报告。验证数组只能写实际执行过的命令和真实结果；总耗时从任务进入 `in_progress` 的开始时间计算到完成时间。
+- 工作流执行器由 `.pi/role-models.json` 顶层 `workflowExecutor` 配置，默认是 `local`；`subagents` 只通过 `pi.events` RPC 顺序委派，缺少扩展、RPC 错误或异常回复都必须安全阻塞。
+- 使用 `subagents` 时主会话是 `task_workflow` 状态的唯一写入者；子代理只执行当前任务，不调用 `task_workflow`，并必须返回严格的 `pi-init/task-result@1` JSON，只有合法 `complete` 才能完成任务。
+- 子代理在共享工作区执行，不创建 worktree、不合并分支、不自动提交或推送；reload 后已绑定的非终态子代理不会自动重生，须查看绑定并人工恢复。
+- 如果缺少产品决策、权限/凭据、破坏性操作确认、不可恢复失败或真正阻塞的信息，调用 `task_workflow(action=block, taskId=..., reason=...)`，不要猜测性完成；解决后用 `/pi-init workflow retry <taskId>`。
+- 工作流在任务完成后由扩展自动切换配置角色和模型，并通过隐藏续跑消息启动下一任务；不要手动重复分配或要求用户触发下一步。若模型忘记提交完成结果，系统会自动提醒有限次数，仍未提交才暂停。
 
 ## 职责切换模式
 
