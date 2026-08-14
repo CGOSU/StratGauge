@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import quote
 
-from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI
 from fastapi.responses import JSONResponse, Response
 
 from stratgauge.api.analysis import (
@@ -17,7 +17,13 @@ from stratgauge.api.analysis import (
     AnalysisService,
     InMemoryAnalysisRepository,
 )
-from stratgauge.api.market_sync import MarketSyncRequest, MarketSyncResponse, sync_main_board_close
+from stratgauge.api.market_sync import (
+    MarketSyncApiError,
+    MarketSyncRequest,
+    MarketSyncResponse,
+    sync_main_board_close,
+    to_market_sync_api_error,
+)
 from stratgauge.api.model_scores import (
     CandidateModelScoresView,
     ModelScoreApiError,
@@ -158,6 +164,19 @@ def create_app(
             content={"error": {"code": error.code, "message": error.message, "details": {}}},
         )
 
+    @app.exception_handler(MarketSyncApiError)
+    async def handle_market_sync_error(_: Any, error: MarketSyncApiError) -> JSONResponse:
+        return JSONResponse(
+            status_code=error.status_code,
+            content={
+                "error": {
+                    "code": error.code,
+                    "message": error.message,
+                    "details": error.details,
+                }
+            },
+        )
+
     @app.exception_handler(SelectionApiError)
     async def handle_selection_error(_: Any, error: SelectionApiError) -> JSONResponse:
         return JSONResponse(
@@ -243,9 +262,12 @@ def create_app(
                 request,
                 market_root=runtime.market_root,
                 universe_root=runtime.universe_root,
+                adapter=cast(TushareAdapter, create_market_adapter("tushare")),
             )
-        except (OSError, ValueError, RuntimeError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except MarketSyncApiError:
+            raise
+        except Exception as exc:
+            raise to_market_sync_api_error(exc) from exc
 
     workbench_router = APIRouter(prefix="/v1/workbench", tags=["workbench"])
     register_workbench_routes(workbench_router, workbench)

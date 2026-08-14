@@ -1594,8 +1594,45 @@
 .market-sync-results {
   border-top: 1px solid var(--border-subtle);
   display: grid;
-  gap: 0;
-  padding-top: 6px;
+  gap: 12px;
+  min-width: 0;
+  padding-top: 10px;
+}
+
+.market-sync-readiness {
+  border: 1px solid var(--border-default);
+  border-radius: var(--component-radius-sm);
+  display: grid;
+  gap: 3px;
+  line-height: 1.5;
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.market-sync-readiness span,
+.market-sync-stage-summary,
+.market-sync-stage-action,
+.market-sync-evidence,
+.market-sync-issues {
+  overflow-wrap: anywhere;
+}
+
+.market-sync-readiness--ready {
+  background: var(--state-confirmed-soft);
+  border-color: var(--state-confirmed-border);
+  color: var(--state-confirmed);
+}
+
+.market-sync-readiness--blocked {
+  background: var(--state-pending-soft);
+  border-color: var(--state-pending);
+  color: var(--state-pending);
+}
+
+.market-sync-session {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
 }
 
 .market-sync-result-row {
@@ -1605,8 +1642,230 @@
   display: grid;
   font-size: 0.72rem;
   gap: 12px;
-  grid-template-columns: 110px 80px 1fr;
+  grid-template-columns: 110px minmax(72px, auto) minmax(0, 1fr) minmax(120px, auto);
   min-height: 30px;
+  min-width: 0;
+  padding-bottom: 7px;
+}
+
+.market-sync-result-row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.market-sync-result-row strong {
+  color: var(--text-primary);
+}
+
+.market-sync-stage-list {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.market-sync-stage {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-default);
+  border-radius: var(--component-radius-sm);
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.market-sync-stage--approved {
+  border-top: 3px solid var(--state-confirmed);
+}
+
+.market-sync-stage--rejected,
+.market-sync-stage--not-run {
+  background: var(--state-loss-soft);
+  border-color: var(--color-danger-border);
+  border-top: 3px solid var(--state-loss);
+}
+
+.market-sync-stage--pending,
+.market-sync-stage--superseded {
+  background: var(--state-pending-soft);
+  border-color: var(--state-pending);
+  border-top: 3px solid var(--state-pending);
+}
+
+.market-sync-stage-heading,
+.market-sync-stage-title,
+.market-sync-issue-heading,
+.market-sync-evidence {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.market-sync-stage-heading,
+.market-sync-evidence {
+  justify-content: space-between;
+}
+
+.market-sync-stage-title {
+  flex-wrap: wrap;
+}
+
+.market-sync-stage-date,
+.market-sync-evidence,
+.market-sync-stage-action,
+.market-sync-issues li > span {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+
+.market-sync-stage-summary {
+  color: var(--text-primary);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.market-sync-stage-metrics {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.market-sync-stage-metrics div {
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--component-radius-sm);
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 8px;
+}
+
+.market-sync-stage-metrics dt {
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+}
+
+.market-sync-stage-metrics dd {
+  color: var(--text-primary);
+  font-family: var(--font-family-mono);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.market-sync-status {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.25;
+  padding: 3px 7px;
+  white-space: nowrap;
+}
+
+.market-sync-status--approved {
+  background: var(--state-confirmed-soft);
+  border-color: var(--state-confirmed-border);
+  color: var(--state-confirmed);
+}
+
+.market-sync-status--rejected {
+  background: var(--state-loss-soft);
+  border-color: var(--color-danger-border);
+  color: var(--state-loss);
+}
+
+.market-sync-status--pending,
+.market-sync-status--superseded,
+.market-sync-status--not-run {
+  background: var(--state-pending-soft);
+  border-color: var(--state-pending);
+  color: var(--state-pending);
+}
+
+.market-sync-issues {
+  background: var(--state-loss-soft);
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--component-radius-sm);
+  color: var(--state-loss);
+  display: grid;
+  gap: 7px;
+  padding: 9px 10px;
+}
+
+.market-sync-issues ul {
+  display: grid;
+  gap: 9px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.market-sync-issues li {
+  border-top: 1px solid var(--color-danger-border);
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding-top: 8px;
+}
+
+.market-sync-issues li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.market-sync-issue-heading {
+  justify-content: space-between;
+}
+
+.market-sync-issue-heading span {
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.market-sync-issues p {
+  color: var(--text-primary);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.market-sync-stage-action {
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  line-height: 1.5;
+  padding-top: 8px;
+}
+
+.market-sync-stage-action strong {
+  color: var(--text-primary);
+}
+
+.market-sync-evidence {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  line-height: 1.4;
+}
+
+.market-sync-evidence code,
+.market-sync-error code {
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-family: var(--font-family-mono);
+  font-size: 0.66rem;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 2px 4px;
 }
 
 .market-sync-result-row:last-child {
@@ -1620,14 +1879,23 @@
 .market-sync-success,
 .market-sync-error {
   border-radius: var(--component-radius-sm);
+  display: grid;
+  gap: 4px;
   font-size: 0.75rem;
+  line-height: 1.5;
   margin: 0;
+  overflow-wrap: anywhere;
   padding: 9px 10px;
 }
 
 .market-sync-success {
   background: var(--state-profit-soft);
   color: var(--state-profit);
+}
+
+.market-sync-success--warning {
+  background: var(--state-pending-soft);
+  color: var(--state-pending);
 }
 
 .market-sync-error {
@@ -4399,6 +4667,12 @@
     color: var(--state-confirmed);
   }
 
+  .market-sync-success--warning {
+    background: var(--state-pending-soft);
+    border-color: var(--state-pending);
+    color: var(--state-pending);
+  }
+
   .market-sync-error {
     background: var(--color-danger-soft);
     border-color: var(--color-danger-border);
@@ -4660,6 +4934,30 @@
 @media (max-width: 620px) {
   .panel {
     padding: 16px;
+  }
+
+  .market-sync-form,
+  .market-sync-stage-list {
+    grid-template-columns: 1fr;
+  }
+
+  .market-sync-form > button {
+    width: 100%;
+  }
+
+  .market-sync-result-row {
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    padding-bottom: 9px;
+  }
+
+  .market-sync-result-row > :nth-child(3),
+  .market-sync-result-row > :nth-child(4) {
+    grid-column: 1 / -1;
+  }
+
+  .market-sync-stage-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .workbench-kpi-grid {

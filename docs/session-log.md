@@ -8,6 +8,13 @@
 
 ## 会话
 
+### 2026-08-14 主板收盘行情同步诊断 API/UI
+
+- 完成内容：主板收盘同步 API 新增逐 session 的日线/复权因子阶段诊断，返回状态、覆盖率、预期/实际证券数、质量问题、中文处理建议、快照 ID 和 `quality_run_id`，并用 `research_ready` 标记是否可进入研究。质量拒绝继续返回 HTTP 200 但明确为不可用快照；供应商、存储、前置条件和未知异常返回稳定 code、中文原因/建议且不泄露凭据。前端同步面板展示阶段证据和行动建议，区分完整成功与含未批准数据的完成状态，明确未批准数据不会进入研究；窄屏改为单列并允许长证据 ID 换行。
+- 文档：更新 `docs/使用文档.md` 的 API/UI 诊断和排错说明；更新 `docs/current-state.md` 当前事实；在 `docs/decisions.md` 记录质量拒绝边界、中文错误契约及未实施的 Web UX 建议。
+- 实际验证：`cd backend && PYTHONPATH=src uv run python -m unittest discover -s tests/api -p 'test_*.py'` 47 项通过；`cd backend && uv run ruff check src/stratgauge/api/market_sync.py src/stratgauge/api/app.py tests/api/test_market_sync.py` 通过；`cd backend && uv run mypy src/stratgauge/api/market_sync.py src/stratgauge/api/app.py tests/api/test_market_sync.py` 通过；`cd frontend && npm run typecheck` 通过；`cd frontend && npm run lint` 通过；`cd frontend && npm run build` 通过（Vite 转换 1874 个模块）；`git diff --check` 通过，仅提示既有 `backend/src/stratgauge/api/market_sync.py` 的 LF/CRLF 工作树换行警告。
+- 遗留问题：尚未增加同步诊断的浏览器视觉回归/Storybook 测试、未成交/部分成交的独立前端录入入口、同步阶段进度轮询或取消操作；`git push` 因 `master` 未配置远程仓库而阻塞；未跟踪 `.agents/` 和本轮改动均未自动提交或推送。
+
 ### 2026-08-14 合并手工订单与成交录入
 
 - 完成内容：将持仓/交易记录中旧手工台账的“录入订单”和“录入成交”合并为一个“录入订单与成交”表单，改用 `/v1/manual-trades/confirm` 原子写入；自动生成订单 ID 与成交 ID，卖出增加卖出原因，复盘表单保持独立；桌面端录入区域改为两列布局。
