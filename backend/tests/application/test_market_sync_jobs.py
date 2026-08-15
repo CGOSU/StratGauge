@@ -4,11 +4,12 @@ import unittest
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import Any, cast
 
 from stratgauge.application.job_runner import JobStatus, LocalJobError, LocalJobStore
 from stratgauge.application.market_sync_jobs import (
     MainBoardMarketSyncJobRunner,
+    MarketSyncAdapterFactory,
     MarketSyncJobRequest,
     enqueue_main_board_market_sync,
 )
@@ -227,6 +228,30 @@ class MainBoardMarketSyncJobTests(unittest.TestCase):
             )
             with self.assertRaises(LocalJobError):
                 job_store.cancel(queued.job.job_id, now=NOW)
+
+    def test_empty_queue_does_not_create_adapter_or_call_sync(self) -> None:
+        with TemporaryDirectory() as directory:
+
+            def forbidden_adapter(_: object) -> TushareAdapter:
+                raise AssertionError("empty queue must not create a Tushare adapter")
+
+            def forbidden_sync(
+                request: MarketSyncJobRequest,
+                *,
+                market_root: str,
+                universe_root: str,
+                adapter: TushareAdapter,
+            ) -> dict[str, Any]:
+                del request, market_root, universe_root, adapter
+                raise AssertionError("empty queue must not call the sync function")
+
+            runner = MainBoardMarketSyncJobRunner(
+                LocalJobStore(directory),
+                adapter_factory=cast(MarketSyncAdapterFactory, forbidden_adapter),
+                sync_function=forbidden_sync,
+                clock=lambda: NOW,
+            )
+            self.assertEqual(runner.run_pending(), ())
 
     def test_runner_reuses_existing_sync_service_with_offline_fake_adapter(self) -> None:
         securities = (

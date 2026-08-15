@@ -6,6 +6,12 @@
 
 每次记录应包含日期、完成内容、实际执行的验证及遗留问题。
 
+### 2026-08-15 机器学习就绪提示
+
+- 完成内容：新增只读 `MLReadinessService`、`GET /v1/ml/readiness` 和导入数据页机器学习前置检查卡片。就绪投影统计候选成功率用途的成熟结果、训练类别、结果政策、特征快照、独立基准、复权因子、用途模型注册及 shadow 状态；Web 只刷新本地事实，不启动 provider、训练、注册或 shadow。新增后端应用/API 测试和确定性 Playwright 回归，更新相关使用文档、系统规格、当前状态和设计决策。
+- 实际验证：`cd backend && PYTHONPATH=src uv run python -m unittest tests.application.test_ml_readiness tests.api.test_ml_readiness -q`（4 项通过）；`cd backend && uv run ruff check src/stratgauge/application/ml_readiness.py src/stratgauge/api/ml_readiness.py src/stratgauge/api/app.py tests/application/test_ml_readiness.py tests/api/test_ml_readiness.py`（通过）；`cd backend && uv run mypy src/stratgauge/application/ml_readiness.py src/stratgauge/api/ml_readiness.py src/stratgauge/api/app.py tests/application/test_ml_readiness.py tests/api/test_ml_readiness.py`（通过）；`cd frontend && corepack pnpm typecheck && corepack pnpm lint && corepack pnpm build`（通过）；`cd frontend && corepack pnpm exec playwright test tests/visual`（7 项通过）；当前数据根 readiness 实测为 4 个批次、14 个候选、0 个成熟训练标签、10 个待成熟和 4 个未解决。
+- 遗留问题：当前仍没有足够成熟标签、特征快照或独立 `000300.SH` `index_daily` 证据，不能运行完整训练或 handoff；真实 Tushare 请求未执行；工作树包含既有未提交改动，未执行 commit/push，`.agents/` 和测试运行产物保持未跟踪。
+
 ### 2026-08-15 IO 优化工作流收口
 
 - 完成内容：补充并验证 IO 回归断言。SnapshotStore 精确 catalog 命中不读取 manifest；SelectionReadIndex 批量 outcome 读取不触发全量目录扫描并按索引路径加载；JSONL 数据集下载直接返回 `StreamingResponse`/`application/x-ndjson`；主板同步任务在重新创建 App 后仍保留 `cancelled` 状态。同步更新使用文档、系统规格、当前状态和设计决策，明确分页契约、流式下载、LocalJobStore、显式 runner、queued-only 取消、事实源与 Tushare 任务 transport 生命周期。
@@ -13,6 +19,12 @@
 - 遗留问题：真实 Tushare 请求未执行；Tushare `trade_cal` 供应商溯源仍受既有 40203 配额限制；工作树包含本轮及此前未提交改动，未执行 commit/push，`.agents/` 保持未跟踪。
 
 ## 会话
+
+### 2026-08-15 Windows Task Scheduler 主板同步运维验收
+
+- 完成内容：补充 `run_main_board_market_sync_jobs.py` 的 Windows Task Scheduler 操作说明，固定 PowerShell、`backend` 起始目录、绝对 `--data-root`、`PYTHONPATH`、`uv.exe` 路径、`--limit 1` 和追加日志边界；明确调度器只调用一次显式 runner，不调度 `start.py`、Uvicorn 或服务内定时器。补充主板同步空队列测试，断言没有创建 Tushare adapter，也没有调用同步函数。
+- 实际验证：在当前 Windows 宿主用 PowerShell Scheduler-shaped action 运行一次隔离临时数据根目录的空队列 runner，日志解析为 `jobs: []`，数据根目录中没有 `job-*.json`，日志不含 `TUSHARE_TOKEN` 文本，退出码为 `0`；未设置或使用 provider 凭证，未发起 Tushare 请求。`cd backend && PYTHONPATH=src uv run python -m unittest tests.application.test_market_sync_jobs -q`（6 项通过）；`cd backend && PYTHONPATH=src uv run python -m unittest discover -s tests -q`（361 项通过、1 项跳过）；`cd backend && uv run ruff check src tests scripts`（通过）；`cd backend && uv run ruff format --check src tests scripts`（228 个文件已格式化）；`cd backend && uv run mypy`（229 个源文件通过）；`git diff --check`（通过，仅 Windows LF/CRLF 警告）。
+- 遗留问题：本次只验收空队列和离线 runner 边界，没有执行非空队列真实行情同步；Tushare `trade_cal` 溯源仍受既有配额限制；工作树包含本轮及此前未提交改动，未执行 commit/push，`.agents/` 保持未跟踪。
 
 ### 2026-08-14 第一轮 clean-code 代码整理
 

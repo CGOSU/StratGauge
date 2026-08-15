@@ -55,6 +55,90 @@ class PortfolioApiTests(unittest.TestCase):
             self.assertEqual(review.status_code, 201)
             self.assertEqual(len(client.get("/v1/portfolio-reviews").json()), 1)
 
+    def test_unfilled_order_supports_split_fills_and_rejects_overfill(self) -> None:
+        with TemporaryDirectory() as directory:
+            client = TestClient(create_app(portfolio_store=ManualPortfolioStore(directory)))
+            order = client.post(
+                "/v1/manual-orders",
+                json={
+                    "order_id": "split-order",
+                    "local_code": "000001",
+                    "exchange": "SZ",
+                    "side": "buy",
+                    "ordered_at": "2026-01-05T09:00:00+00:00",
+                    "quantity": "100",
+                },
+            )
+            self.assertEqual(order.status_code, 201)
+            self.assertEqual(client.get("/v1/positions").json(), [])
+
+            first_fill = client.post(
+                "/v1/manual-fills",
+                json={
+                    "fill_id": "split-fill-1",
+                    "order_id": "split-order",
+                    "filled_at": "2026-01-05T10:00:00+00:00",
+                    "quantity": "40",
+                    "price": "10",
+                },
+            )
+            self.assertEqual(first_fill.status_code, 201)
+            self.assertEqual(client.get("/v1/positions").json()[0]["quantity"], "40")
+
+            second_fill = client.post(
+                "/v1/manual-fills",
+                json={
+                    "fill_id": "split-fill-2",
+                    "order_id": "split-order",
+                    "filled_at": "2026-01-05T11:00:00+00:00",
+                    "quantity": "60",
+                    "price": "10.1",
+                },
+            )
+            self.assertEqual(second_fill.status_code, 201)
+            self.assertEqual(client.get("/v1/positions").json()[0]["quantity"], "100")
+
+            overfill = client.post(
+                "/v1/manual-fills",
+                json={
+                    "fill_id": "split-fill-over",
+                    "order_id": "split-order",
+                    "filled_at": "2026-01-05T12:00:00+00:00",
+                    "quantity": "1",
+                    "price": "10.2",
+                },
+            )
+            self.assertEqual(overfill.status_code, 409)
+            self.assertEqual(overfill.json()["error"]["code"], "PORTFOLIO_FILL_REJECTED")
+            self.assertEqual(len(client.get("/v1/manual-fills").json()), 2)
+
+            missing_sell_reason = client.post(
+                "/v1/manual-orders",
+                json={
+                    "order_id": "sell-order-missing-reason",
+                    "local_code": "000001",
+                    "exchange": "SZ",
+                    "side": "sell",
+                    "ordered_at": "2026-01-05T13:00:00+00:00",
+                    "quantity": "10",
+                },
+            )
+            self.assertEqual(missing_sell_reason.status_code, 422)
+            valid_sell = client.post(
+                "/v1/manual-orders",
+                json={
+                    "order_id": "sell-order",
+                    "local_code": "000001",
+                    "exchange": "SZ",
+                    "side": "sell",
+                    "ordered_at": "2026-01-05T13:00:00+00:00",
+                    "quantity": "10",
+                    "sell_reason": "target_reached",
+                },
+            )
+            self.assertEqual(valid_sell.status_code, 201)
+            self.assertEqual(len(client.get("/v1/manual-orders").json()), 2)
+
     def test_candidate_trade_creates_linked_order_and_fill(self) -> None:
         with TemporaryDirectory() as directory:
             selection_store = SelectionImportStore(directory)

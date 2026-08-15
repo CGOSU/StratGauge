@@ -32,6 +32,7 @@ from stratgauge.api.market_sync import (
     to_market_sync_task_api_error,
     to_market_sync_task_view,
 )
+from stratgauge.api.ml_readiness import MLReadinessApiError
 from stratgauge.api.model_scores import (
     CandidateModelScoresView,
     ModelScoreApiError,
@@ -90,6 +91,11 @@ from stratgauge.application.market_sync_jobs import (
     MarketSyncAdapterFactory,
     enqueue_main_board_market_sync,
     run_main_board_market_sync_jobs,
+)
+from stratgauge.application.ml_readiness import (
+    MLReadinessError,
+    MLReadinessReport,
+    MLReadinessService,
 )
 from stratgauge.application.workbench import WorkbenchReadError, WorkbenchService
 from stratgauge.backtest.recommendations import RecommendationWorkbench
@@ -166,6 +172,12 @@ def create_app(
         model_registry=ModelRegistryStore(runtime.model_root),
         score_store=score_store,
     )
+    ml_readiness = MLReadinessService(
+        selection_store_instance,
+        data_root=runtime.data_root,
+        market_root=runtime.market_root,
+        model_root=runtime.model_root,
+    )
     recommendations = RecommendationWorkbenchService(
         selection_store_instance,
         score_store=score_store,
@@ -206,6 +218,13 @@ def create_app(
 
     @app.exception_handler(ModelScoreApiError)
     async def handle_model_score_error(_: Any, error: ModelScoreApiError) -> JSONResponse:
+        return JSONResponse(
+            status_code=error.status_code,
+            content={"error": {"code": error.code, "message": error.message, "details": {}}},
+        )
+
+    @app.exception_handler(MLReadinessApiError)
+    async def handle_ml_readiness_error(_: Any, error: MLReadinessApiError) -> JSONResponse:
         return JSONResponse(
             status_code=error.status_code,
             content={"error": {"code": error.code, "message": error.message, "details": {}}},
@@ -781,6 +800,13 @@ def create_app(
         candidate_id: str,
     ) -> CandidateModelScoresView:
         return model_scores.get_candidate_scores(batch_id, candidate_id)
+
+    @app.get("/v1/ml/readiness", response_model=MLReadinessReport)
+    def get_ml_readiness() -> MLReadinessReport:
+        try:
+            return ml_readiness.get_readiness()
+        except MLReadinessError as exc:
+            raise MLReadinessApiError("ML_READINESS_STORAGE_ERROR", str(exc), 500) from exc
 
     @app.get(
         "/v1/selection-batches/{batch_id}/recommendation-workbench",

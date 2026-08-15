@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "tsc --noEmit --pretty false && tsc -p tsconfig.node.json --noEmit --pretty false && vite build",
     "typecheck": "tsc --noEmit --pretty false && tsc -p tsconfig.node.json --noEmit --pretty false",
-    "lint": "tsc --noEmit --pretty false && tsc -p tsconfig.node.json --noEmit --pretty false"
+    "lint": "tsc --noEmit --pretty false && tsc -p tsconfig.node.json --noEmit --pretty false",
+    "test:visual": "playwright test"
   },
   "keywords": [],
   "author": "",
@@ -25,6 +26,7 @@
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
