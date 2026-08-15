@@ -6,6 +6,12 @@
 
 每次记录应包含日期、完成内容、实际执行的验证及遗留问题。
 
+### 2026-08-15 IO 优化工作流收口
+
+- 完成内容：补充并验证 IO 回归断言。SnapshotStore 精确 catalog 命中不读取 manifest；SelectionReadIndex 批量 outcome 读取不触发全量目录扫描并按索引路径加载；JSONL 数据集下载直接返回 `StreamingResponse`/`application/x-ndjson`；主板同步任务在重新创建 App 后仍保留 `cancelled` 状态。同步更新使用文档、系统规格、当前状态和设计决策，明确分页契约、流式下载、LocalJobStore、显式 runner、queued-only 取消、事实源与 Tushare 任务 transport 生命周期。
+- 实际验证：`cd backend && PYTHONPATH=src uv run python -m unittest tests.data_pipeline.test_store tests.data_pipeline.test_selection_index tests.api.test_selections tests.api.test_workbench tests.api.test_market_sync tests.application.test_market_sync_jobs -q`（50 项通过）；`cd backend && PYTHONPATH=src uv run python -m unittest discover -s tests -q`（359 项通过，1 项跳过）；`cd backend && uv run ruff format --check src tests scripts`（227 个文件已格式化）；`cd backend && uv run ruff check src tests scripts`（通过）；`cd backend && uv run mypy`（228 个源文件通过）；`cd frontend && corepack pnpm typecheck`、`corepack pnpm lint`、`corepack pnpm build`（均通过）；`git diff --check`（通过，仅 LF/CRLF 警告）。
+- 遗留问题：真实 Tushare 请求未执行；Tushare `trade_cal` 供应商溯源仍受既有 40203 配额限制；工作树包含本轮及此前未提交改动，未执行 commit/push，`.agents/` 保持未跟踪。
+
 ## 会话
 
 ### 2026-08-14 第一轮 clean-code 代码整理

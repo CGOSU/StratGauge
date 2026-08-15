@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 from urllib.parse import quote
 
-from fastapi import APIRouter, FastAPI
-from fastapi.responses import JSONResponse, Response
+from fastapi import APIRouter, FastAPI, Query
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from stratgauge.api.analysis import (
     AnalysisError,
@@ -21,8 +21,16 @@ from stratgauge.api.market_sync import (
     MarketSyncApiError,
     MarketSyncRequest,
     MarketSyncResponse,
+    MarketSyncTaskCreateRequest,
+    MarketSyncTaskPage,
+    MarketSyncTaskRunRequest,
+    MarketSyncTaskRunResponse,
+    MarketSyncTaskView,
+    paginate_market_sync_tasks,
     sync_main_board_close,
     to_market_sync_api_error,
+    to_market_sync_task_api_error,
+    to_market_sync_task_view,
 )
 from stratgauge.api.model_scores import (
     CandidateModelScoresView,
@@ -46,6 +54,7 @@ from stratgauge.api.selections import (
     ManualSelectionRequest,
     SelectionAnnotationRequest,
     SelectionApiError,
+    SelectionBatchPage,
     SelectionBatchView,
     SelectionExclusionRequest,
     SelectionFormulaCreateRequest,
@@ -54,11 +63,13 @@ from stratgauge.api.selections import (
     SelectionLabelRequest,
     SelectionLifecycleChangeRequest,
     SelectionManagedBatchDetailView,
+    SelectionManagedBatchPage,
     SelectionManagedBatchView,
     SelectionManagedFormulaView,
     SelectionManagementStatsView,
     SelectionMatureRequest,
     SelectionMatureView,
+    SelectionObservationPage,
     SelectionObservationView,
     SelectionReusableTagCreateRequest,
     SelectionReusableTagRenameRequest,
@@ -73,6 +84,13 @@ from stratgauge.api.universe import (
     UniverseSearchService,
 )
 from stratgauge.api.workbench import register_workbench_routes
+from stratgauge.application.job_runner import JobRecord, JobStatus, LocalJobError, LocalJobStore
+from stratgauge.application.market_sync_jobs import (
+    MAIN_BOARD_MARKET_SYNC_JOB_KIND,
+    MarketSyncAdapterFactory,
+    enqueue_main_board_market_sync,
+    run_main_board_market_sync_jobs,
+)
 from stratgauge.application.workbench import WorkbenchReadError, WorkbenchService
 from stratgauge.backtest.recommendations import RecommendationWorkbench
 from stratgauge.backtest.selection_analysis import SelectionCandidateAnalysis
@@ -156,6 +174,8 @@ def create_app(
     create_market_adapter = market_adapter_factory or _create_market_adapter
     app = FastAPI(title="StratGauge API", version="0.1.0")
     app.state.runtime_config = runtime
+    market_sync_job_store = LocalJobStore(runtime.data_root)
+    app.state.market_sync_job_store = market_sync_job_store
 
     @app.exception_handler(AnalysisError)
     async def handle_analysis_error(_: Any, error: AnalysisError) -> JSONResponse:
@@ -268,6 +288,101 @@ def create_app(
             raise
         except Exception as exc:
             raise to_market_sync_api_error(exc) from exc
+
+    def market_sync_adapter_factory(_: JobRecord) -> TushareAdapter:
+        return cast(TushareAdapter, create_market_adapter("tushare"))
+
+    @app.post(
+        "/v1/market-sync/tasks",
+        response_model=MarketSyncTaskView,
+        status_code=202,
+    )
+    def enqueue_market_sync_task(request: MarketSyncTaskCreateRequest) -> MarketSyncTaskView:
+        try:
+            queued = enqueue_main_board_market_sync(
+                market_sync_job_store,
+                MarketSyncRequest.model_validate(
+                    request.model_dump(exclude={"max_retries", "timeout_seconds"})
+                ),
+                market_root=runtime.market_root,
+                universe_root=runtime.universe_root,
+                max_retries=request.max_retries,
+                timeout_seconds=request.timeout_seconds,
+            )
+            return to_market_sync_task_view(queued.job)
+        except MarketSyncApiError:
+            raise
+        except Exception as exc:
+            raise to_market_sync_task_api_error(exc) from exc
+
+    @app.post(
+        "/v1/market-sync/tasks/run",
+        response_model=MarketSyncTaskRunResponse,
+    )
+    def run_market_sync_tasks(
+        request: MarketSyncTaskRunRequest | None = None,
+    ) -> MarketSyncTaskRunResponse:
+        try:
+            jobs = run_main_board_market_sync_jobs(
+                market_sync_job_store,
+                limit=request.limit if request else 1,
+                adapter_factory=cast(MarketSyncAdapterFactory, market_sync_adapter_factory),
+            )
+            return MarketSyncTaskRunResponse(
+                jobs=tuple(to_market_sync_task_view(job) for job in jobs)
+            )
+        except MarketSyncApiError:
+            raise
+        except Exception as exc:
+            raise to_market_sync_task_api_error(exc) from exc
+
+    @app.get(
+        "/v1/market-sync/tasks",
+        response_model=MarketSyncTaskPage,
+    )
+    def list_market_sync_tasks(
+        status: JobStatus | None = None,
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=50, ge=1, le=200),
+    ) -> MarketSyncTaskPage:
+        jobs = market_sync_job_store.list(
+            status=status,
+            kind=MAIN_BOARD_MARKET_SYNC_JOB_KIND,
+        )
+        return paginate_market_sync_tasks(jobs, page=page, page_size=page_size)
+
+    @app.get(
+        "/v1/market-sync/tasks/{job_id}",
+        response_model=MarketSyncTaskView,
+    )
+    def get_market_sync_task(job_id: str) -> MarketSyncTaskView:
+        try:
+            job = market_sync_job_store.load(job_id)
+            if job.kind != MAIN_BOARD_MARKET_SYNC_JOB_KIND:
+                raise ValueError("job is not a main-board market synchronization task")
+            return to_market_sync_task_view(job)
+        except MarketSyncApiError:
+            raise
+        except Exception as exc:
+            if isinstance(exc, ValueError):
+                raise to_market_sync_task_api_error(LocalJobError("job does not exist")) from exc
+            raise to_market_sync_task_api_error(exc) from exc
+
+    @app.post(
+        "/v1/market-sync/tasks/{job_id}/cancel",
+        response_model=MarketSyncTaskView,
+    )
+    def cancel_market_sync_task(job_id: str) -> MarketSyncTaskView:
+        try:
+            existing = market_sync_job_store.load(job_id)
+            if existing.kind != MAIN_BOARD_MARKET_SYNC_JOB_KIND:
+                raise LocalJobError("job does not exist")
+            cancelled = market_sync_job_store.cancel(job_id, now=datetime.now(UTC))
+            return to_market_sync_task_view(cancelled)
+        except MarketSyncApiError:
+            raise
+        except Exception as exc:
+            raise to_market_sync_task_api_error(exc) from exc
 
     workbench_router = APIRouter(prefix="/v1/workbench", tags=["workbench"])
     register_workbench_routes(workbench_router, workbench)
@@ -436,6 +551,13 @@ def create_app(
     def list_selection_batches() -> list[SelectionBatch]:
         return list(selections.list_batches())
 
+    @app.get("/v1/selection-batches/page", response_model=SelectionBatchPage)
+    def list_selection_batches_page(
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=50, ge=1, le=200),
+    ) -> SelectionBatchPage:
+        return selections.list_batches_page(page=page, page_size=page_size)
+
     @app.get(
         "/v1/selection-observation-pool",
         response_model=list[SelectionObservationView],
@@ -451,6 +573,22 @@ def create_app(
                 batch_id=batch_id,
                 include_excluded=include_excluded,
             )
+        )
+
+    @app.get("/v1/selection-observation-pool/page", response_model=SelectionObservationPage)
+    def list_selection_observation_pool_page(
+        review_state: SelectionCandidateReviewState | None = None,
+        batch_id: str | None = None,
+        include_excluded: bool = False,
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=50, ge=1, le=200),
+    ) -> SelectionObservationPage:
+        return selections.list_observation_pool_page(
+            review_state=review_state,
+            batch_id=batch_id,
+            include_excluded=include_excluded,
+            page=page,
+            page_size=page_size,
         )
 
     @app.post("/v1/selection-batches", response_model=SelectionBatchView, status_code=201)
@@ -526,6 +664,16 @@ def create_app(
         return list(selections.list_managed_batches())
 
     @app.get(
+        "/v1/data-management/batches/page",
+        response_model=SelectionManagedBatchPage,
+    )
+    def list_managed_batches_page(
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=50, ge=1, le=200),
+    ) -> SelectionManagedBatchPage:
+        return selections.list_managed_batches_page(page=page, page_size=page_size)
+
+    @app.get(
         "/v1/data-management/batches/{batch_id}/raw",
         response_class=Response,
     )
@@ -540,12 +688,11 @@ def create_app(
 
     @app.get(
         "/v1/data-management/batches/{batch_id}/dataset",
-        response_class=Response,
+        response_class=StreamingResponse,
     )
-    def download_managed_batch_dataset(batch_id: str) -> Response:
-        content = selections.export_dataset(batch_id)
-        return Response(
-            content=content,
+    def download_managed_batch_dataset(batch_id: str) -> StreamingResponse:
+        return StreamingResponse(
+            selections.stream_dataset(batch_id),
             media_type="application/x-ndjson",
             headers={
                 "Content-Disposition": (f"attachment; filename=selection-{quote(batch_id)}.jsonl")
@@ -554,12 +701,11 @@ def create_app(
 
     @app.get(
         "/v1/data-management/batches/{batch_id}/annotation-dataset",
-        response_class=Response,
+        response_class=StreamingResponse,
     )
-    def download_managed_batch_annotation_dataset(batch_id: str) -> Response:
-        content = selections.export_annotation_dataset(batch_id)
-        return Response(
-            content=content,
+    def download_managed_batch_annotation_dataset(batch_id: str) -> StreamingResponse:
+        return StreamingResponse(
+            selections.stream_annotation_dataset(batch_id),
             media_type="application/x-ndjson",
             headers={
                 "Content-Disposition": (

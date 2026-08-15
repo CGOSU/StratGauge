@@ -9,6 +9,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from stratgauge.application.job_runner import JobRecord, JobStatus, LocalJobError
+from stratgauge.application.market_sync_jobs import MarketSyncJobPayload
 from stratgauge.data_pipeline.adjustment_factor_sync import (
     sync_adjustment_factor_session,
 )
@@ -106,6 +108,140 @@ class MarketSyncResponse(BaseModel):
     sessions: tuple[MarketSyncSessionResult, ...]
 
 
+class MarketSyncTaskCreateRequest(MarketSyncRequest):
+    model_config = ConfigDict(extra="forbid")
+
+    max_retries: int = Field(default=2, ge=0, le=10)
+    timeout_seconds: float = Field(default=900, gt=0, le=86_400)
+
+
+class MarketSyncTaskRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    limit: int = Field(default=1, ge=1, le=20)
+
+
+class MarketSyncTaskView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    job_id: str
+    kind: str
+    status: JobStatus
+    request: MarketSyncRequest
+    attempt_count: int = Field(ge=0)
+    max_retries: int = Field(ge=0)
+    timeout_seconds: float = Field(gt=0)
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    result: MarketSyncResponse | None
+    error: str | None
+
+
+class MarketSyncTaskPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    items: tuple[MarketSyncTaskView, ...]
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=200)
+    total: int = Field(ge=0)
+    has_next: bool
+
+
+class MarketSyncTaskRunResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    jobs: tuple[MarketSyncTaskView, ...]
+
+
+def to_market_sync_task_view(job: JobRecord) -> MarketSyncTaskView:
+    """Expose a job without storage roots or arbitrary payload fields."""
+
+    payload = MarketSyncJobPayload.model_validate(job.payload)
+    request = MarketSyncRequest.model_validate(payload.request.model_dump(mode="json"))
+    result = None
+    if job.result is not None:
+        response_payload = job.result.get("response")
+        if isinstance(response_payload, dict):
+            result = MarketSyncResponse.model_validate(response_payload)
+    return MarketSyncTaskView(
+        job_id=job.job_id,
+        kind=job.kind,
+        status=job.status,
+        request=request,
+        attempt_count=job.attempt_count,
+        max_retries=job.max_retries,
+        timeout_seconds=job.timeout_seconds,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        result=result,
+        error=job.error,
+    )
+
+
+def paginate_market_sync_tasks(
+    jobs: tuple[JobRecord, ...],
+    *,
+    page: int,
+    page_size: int,
+) -> MarketSyncTaskPage:
+    if page < 1:
+        raise ValueError("page must be at least 1")
+    if not 1 <= page_size <= 200:
+        raise ValueError("page_size must be between 1 and 200")
+    total = len(jobs)
+    start = (page - 1) * page_size
+    items = tuple(to_market_sync_task_view(job) for job in jobs[start : start + page_size])
+    return MarketSyncTaskPage(
+        items=items,
+        page=page,
+        page_size=page_size,
+        total=total,
+        has_next=start + page_size < total,
+    )
+
+
+def to_market_sync_task_api_error(error: BaseException) -> MarketSyncApiError:
+    if isinstance(error, LocalJobError):
+        message = str(error)
+        if "does not exist" in message:
+            return MarketSyncApiError(
+                "MARKET_SYNC_TASK_NOT_FOUND",
+                "行情同步任务不存在。",
+                404,
+                {"suggestion": "检查任务 ID 后重试。"},
+            )
+        if "only queued jobs" in message:
+            return MarketSyncApiError(
+                "MARKET_SYNC_TASK_NOT_CANCELLABLE",
+                "只有 queued 状态的行情同步任务可以取消。",
+                409,
+                {"suggestion": "等待任务完成，或查看任务结果后再处理。"},
+            )
+        if "different configuration" in message:
+            return MarketSyncApiError(
+                "MARKET_SYNC_TASK_IDEMPOTENCY_CONFLICT",
+                "相同任务身份已经使用了不同的执行配置。",
+                409,
+                {"suggestion": "使用原任务的重试和超时配置，或等待原任务完成。"},
+            )
+        return MarketSyncApiError(
+            "MARKET_SYNC_TASK_STORAGE_FAILED",
+            "行情同步任务账本无法安全读写。",
+            500,
+            {"suggestion": "检查数据目录权限和磁盘空间后重试。"},
+        )
+    return MarketSyncApiError(
+        "MARKET_SYNC_TASK_FAILED",
+        "行情同步任务操作失败。",
+        500,
+        {"suggestion": "检查任务账本和服务日志后重试。"},
+    )
+
+
 def sync_main_board_close(
     request: MarketSyncRequest,
     *,
@@ -147,22 +283,16 @@ def sync_main_board_close(
         for offset in range((request.session_date - start_date).days + 1)
         if (start_date + timedelta(days=offset)).weekday() < 5
     )
+    approved_snapshots = market_store.find_approved_market_snapshots(
+        provider=adapter.provider,
+        session_dates=candidate_dates,
+        universe_snapshot_id=universe.universe_snapshot_id,
+    )
     session_dates = tuple(
-        session_date
-        for session_date in candidate_dates
-        if market_store.find_approved_market_snapshot(
-            provider=adapter.provider,
-            session_date=session_date,
-            universe_snapshot_id=universe.universe_snapshot_id,
-        )
-        is None
+        session_date for session_date in candidate_dates if session_date not in approved_snapshots
     )
     if not session_dates:
-        existing = market_store.find_approved_market_snapshot(
-            provider=adapter.provider,
-            session_date=request.session_date,
-            universe_snapshot_id=universe.universe_snapshot_id,
-        )
+        existing = approved_snapshots.get(request.session_date)
         if existing is None:
             raise ValueError(
                 "no missing market sessions found in the recent lookback window; "

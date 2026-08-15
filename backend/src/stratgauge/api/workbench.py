@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Query
+from pydantic import BaseModel, ConfigDict, Field
 
 from stratgauge.application.workbench import (
     WorkbenchAnalyticsView,
@@ -19,6 +20,16 @@ from stratgauge.application.workbench import (
 from stratgauge.domain.selections import SelectionCandidateReviewState
 
 router = APIRouter(prefix="/v1/workbench", tags=["workbench"])
+
+
+class WorkbenchSignalPage(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    items: tuple[WorkbenchSignalView, ...]
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=200)
+    total: int = Field(ge=0)
+    has_next: bool
 
 
 def register_workbench_routes(
@@ -50,12 +61,40 @@ def register_workbench_routes(
             as_of=as_of,
         )
 
+    @router_target.get("/daily-signals/page", response_model=WorkbenchSignalPage)
+    def list_daily_signals_page(
+        selection_date: date | None = None,
+        query: str = "",
+        review_state: SelectionCandidateReviewState | None = None,
+        include_excluded: bool = True,
+        as_of: datetime | None = None,
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=50, ge=1, le=200),
+    ) -> WorkbenchSignalPage:
+        items = service.list_daily_signals(
+            selection_date=selection_date,
+            query=query,
+            review_state=review_state,
+            include_excluded=include_excluded,
+            as_of=as_of,
+        )
+        return _page(items, page, page_size)
+
     @router_target.get("/watchlist", response_model=tuple[WorkbenchSignalView, ...])
     def list_watchlist(
         query: str = "",
         as_of: datetime | None = None,
     ) -> tuple[WorkbenchSignalView, ...]:
         return service.list_watchlist(query=query, as_of=as_of)
+
+    @router_target.get("/watchlist/page", response_model=WorkbenchSignalPage)
+    def list_watchlist_page(
+        query: str = "",
+        as_of: datetime | None = None,
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=50, ge=1, le=200),
+    ) -> WorkbenchSignalPage:
+        return _page(service.list_watchlist(query=query, as_of=as_of), page, page_size)
 
     @router_target.get("/strategies", response_model=tuple[WorkbenchStrategyView, ...])
     def list_strategies(as_of: datetime | None = None) -> tuple[WorkbenchStrategyView, ...]:
@@ -81,4 +120,20 @@ def register_workbench_routes(
         return service.stock_detail(symbol, as_of=as_of)
 
 
-__all__ = ["register_workbench_routes", "router"]
+def _page(
+    items: tuple[WorkbenchSignalView, ...],
+    page: int,
+    page_size: int,
+) -> WorkbenchSignalPage:
+    start = (page - 1) * page_size
+    end = start + page_size
+    return WorkbenchSignalPage(
+        items=items[start:end],
+        page=page,
+        page_size=page_size,
+        total=len(items),
+        has_next=end < len(items),
+    )
+
+
+__all__ = ["WorkbenchSignalPage", "register_workbench_routes", "router"]

@@ -58,12 +58,28 @@ class WorkbenchApiTests(unittest.TestCase):
             self.assertEqual(signals.json()[0]["review_state"], "watching")
             self.assertEqual(signals.json()[0]["market"]["status"], "unavailable")
 
+            paged_signals = client.get(
+                "/v1/workbench/daily-signals/page",
+                params={"page": 1, "page_size": 1, "as_of": "2026-01-05T18:00:00+00:00"},
+            )
+            self.assertEqual(paged_signals.status_code, 200)
+            self.assertEqual(paged_signals.json()["total"], 1)
+            self.assertFalse(paged_signals.json()["has_next"])
+            self.assertEqual(paged_signals.json()["items"][0]["candidate"]["symbol"], "000001.SZ")
+
             watchlist = client.get(
                 "/v1/workbench/watchlist",
                 params={"as_of": "2026-01-05T18:00:00+00:00"},
             )
             self.assertEqual(watchlist.status_code, 200)
             self.assertEqual(len(watchlist.json()), 1)
+            paged_watchlist = client.get(
+                "/v1/workbench/watchlist/page",
+                params={"page": 1, "page_size": 1, "as_of": "2026-01-05T18:00:00+00:00"},
+            )
+            self.assertEqual(paged_watchlist.status_code, 200)
+            self.assertEqual(paged_watchlist.json()["total"], 1)
+            self.assertEqual(len(paged_watchlist.json()["items"]), 1)
 
             summary = client.get(
                 "/v1/workbench/summary",

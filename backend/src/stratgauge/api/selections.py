@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Literal
@@ -17,6 +18,8 @@ from stratgauge.backtest.selection_analysis import (
     analyze_selection_candidate,
 )
 from stratgauge.backtest.selection_dataset import (
+    SelectionAnnotationDatasetRow,
+    SelectionDatasetRow,
     build_annotation_dataset,
     build_selection_dataset,
     serialize_annotation_dataset,
@@ -368,6 +371,36 @@ class SelectionManagementStatsView(BaseModel):
     summary: SelectionOutcomeStats
 
 
+class SelectionBatchPage(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    items: tuple[SelectionBatch, ...]
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=200)
+    total: int = Field(ge=0)
+    has_next: bool
+
+
+class SelectionObservationPage(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    items: tuple[SelectionObservationView, ...]
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=200)
+    total: int = Field(ge=0)
+    has_next: bool
+
+
+class SelectionManagedBatchPage(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    items: tuple[SelectionManagedBatchView, ...]
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=200)
+    total: int = Field(ge=0)
+    has_next: bool
+
+
 class SelectionService:
     """Application service backed by immutable local selection storage."""
 
@@ -473,11 +506,15 @@ class SelectionService:
     def list_managed_formulas(self) -> tuple[SelectionManagedFormulaView, ...]:
         try:
             formulas = self._store.list_formulas(include_archived=True)
+            lifecycle_by_formula = self._store.list_lifecycle_events_for_entities(
+                "formula",
+                (formula.formula_id for formula in formulas),
+            )
             return tuple(
                 SelectionManagedFormulaView(
                     formula=formula,
-                    active=self._store.is_entity_active("formula", formula.formula_id),
-                    lifecycle=self._store.list_lifecycle_events("formula", formula.formula_id),
+                    active=_is_entity_active(lifecycle_by_formula[formula.formula_id]),
+                    lifecycle=lifecycle_by_formula[formula.formula_id],
                 )
                 for formula in formulas
             )
@@ -486,38 +523,43 @@ class SelectionService:
 
     def list_managed_batches(self) -> tuple[SelectionManagedBatchView, ...]:
         try:
-            managed: list[SelectionManagedBatchView] = []
-            for manifest in self._store.list_manifests(include_archived=True):
-                imported = self._store.load_import(manifest.batch_id)
-                label_count = sum(
-                    len(self._store.list_labels(candidate.candidate_id))
-                    for candidate in imported.candidates
+            manifests = self._store.list_manifests(include_archived=True)
+            imports = tuple(self._store.load_import(manifest.batch_id) for manifest in manifests)
+            candidate_ids = tuple(
+                candidate.candidate_id for imported in imports for candidate in imported.candidates
+            )
+            labels_by_candidate = self._store.list_labels_for_candidates(candidate_ids)
+            annotations_by_candidate = self._store.list_annotations_for_candidates(candidate_ids)
+            exclusions_by_candidate = self._store.list_exclusions_for_candidates(candidate_ids)
+            outcomes_by_candidate = self._store.list_outcomes_for_candidates(candidate_ids)
+            lifecycle_by_batch = self._store.list_lifecycle_events_for_entities(
+                "batch",
+                (imported.batch.batch_id for imported in imports),
+            )
+            managed = tuple(
+                SelectionManagedBatchView(
+                    batch=imported.batch,
+                    active=_is_entity_active(lifecycle_by_batch[imported.batch.batch_id]),
+                    label_count=sum(
+                        len(labels_by_candidate[candidate.candidate_id])
+                        for candidate in imported.candidates
+                    ),
+                    annotation_count=sum(
+                        len(annotations_by_candidate[candidate.candidate_id])
+                        for candidate in imported.candidates
+                    ),
+                    exclusion_count=sum(
+                        len(exclusions_by_candidate[candidate.candidate_id])
+                        for candidate in imported.candidates
+                    ),
+                    outcome_count=sum(
+                        len(outcomes_by_candidate[candidate.candidate_id])
+                        for candidate in imported.candidates
+                    ),
+                    lifecycle=lifecycle_by_batch[imported.batch.batch_id],
                 )
-                annotation_count = sum(
-                    len(self._store.list_annotations(candidate.candidate_id))
-                    for candidate in imported.candidates
-                )
-                exclusion_count = sum(
-                    len(self._store.list_exclusions(candidate.candidate_id))
-                    for candidate in imported.candidates
-                )
-                outcome_count = sum(
-                    len(self._store.list_outcomes(candidate.candidate_id))
-                    for candidate in imported.candidates
-                )
-                managed.append(
-                    SelectionManagedBatchView(
-                        batch=imported.batch,
-                        active=self._store.is_entity_active("batch", imported.batch.batch_id),
-                        label_count=label_count,
-                        annotation_count=annotation_count,
-                        exclusion_count=exclusion_count,
-                        outcome_count=outcome_count,
-                        lifecycle=self._store.list_lifecycle_events(
-                            "batch", imported.batch.batch_id
-                        ),
-                    )
-                )
+                for imported in imports
+            )
             return tuple(
                 sorted(
                     managed,
@@ -527,6 +569,23 @@ class SelectionService:
             )
         except SelectionStoreError as exc:
             raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+
+    def list_managed_batches_page(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> SelectionManagedBatchPage:
+        _validate_page(page, page_size)
+        items = self.list_managed_batches()
+        page_items, total, has_next = _page_slice(items, page, page_size)
+        return SelectionManagedBatchPage(
+            items=page_items,
+            page=page,
+            page_size=page_size,
+            total=total,
+            has_next=has_next,
+        )
 
     def get_managed_batch(self, batch_id: str) -> SelectionManagedBatchDetailView:
         try:
@@ -629,6 +688,75 @@ class SelectionService:
         except ValueError as exc:
             raise SelectionApiError("SELECTION_ANNOTATION_DATASET_INVALID", str(exc), 422) from exc
 
+    def stream_dataset(self, batch_id: str) -> Iterator[bytes]:
+        try:
+            imported = self._store.load_import(batch_id)
+            candidate_ids = tuple(candidate.candidate_id for candidate in imported.candidates)
+            labels_by_candidate = self._store.list_labels_for_candidates(candidate_ids)
+            outcomes_by_candidate = self._store.list_outcomes_for_candidates(candidate_ids)
+        except SelectionStoreError as exc:
+            if "does not exist" in str(exc):
+                raise SelectionApiError(
+                    "SELECTION_BATCH_NOT_FOUND", "选股批次不存在。", 404
+                ) from exc
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+
+        def generate() -> Iterator[bytes]:
+            for candidate in imported.candidates:
+                labels = labels_by_candidate[candidate.candidate_id]
+                latest_label = labels[-1] if labels else None
+                for outcome in latest_selection_outcomes(
+                    outcomes_by_candidate[candidate.candidate_id]
+                ) or (None,):
+                    row = _selection_dataset_row(
+                        imported.batch,
+                        candidate,
+                        latest_label,
+                        outcome,
+                    )
+                    yield f"{row.model_dump_json()}\n".encode()
+
+        return generate()
+
+    def stream_annotation_dataset(self, batch_id: str) -> Iterator[bytes]:
+        try:
+            imported = self._store.load_import(batch_id)
+            candidate_ids = tuple(candidate.candidate_id for candidate in imported.candidates)
+            annotations_by_candidate = self._store.list_annotations_for_candidates(candidate_ids)
+            outcomes_by_candidate = self._store.list_outcomes_for_candidates(candidate_ids)
+        except SelectionStoreError as exc:
+            if "does not exist" in str(exc):
+                raise SelectionApiError(
+                    "SELECTION_BATCH_NOT_FOUND", "选股批次不存在。", 404
+                ) from exc
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
+
+        annotated_rows = [
+            (
+                annotation.recorded_at,
+                annotation.annotation_id,
+                imported.batch,
+                candidate,
+                annotation,
+                _latest_outcome_after_annotation(
+                    latest_selection_outcomes(outcomes_by_candidate[candidate.candidate_id]),
+                    annotation,
+                ),
+            )
+            for candidate in imported.candidates
+            for annotation in annotations_by_candidate[candidate.candidate_id]
+        ]
+
+        def generate() -> Iterator[bytes]:
+            for _, _, batch, candidate, annotation, outcome in sorted(
+                annotated_rows,
+                key=lambda item: (item[0], item[1]),
+            ):
+                row = _annotation_dataset_row(batch, candidate, annotation, outcome)
+                yield f"{row.model_dump_json()}\n".encode()
+
+        return generate()
+
     def list_observation_pool(
         self,
         *,
@@ -638,13 +766,20 @@ class SelectionService:
     ) -> tuple[SelectionObservationView, ...]:
         try:
             views: list[SelectionObservationView] = []
-            manifests = self._store.list_manifests()
-            for manifest in manifests:
-                if batch_id is not None and manifest.batch_id != batch_id:
-                    continue
-                imported = self._store.load_import(manifest.batch_id)
+            imports = tuple(
+                self._store.load_import(manifest.batch_id)
+                for manifest in self._store.list_manifests()
+                if batch_id is None or manifest.batch_id == batch_id
+            )
+            candidates = tuple(
+                candidate for imported in imports for candidate in imported.candidates
+            )
+            candidate_views = {
+                view.candidate.candidate_id: view for view in self._candidate_views(candidates)
+            }
+            for imported in imports:
                 for candidate in imported.candidates:
-                    candidate_view = self._candidate_view(candidate)
+                    candidate_view = candidate_views[candidate.candidate_id]
                     if candidate_view.excluded and not include_excluded:
                         continue
                     if review_state is not None and candidate_view.review_state != review_state:
@@ -678,6 +813,47 @@ class SelectionService:
             raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
         return tuple(
             sorted(batches, key=lambda batch: (batch.selection_date, batch.batch_id), reverse=True)
+        )
+
+    def list_observation_pool_page(
+        self,
+        *,
+        review_state: SelectionCandidateReviewState | None = None,
+        batch_id: str | None = None,
+        include_excluded: bool = False,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> SelectionObservationPage:
+        _validate_page(page, page_size)
+        items = self.list_observation_pool(
+            review_state=review_state,
+            batch_id=batch_id,
+            include_excluded=include_excluded,
+        )
+        page_items, total, has_next = _page_slice(items, page, page_size)
+        return SelectionObservationPage(
+            items=page_items,
+            page=page,
+            page_size=page_size,
+            total=total,
+            has_next=has_next,
+        )
+
+    def list_batches_page(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> SelectionBatchPage:
+        _validate_page(page, page_size)
+        items = self.list_batches()
+        page_items, total, has_next = _page_slice(items, page, page_size)
+        return SelectionBatchPage(
+            items=page_items,
+            page=page,
+            page_size=page_size,
+            total=total,
+            has_next=has_next,
         )
 
     def get_batch(self, batch_id: str) -> SelectionBatchView:
@@ -946,10 +1122,13 @@ class SelectionService:
     def summarize_batch(self, batch_id: str) -> SelectionStatsView:
         try:
             imported = self._store.load_import(batch_id)
+            outcomes_by_candidate = self._store.list_outcomes_for_candidates(
+                candidate.candidate_id for candidate in imported.candidates
+            )
             outcomes: list[SelectionOutcome] = []
             pending = 0
             for candidate in imported.candidates:
-                candidate_outcomes = self._store.list_outcomes(candidate.candidate_id)
+                candidate_outcomes = outcomes_by_candidate[candidate.candidate_id]
                 if not candidate_outcomes:
                     pending += 1
                 outcomes.extend(candidate_outcomes)
@@ -988,19 +1167,29 @@ class SelectionService:
         formula_version = formula_version.strip() if formula_version else None
         tracking_policy_id = tracking_policy_id.strip() if tracking_policy_id else None
         try:
+            manifests = self._store.list_manifests(include_archived=True)
+            imports = tuple(self._store.load_import(manifest.batch_id) for manifest in manifests)
+            candidate_ids = tuple(
+                candidate.candidate_id for imported in imports for candidate in imported.candidates
+            )
+            labels_by_candidate = self._store.list_labels_for_candidates(candidate_ids)
+            outcomes_by_candidate = self._store.list_outcomes_for_candidates(candidate_ids)
+            lifecycle_by_batch = self._store.list_lifecycle_events_for_entities(
+                "batch",
+                (imported.batch.batch_id for imported in imports),
+            )
             outcomes: list[SelectionOutcome] = []
             tracking_policy_ids: set[str] = set()
             batch_count = 0
             candidate_count = 0
             pending = 0
-            for manifest in self._store.list_manifests(include_archived=True):
-                imported = self._store.load_import(manifest.batch_id)
-                active = self._store.is_entity_active("batch", imported.batch.batch_id)
+            for imported in imports:
+                batch = imported.batch
+                active = _is_entity_active(lifecycle_by_batch[batch.batch_id])
                 if lifecycle == "active" and not active:
                     continue
                 if lifecycle == "archived" and active:
                     continue
-                batch = imported.batch
                 if formula_version is not None and batch.formula_version != formula_version:
                     continue
                 if source is not None and batch.source != source:
@@ -1011,7 +1200,7 @@ class SelectionService:
                     continue
                 batch_count += 1
                 for candidate in imported.candidates:
-                    labels = self._store.list_labels(candidate.candidate_id)
+                    labels = labels_by_candidate[candidate.candidate_id]
                     label = labels[-1] if labels else None
                     if manual_decision is not None and (
                         label is None or label.decision != manual_decision
@@ -1019,7 +1208,7 @@ class SelectionService:
                         continue
                     candidate_count += 1
                     candidate_outcomes = latest_selection_outcomes(
-                        self._store.list_outcomes(candidate.candidate_id)
+                        outcomes_by_candidate[candidate.candidate_id]
                     )
                     tracking_policy_ids.update(
                         outcome.tracking_policy_id for outcome in candidate_outcomes
@@ -1202,10 +1391,38 @@ class SelectionService:
         except ValueError as exc:
             raise SelectionApiError("SELECTION_EXCLUSION_INVALID", str(exc), 422) from exc
 
-    def _candidate_view(self, candidate: SelectionCandidate) -> SelectionCandidateView:
-        labels = self._store.list_labels(candidate.candidate_id)
-        annotations = self._store.list_annotations(candidate.candidate_id)
-        exclusions = self._store.list_exclusions(candidate.candidate_id)
+    def _candidate_views(
+        self,
+        candidates: tuple[SelectionCandidate, ...],
+    ) -> tuple[SelectionCandidateView, ...]:
+        candidate_ids = tuple(candidate.candidate_id for candidate in candidates)
+        labels_by_candidate = self._store.list_labels_for_candidates(candidate_ids)
+        annotations_by_candidate = self._store.list_annotations_for_candidates(candidate_ids)
+        exclusions_by_candidate = self._store.list_exclusions_for_candidates(candidate_ids)
+        outcomes_by_candidate = self._store.list_outcomes_for_candidates(candidate_ids)
+        performances_by_candidate = self._store.list_performances_for_candidates(candidate_ids)
+        return tuple(
+            self._candidate_view(
+                candidate,
+                labels=labels_by_candidate[candidate.candidate_id],
+                annotations=annotations_by_candidate[candidate.candidate_id],
+                exclusions=exclusions_by_candidate[candidate.candidate_id],
+                outcomes=outcomes_by_candidate[candidate.candidate_id],
+                performances=performances_by_candidate[candidate.candidate_id],
+            )
+            for candidate in candidates
+        )
+
+    def _candidate_view(
+        self,
+        candidate: SelectionCandidate,
+        *,
+        labels: tuple[ManualSelectionLabel, ...],
+        annotations: tuple[SelectionAnnotation, ...],
+        exclusions: tuple[SelectionCandidateExclusion, ...],
+        outcomes: tuple[SelectionOutcome, ...],
+        performances: tuple[SelectionPerformance, ...],
+    ) -> SelectionCandidateView:
         latest_annotation = annotations[-1] if annotations else None
         latest_exclusion = exclusions[-1] if exclusions else None
         return SelectionCandidateView(
@@ -1217,16 +1434,126 @@ class SelectionService:
             latest_exclusion=latest_exclusion,
             review_state=_review_state(latest_annotation),
             excluded=latest_exclusion is not None,
-            outcomes=self._store.list_outcomes(candidate.candidate_id),
-            performances=self._store.list_performances(candidate.candidate_id),
+            outcomes=outcomes,
+            performances=performances,
         )
 
     def _view(self, imported: TdxSelectionImport) -> SelectionBatchView:
         try:
-            candidates = tuple(self._candidate_view(candidate) for candidate in imported.candidates)
+            candidates = self._candidate_views(imported.candidates)
         except SelectionStoreError as exc:
             raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
         return SelectionBatchView(batch=imported.batch, candidates=candidates)
+
+
+def _selection_dataset_row(
+    batch: SelectionBatch,
+    candidate: SelectionCandidate,
+    label: ManualSelectionLabel | None,
+    outcome: SelectionOutcome | None,
+) -> SelectionDatasetRow:
+    return SelectionDatasetRow(
+        candidate_id=candidate.candidate_id,
+        batch_id=batch.batch_id,
+        symbol=candidate.symbol,
+        selection_date=batch.selection_date.isoformat(),
+        source_filename=batch.source_filename,
+        formula_id=batch.formula_id,
+        formula_name=batch.formula_name,
+        formula_version=batch.formula_version,
+        manual_decision=label.decision if label else None,
+        manual_labeled_at=label.labeled_at.isoformat() if label else None,
+        tracking_policy_id=outcome.tracking_policy_id if outcome else None,
+        outcome_policy_id=outcome.outcome_policy_id if outcome else None,
+        cost_schedule_id=outcome.cost_schedule_id if outcome else None,
+        horizon_sessions=outcome.horizon_sessions if outcome else None,
+        position_notional=(
+            str(outcome.position_notional)
+            if outcome and outcome.position_notional is not None
+            else None
+        ),
+        outcome_status=outcome.status if outcome else None,
+        outcome_evaluated_at=outcome.evaluated_at.isoformat() if outcome else None,
+        net_return=(
+            str(outcome.net_return) if outcome and outcome.net_return is not None else None
+        ),
+        source_snapshot_ids=outcome.source_snapshot_ids if outcome else (),
+    )
+
+
+def _annotation_dataset_row(
+    batch: SelectionBatch,
+    candidate: SelectionCandidate,
+    annotation: SelectionAnnotation,
+    outcome: SelectionOutcome | None,
+) -> SelectionAnnotationDatasetRow:
+    return SelectionAnnotationDatasetRow(
+        annotation_id=annotation.annotation_id,
+        candidate_id=candidate.candidate_id,
+        batch_id=batch.batch_id,
+        symbol=candidate.symbol,
+        selection_date=batch.selection_date.isoformat(),
+        source_filename=batch.source_filename,
+        formula_id=batch.formula_id,
+        formula_name=batch.formula_name,
+        formula_version=batch.formula_version,
+        annotation_reviewed_at=annotation.reviewed_at.isoformat(),
+        annotation_recorded_at=annotation.recorded_at.isoformat(),
+        overall_score=annotation.overall_score,
+        outlook=annotation.outlook,
+        decision=annotation.decision,
+        position_tags=annotation.position_tags,
+        pattern_tags=annotation.pattern_tags,
+        price_volume_tags=annotation.price_volume_tags,
+        sector_tags=annotation.sector_tags,
+        taxonomy_version=annotation.taxonomy_version,
+        annotation_note=annotation.note,
+        tracking_policy_id=outcome.tracking_policy_id if outcome else None,
+        outcome_policy_id=outcome.outcome_policy_id if outcome else None,
+        cost_schedule_id=outcome.cost_schedule_id if outcome else None,
+        horizon_sessions=outcome.horizon_sessions if outcome else None,
+        position_notional=(
+            str(outcome.position_notional)
+            if outcome and outcome.position_notional is not None
+            else None
+        ),
+        outcome_status=outcome.status if outcome else None,
+        outcome_evaluated_at=outcome.evaluated_at.isoformat() if outcome else None,
+        net_return=(
+            str(outcome.net_return) if outcome and outcome.net_return is not None else None
+        ),
+        source_snapshot_ids=outcome.source_snapshot_ids if outcome else (),
+    )
+
+
+def _latest_outcome_after_annotation(
+    outcomes: tuple[SelectionOutcome, ...],
+    annotation: SelectionAnnotation,
+) -> SelectionOutcome | None:
+    future = tuple(outcome for outcome in outcomes if outcome.evaluated_at > annotation.recorded_at)
+    return future[-1] if future else None
+
+
+def _validate_page(page: int, page_size: int) -> None:
+    if page < 1:
+        raise ValueError("page must be positive")
+    if page_size < 1 or page_size > 200:
+        raise ValueError("page_size must be between 1 and 200")
+
+
+def _page_slice[T](
+    items: tuple[T, ...],
+    page: int,
+    page_size: int,
+) -> tuple[tuple[T, ...], int, bool]:
+    total = len(items)
+    start = (page - 1) * page_size
+    end = start + page_size
+    return items[start:end], total, end < total
+
+
+def _is_entity_active(events: tuple[SelectionLifecycleEvent, ...]) -> bool:
+    return not events or events[-1].status is SelectionLifecycleStatus.ACTIVE
 
 
 def _content_id(prefix: str, *parts: str) -> str:

@@ -3,10 +3,12 @@ import unittest
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from stratgauge.api.app import create_app
+from stratgauge.api.model_scores import ModelScoreService
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.data_pipeline.tdx_import import import_tdx_export
 from stratgauge.domain.models import ModelLifecycle
@@ -66,22 +68,49 @@ class ModelScoreApiTests(unittest.TestCase):
                 operator="test",
             )
             candidate_id = imported.candidates[0].candidate_id
-            ShadowScoreStore(directory).write_score(
-                ShadowScore(
-                    score_id="shadow-score-api-v1",
-                    model_version_id=model.model_version_id,
-                    model_lifecycle="shadow",
-                    candidate_id=candidate_id,
-                    symbol="000001.SZ",
-                    selection_date=date(2026, 1, 5),
-                    feature_set_version_id="features-fixture-v1",
-                    feature_snapshot_id="feature-api-v1",
-                    tracking_policy_id="policy-v1",
-                    source_snapshot_ids=("snapshot-1",),
-                    scored_at=datetime(2026, 1, 5, 17, tzinfo=UTC),
-                    uncalibrated_model_score=Decimal("0.5"),
+            score_store = ShadowScoreStore(directory)
+            first_score = ShadowScore(
+                score_id="shadow-score-api-v1",
+                model_version_id=model.model_version_id,
+                model_lifecycle="shadow",
+                candidate_id=candidate_id,
+                symbol="000001.SZ",
+                selection_date=date(2026, 1, 5),
+                feature_set_version_id="features-fixture-v1",
+                feature_snapshot_id="feature-api-v1",
+                tracking_policy_id="policy-v1",
+                source_snapshot_ids=("snapshot-1",),
+                scored_at=datetime(2026, 1, 5, 17, tzinfo=UTC),
+                uncalibrated_model_score=Decimal("0.5"),
+            )
+            score_store.write_score(first_score)
+            score_store.write_score(
+                first_score.model_copy(
+                    update={
+                        "score_id": "shadow-score-api-v2",
+                        "scored_at": datetime(2026, 1, 5, 18, tzinfo=UTC),
+                        "uncalibrated_model_score": Decimal("0.6"),
+                    }
                 )
             )
+            service = ModelScoreService(
+                selection_store,
+                model_registry=registry,
+                score_store=score_store,
+            )
+            with (
+                patch.object(registry, "load", wraps=registry.load) as load_model,
+                patch.object(
+                    registry,
+                    "read_training_manifest",
+                    wraps=registry.read_training_manifest,
+                ) as read_manifest,
+            ):
+                direct = service.get_candidate_scores(imported.batch.batch_id, candidate_id)
+            self.assertEqual(direct.failures, ())
+            self.assertEqual(len(direct.scores), 2)
+            self.assertEqual(load_model.call_count, 2)
+            self.assertEqual(read_manifest.call_count, 1)
             client = TestClient(create_app(selection_store=selection_store, model_root=directory))
 
             response = client.get(

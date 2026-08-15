@@ -157,6 +157,87 @@ class MainBoardMarketSyncApiTests(unittest.TestCase):
             self.assertIn("重试", error["details"]["suggestion"])
             self.assertNotIn("secret-token", response.text)
 
+    def test_task_api_is_idempotent_filters_and_preserves_queued_cancellation(self) -> None:
+        securities = (security("security-1", "000001", Exchange.SZ),)
+        adapter = TushareAdapter(
+            fetcher=lambda request: [daily_row(request.security.symbol, request.start_date)],
+            market_fetcher=lambda _: [daily_row("000001.SZ")],
+            adjustment_factor_fetcher=lambda _: [factor_row("000001.SZ")],
+            clock=lambda: FETCHED_AT,
+        )
+        with TemporaryDirectory() as directory:
+            client = self._client(directory, adapter, securities)
+            body = {
+                "session_date": "2026-01-05",
+                "minimum_coverage": "0.90",
+                "lookback_days": 1,
+                "max_retries": 2,
+                "timeout_seconds": 60,
+            }
+            first = client.post("/v1/market-sync/tasks", json=body)
+            duplicate = client.post("/v1/market-sync/tasks", json=body)
+            self.assertEqual(first.status_code, 202)
+            self.assertEqual(duplicate.status_code, 202)
+            self.assertEqual(first.json()["job_id"], duplicate.json()["job_id"])
+            self.assertNotIn(directory, first.text)
+
+            page = client.get(
+                "/v1/market-sync/tasks",
+                params={"status": "queued", "page": 1, "page_size": 1},
+            )
+            self.assertEqual(page.status_code, 200)
+            self.assertEqual(page.json()["total"], 1)
+            self.assertEqual(page.json()["items"][0]["status"], "queued")
+            self.assertFalse(page.json()["has_next"])
+
+            cancelled = client.post(f"/v1/market-sync/tasks/{first.json()['job_id']}/cancel")
+            self.assertEqual(cancelled.status_code, 200)
+            self.assertEqual(cancelled.json()["status"], "cancelled")
+            rejected = client.post(f"/v1/market-sync/tasks/{first.json()['job_id']}/cancel")
+            self.assertEqual(rejected.status_code, 409)
+            self.assertEqual(
+                rejected.json()["error"]["code"],
+                "MARKET_SYNC_TASK_NOT_CANCELLABLE",
+            )
+            fetched = client.get(f"/v1/market-sync/tasks/{first.json()['job_id']}")
+            self.assertEqual(fetched.status_code, 200)
+            self.assertEqual(fetched.json()["status"], "cancelled")
+
+            restarted = TestClient(create_app(data_root=directory))
+            persisted = restarted.get(f"/v1/market-sync/tasks/{first.json()['job_id']}")
+            self.assertEqual(persisted.status_code, 200)
+            self.assertEqual(persisted.json()["status"], "cancelled")
+
+    def test_task_runner_api_executes_one_explicit_job_and_returns_result(self) -> None:
+        securities = (security("security-1", "000001", Exchange.SZ),)
+        adapter = TushareAdapter(
+            fetcher=lambda request: [daily_row(request.security.symbol, request.start_date)],
+            market_fetcher=lambda _: [daily_row("000001.SZ")],
+            adjustment_factor_fetcher=lambda _: [factor_row("000001.SZ")],
+            clock=lambda: FETCHED_AT,
+        )
+        with TemporaryDirectory() as directory:
+            client = self._client(directory, adapter, securities)
+            queued = client.post(
+                "/v1/market-sync/tasks",
+                json={"session_date": "2026-01-05", "lookback_days": 1},
+            )
+            self.assertEqual(queued.status_code, 202)
+            job_id = queued.json()["job_id"]
+
+            run = client.post("/v1/market-sync/tasks/run", json={"limit": 1})
+            self.assertEqual(run.status_code, 200)
+            self.assertEqual(len(run.json()["jobs"]), 1)
+            job = run.json()["jobs"][0]
+            self.assertEqual(job["job_id"], job_id)
+            self.assertEqual(job["status"], "completed")
+            self.assertTrue(job["result"]["research_ready"])
+            self.assertEqual(job["result"]["sessions"][0]["market_status"], "approved")
+            self.assertEqual(
+                client.get(f"/v1/market-sync/tasks/{job_id}").json()["status"],
+                "completed",
+            )
+
     def _client(
         self,
         directory: str,

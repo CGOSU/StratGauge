@@ -12,7 +12,8 @@ from stratgauge.data_pipeline.store import SnapshotStore, SnapshotStoreError
 def main() -> int:
     arguments = _parse_arguments()
     try:
-        report = SnapshotStore(arguments.root).verify()
+        store = SnapshotStore(arguments.root)
+        report = store.verify_fast() if arguments.fast else store.verify()
     except (OSError, SnapshotStoreError, RuntimeError) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
         return 2
@@ -23,6 +24,11 @@ def main() -> int:
 def _parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path("data/selection-market"))
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="只检查 catalog、manifest 和关联文件是否存在，不读取文件内容",
+    )
     return parser.parse_args()
 
 

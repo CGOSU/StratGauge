@@ -190,6 +190,14 @@ type BatchView = {
   candidates: CandidateView[]
 }
 
+type BatchPage = {
+  items: Batch[]
+  page: number
+  page_size: number
+  total: number
+  has_next: boolean
+}
+
 type StatsSummary = {
   total: number
   completed: number
@@ -396,6 +404,14 @@ type ManagedBatchDetail = {
   lifecycle: LifecycleEvent[]
 }
 
+type ManagedBatchPage = {
+  items: ManagedBatch[]
+  page: number
+  page_size: number
+  total: number
+  has_next: boolean
+}
+
 type ManagementStats = {
   batch_count: number
   candidate_count: number
@@ -452,6 +468,14 @@ type WorkbenchMarketEvidence = {
   volume: string | null
   amount: string | null
   reason: string | null
+}
+
+type WorkbenchSignalPage = {
+  items: WorkbenchSignal[]
+  page: number
+  page_size: number
+  total: number
+  has_next: boolean
 }
 
 type WorkbenchSignal = {
@@ -664,6 +688,36 @@ function ErrorAlert({ message, onDismiss }: { message: string; onDismiss: () => 
         关闭
       </Button>
     </Alert>
+  )
+}
+
+function PaginationControls({
+  page,
+  pageSize,
+  total,
+  busy,
+  onPageChange,
+}: {
+  page: number
+  pageSize: number
+  total: number
+  busy: boolean
+  onPageChange: (page: number) => void
+}) {
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  if (pageCount <= 1) {
+    return null
+  }
+  return (
+    <div className="pagination-controls" aria-label="分页导航">
+      <Button type="button" size="sm" variant="outline" disabled={busy || page <= 1} onClick={() => onPageChange(page - 1)}>
+        上一页
+      </Button>
+      <span aria-live="polite">第 {page} / {pageCount} 页 · 共 {total} 条</span>
+      <Button type="button" size="sm" variant="outline" disabled={busy || page >= pageCount} onClick={() => onPageChange(page + 1)}>
+        下一页
+      </Button>
+    </div>
   )
 }
 
@@ -1761,6 +1815,12 @@ function WorkbenchFilterBar({
   )
 }
 
+function workbenchServerReviewState(filter: WorkbenchReviewFilter): ReviewState | undefined {
+  return filter === 'unreviewed' || filter === 'watching' || filter === 'preparing' || filter === 'discarded'
+    ? filter
+    : undefined
+}
+
 function WorkbenchWorkspace({
   apiBase,
   route,
@@ -1779,6 +1839,9 @@ function WorkbenchWorkspace({
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
+  const [signalPage, setSignalPage] = useState(1)
+  const [signalTotal, setSignalTotal] = useState(0)
+  const signalPageSize = 50
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
   const [stockDetail, setStockDetail] = useState<WorkbenchStockDetail | null>(null)
   const [drawerLoading, setDrawerLoading] = useState(false)
@@ -1791,16 +1854,29 @@ function WorkbenchWorkspace({
     const signal = { signal: controller.signal }
     const load = async () => {
       try {
+        const pageParams = new URLSearchParams({
+          page: String(signalPage),
+          page_size: String(signalPageSize),
+        })
+        if (query.trim()) {
+          pageParams.set('query', query.trim())
+        }
+        const serverReviewState = workbenchServerReviewState(filter)
+        if (serverReviewState) {
+          pageParams.set('review_state', serverReviewState)
+        }
         if (route === 'workbench' || route === 'signals') {
           const [nextSummary, nextSignals] = await Promise.all([
             requestJson<WorkbenchSummary>(`${apiBase}/v1/workbench/summary`, signal),
-            requestJson<WorkbenchSignal[]>(`${apiBase}/v1/workbench/daily-signals`, signal),
+            requestJson<WorkbenchSignalPage>(`${apiBase}/v1/workbench/daily-signals/page?${pageParams.toString()}`, signal),
           ])
           setSummary(nextSummary)
-          setSignals(nextSignals)
+          setSignals(nextSignals.items)
+          setSignalTotal(nextSignals.total)
         } else if (route === 'watchlist') {
-          const nextSignals = await requestJson<WorkbenchSignal[]>(`${apiBase}/v1/workbench/watchlist`, signal)
-          setSignals(nextSignals)
+          const nextSignals = await requestJson<WorkbenchSignalPage>(`${apiBase}/v1/workbench/watchlist/page?${pageParams.toString()}`, signal)
+          setSignals(nextSignals.items)
+          setSignalTotal(nextSignals.total)
           setSummary(null)
         } else if (route === 'positions') {
           setPositions(await requestJson<WorkbenchPositionView[]>(`${apiBase}/v1/workbench/positions`, signal))
@@ -1824,7 +1900,11 @@ function WorkbenchWorkspace({
     }
     void load()
     return () => controller.abort()
-  }, [apiBase, route, reloadToken])
+  }, [apiBase, filter, query, route, reloadToken, signalPage])
+
+  useEffect(() => {
+    setSignalPage(1)
+  }, [filter, query, route])
 
   useEffect(() => {
     setSelectedSymbol(null)
@@ -1884,21 +1964,23 @@ function WorkbenchWorkspace({
           <div className="workbench-section-heading"><div><span className="eyebrow">TODAY · ACTION QUEUE</span><h2>今天需要处理什么</h2><p>按“未判断 → 观察复评 → 已确认事实”排序；点击股票，在右侧详情中追加判断。</p></div><div className="workbench-heading-actions"><span className="workbench-as-of">证据截至 {summary ? formatManagementDate(summary.as_of) : '—'}</span><button type="button" className="workbench-primary-action" onClick={openNextActionable} disabled={!nextActionableSignal || loading}>连续处理待办</button></div></div>
           <WorkbenchFilterBar query={query} onQueryChange={setQuery} filter={filter} onFilterChange={setFilter} onRefresh={() => setReloadToken((value) => value + 1)} busy={loading} />
           {loading ? <div className="workbench-loading">正在读取本地研究证据…</div> : <WorkbenchSignalTable signals={visibleSignals.slice(0, 12)} onOpen={(symbol) => void openStock(symbol)} emptyMessage="当前没有待处理信号。" />}
-          {!loading && visibleSignals.length > 12 && <p className="workbench-queue-note">当前显示前 12 条；点击“连续处理待办”可从优先级最高的未判断信号开始。</p>}
+          {!loading && visibleSignals.length > 12 && <p className="workbench-queue-note">当前页显示前 12 条；点击“连续处理待办”可从优先级最高的未判断信号开始。</p>}
+          <PaginationControls page={signalPage} pageSize={signalPageSize} total={signalTotal} busy={loading} onPageChange={setSignalPage} />
         </>
       )}
       {route === 'signals' && (
         <>
-          <div className="workbench-section-heading"><div><span className="eyebrow">SIGNALS · IMMUTABLE FACTS</span><h2>今日信号</h2><p>展示所有策略命中的股票；人工判断不会改变原始信号。</p></div><span className="workbench-as-of">共 {visibleSignals.length} 条</span></div>
+          <div className="workbench-section-heading"><div><span className="eyebrow">SIGNALS · IMMUTABLE FACTS</span><h2>今日信号</h2><p>展示所有策略命中的股票；人工判断不会改变原始信号。</p></div><span className="workbench-as-of">共 {signalTotal} 条</span></div>
           <WorkbenchFilterBar query={query} onQueryChange={setQuery} filter={filter} onFilterChange={setFilter} onRefresh={() => setReloadToken((value) => value + 1)} busy={loading} />
           {loading ? <div className="workbench-loading">正在读取信号…</div> : <WorkbenchSignalTable signals={visibleSignals} onOpen={(symbol) => void openStock(symbol)} emptyMessage="没有匹配的策略信号。" />}
+          <PaginationControls page={signalPage} pageSize={signalPageSize} total={signalTotal} busy={loading} onPageChange={setSignalPage} />
         </>
       )}
       {route === 'watchlist' && (
         <>
-          <div className="workbench-section-heading"><div><span className="eyebrow">WATCHLIST · RE-EVALUATION</span><h2>观察池</h2><p>只显示已进入观察或准备买入、且尚未确认买入的信号。</p></div><span className="workbench-as-of">共 {visibleSignals.length} 条</span></div>
+          <div className="workbench-section-heading"><div><span className="eyebrow">WATCHLIST · RE-EVALUATION</span><h2>观察池</h2><p>只显示已进入观察或准备买入、且尚未确认买入的信号。</p></div><span className="workbench-as-of">共 {signalTotal} 条</span></div>
           <WorkbenchFilterBar query={query} onQueryChange={setQuery} filter={filter} onFilterChange={setFilter} onRefresh={() => setReloadToken((value) => value + 1)} busy={loading} />
-          {loading ? <div className="workbench-loading">正在读取观察池…</div> : <><WorkbenchChangeSummary signals={signals} /><WorkbenchSignalTable signals={visibleSignals} onOpen={(symbol) => void openStock(symbol)} emptyMessage="观察池为空。" /></>}
+          {loading ? <div className="workbench-loading">正在读取观察池…</div> : <><WorkbenchChangeSummary signals={signals} /><WorkbenchSignalTable signals={visibleSignals} onOpen={(symbol) => void openStock(symbol)} emptyMessage="观察池为空。" /><PaginationControls page={signalPage} pageSize={signalPageSize} total={signalTotal} busy={loading} onPageChange={setSignalPage} /></>}
         </>
       )}
       {route === 'positions' && (
@@ -1957,6 +2039,9 @@ function App() {
   const [manualBusy, setManualBusy] = useState(false)
   const [manualError, setManualError] = useState<string | null>(null)
   const [batches, setBatches] = useState<Batch[]>([])
+  const [batchPage, setBatchPage] = useState(1)
+  const [batchTotal, setBatchTotal] = useState(0)
+  const batchPageSize = 50
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
   const [selectedBatch, setSelectedBatch] = useState<BatchView | null>(null)
   const [selectedStats, setSelectedStats] = useState<BatchStats | null>(null)
@@ -2134,16 +2219,20 @@ function App() {
     }
   }
 
-  async function loadBatches(preferredBatchId?: string) {
+  async function loadBatches(preferredBatchId?: string, requestedPage = 1) {
     setLoadingBatches(true)
+    const page = preferredBatchId ? 1 : requestedPage
     try {
-      const result = await requestJson<Batch[]>(`${apiBase}/v1/selection-batches`)
-      setBatches(result)
+      const params = new URLSearchParams({ page: String(page), page_size: String(batchPageSize) })
+      const result = await requestJson<BatchPage>(`${apiBase}/v1/selection-batches/page?${params.toString()}`)
+      setBatches(result.items)
+      setBatchPage(result.page)
+      setBatchTotal(result.total)
       const nextBatchId = preferredBatchId ?? selectedBatchId
-      if (nextBatchId && result.some((batch) => batch.batch_id === nextBatchId)) {
+      if (nextBatchId && result.items.some((batch) => batch.batch_id === nextBatchId)) {
         setSelectedBatchId(nextBatchId)
-      } else {
-        setSelectedBatchId(result[0]?.batch_id ?? null)
+      } else if (!selectedBatchId || preferredBatchId || page === 1) {
+        setSelectedBatchId(result.items[0]?.batch_id ?? null)
       }
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : '加载选股批次失败。')
@@ -3024,7 +3113,7 @@ function App() {
               <p className="eyebrow">02 · 批次</p>
               <h2 id="batch-title">选股批次</h2>
             </div>
-            <Badge variant="outline">{batches.length} 个批次</Badge>
+            <Badge variant="outline">{batchTotal} 个批次</Badge>
           </div>
           {loadingBatches ? (
             <div className="skeleton-list" aria-label="批次加载中">
@@ -3035,7 +3124,8 @@ function App() {
           ) : batches.length === 0 ? (
             <p className="empty-copy">还没有导入批次。先从左侧导入通达信结果。</p>
           ) : (
-            <div className="batch-list" role="list">
+            <>
+              <div className="batch-list" role="list">
               {batches.map((batch) => (
                 <Button
                   variant="ghost"
@@ -3055,6 +3145,14 @@ function App() {
                 </Button>
               ))}
             </div>
+              <PaginationControls
+                page={batchPage}
+                pageSize={batchPageSize}
+                total={batchTotal}
+                busy={loadingBatches}
+                onPageChange={(page) => void loadBatches(undefined, page)}
+              />
+            </>
           )}
         </Card>
       </section>
@@ -3672,6 +3770,9 @@ function DataManagementWorkspace({
 }) {
   const [formulas, setFormulas] = useState<ManagedFormula[]>([])
   const [batches, setBatches] = useState<ManagedBatch[]>([])
+  const [batchPage, setBatchPage] = useState(1)
+  const [batchTotal, setBatchTotal] = useState(0)
+  const batchPageSize = 50
   const [filter, setFilter] = useState<ManagementFilter>('all')
   const [sourceFilter, setSourceFilter] = useState<ManagementSourceFilter>('all')
   const [statsFormulaVersion, setStatsFormulaVersion] = useState('all')
@@ -3702,22 +3803,25 @@ function DataManagementWorkspace({
   const [tagBusyKey, setTagBusyKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  async function loadManagement() {
+  async function loadManagement(requestedPage = 1) {
     setLoading(true)
     try {
+      const batchParams = new URLSearchParams({ page: String(requestedPage), page_size: String(batchPageSize) })
       const [formulaResult, batchResult, tagResult] = await Promise.all([
         requestJson<ManagedFormula[]>(`${apiBase}/v1/data-management/formulas`),
-        requestJson<ManagedBatch[]>(`${apiBase}/v1/data-management/batches`),
+        requestJson<ManagedBatchPage>(`${apiBase}/v1/data-management/batches/page?${batchParams.toString()}`),
         requestJson<ManagedReusableTag[]>(`${apiBase}/v1/data-management/annotation-tags`),
       ])
       setFormulas(formulaResult)
-      setBatches(batchResult)
+      setBatches(batchResult.items)
+      setBatchPage(batchResult.page)
+      setBatchTotal(batchResult.total)
       setManagedTags(tagResult)
       setSelectedBatchId((current) => {
-        if (current && batchResult.some((item) => item.batch.batch_id === current)) {
+        if (current && batchResult.items.some((item) => item.batch.batch_id === current)) {
           return current
         }
-        return batchResult[0]?.batch.batch_id ?? null
+        return batchResult.items[0]?.batch.batch_id ?? null
       })
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : '加载数据管理失败。')
@@ -4374,7 +4478,7 @@ function DataManagementWorkspace({
                   <p className="eyebrow">导入批次</p>
                   <h2>选股数据</h2>
                 </div>
-                <Badge variant="outline">{visibleBatches.length} 项</Badge>
+                <Badge variant="outline">{batchTotal} 项</Badge>
               </div>
               {visibleBatches.length === 0 ? (
                 <p className="empty-copy">当前筛选下没有批次。</p>
@@ -4456,6 +4560,13 @@ function DataManagementWorkspace({
                   })}
                 </div>
               )}
+              <PaginationControls
+                page={batchPage}
+                pageSize={batchPageSize}
+                total={batchTotal}
+                busy={loading}
+                onPageChange={(page) => void loadManagement(page)}
+              />
             </Card>
           </div>
 

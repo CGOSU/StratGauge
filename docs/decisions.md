@@ -8,6 +8,15 @@
 
 ## 已确认决策
 
+### 2026-08-15：IO 优化保持事实文件不变，以可重建投影、分页和显式任务降低读取与执行放大
+
+- 决定：JSON、Parquet、manifest 和追加事件文件继续作为事实/审计来源；DuckDB catalog 与 `SelectionReadIndex` 只保存查询元数据和事实文件路径，可删除后重建，不能替代事实文件。
+- 决定：SnapshotStore 的 catalog 快速路径直接构造 manifest；`verify_fast()` 只做存在性和 catalog 健康检查，深度 `verify()` 继续执行文件哈希与 Parquet 校验。Selection 读投影失效时降级全量扫描，不改变字段、排序和错误契约。
+- 决定：高基数读取使用新增分页入口，统一 `page/page_size/total/has_next` 且 `page_size <= 200`；旧完整列表和下载路由保留。JSONL Web 下载按记录使用 `StreamingResponse`，不写临时导出文件。
+- 决定：主板同步任务使用 `LocalJobStore` 和显式 CLI/API runner，FastAPI 不启动后台线程或定时器；只有 `queued` 可取消。任务内复用一个可关闭 Tushare transport，任务终态后释放连接；任务视图不暴露数据根目录和凭证。
+- 原因：减少重复 manifest/JSON 扫描、大结果集整批读取和任务级连接建立，同时不牺牲不可变证据、单写者锁、配额边界和旧 API 兼容性。
+- 验证：离线回归断言 catalog 命中不读 manifest、索引读取不触发目录扫描、流式响应类型和任务状态持久化；完整后端 359 项通过、1 项跳过，前端 typecheck/lint/build 通过。
+
 ### 2026-08-14：代码整理采用可验证的小步重构，不按“旧”字样删除业务代码
 
 - 决定：第一轮 clean-code 只做行为保持型整理：统一 MyPy 输入和格式基线，抽取 ML 规范 JSON/SHA-256、原子文本写入等已证实重复的底层工具，拆出前端 API 合约、日历输入和主板同步面板边界。

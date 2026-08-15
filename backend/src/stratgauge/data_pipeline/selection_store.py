@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Literal
@@ -12,6 +13,11 @@ from pydantic import Field
 
 from stratgauge._files import atomic_write_text
 from stratgauge.data_pipeline.locking import local_write_lock
+from stratgauge.data_pipeline.selection_index import (
+    SelectionIndexError,
+    SelectionIndexStats,
+    SelectionReadIndex,
+)
 from stratgauge.domain.models import DomainModel
 from stratgauge.domain.selections import (
     ManualSelectionLabel,
@@ -84,6 +90,22 @@ class SelectionImportStore:
             self.maturity_event_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
+        try:
+            self._read_index: SelectionReadIndex | None = SelectionReadIndex(self.root)
+        except SelectionIndexError:
+            self._read_index = None
+
+    def rebuild_selection_index(self) -> SelectionIndexStats:
+        """Rebuild the read projection from immutable files under the write lock."""
+
+        with local_write_lock(self.root):
+            try:
+                index = SelectionReadIndex(self.root, initialize=False)
+                stats = index.rebuild()
+            except SelectionIndexError as exc:
+                raise SelectionStoreError("failed to rebuild selection read index") from exc
+            self._read_index = index
+            return stats
 
     def create_reusable_tag(
         self,
@@ -137,10 +159,13 @@ class SelectionImportStore:
                 self.load_reusable_tag(path.stem)
                 for path in sorted(self.reusable_tag_dir.glob("annotation-tag-*.json"))
             )
+            events_by_tag = self.list_reusable_tag_events_for_tags(
+                definition.tag_id for definition in definitions
+            )
             views = tuple(
                 SelectionReusableTagView.project(
                     definition,
-                    self.list_reusable_tag_events(definition.tag_id),
+                    events_by_tag[definition.tag_id],
                 )
                 for definition in definitions
             )
@@ -157,18 +182,46 @@ class SelectionImportStore:
         self,
         tag_id: str,
     ) -> tuple[SelectionReusableTagEvent, ...]:
-        self.load_reusable_tag(tag_id)
-        events: list[SelectionReusableTagEvent] = []
+        return self.list_reusable_tag_events_for_tags((tag_id,))[tag_id]
+
+    def list_reusable_tag_events_for_tags(
+        self,
+        tag_ids: Iterable[str],
+    ) -> dict[str, tuple[SelectionReusableTagEvent, ...]]:
+        requested = tuple(dict.fromkeys(tag_ids))
+        for tag_id in requested:
+            self.load_reusable_tag(tag_id)
+        if not requested:
+            return {}
+        events_by_tag: dict[str, list[SelectionReusableTagEvent]] = {
+            tag_id: [] for tag_id in requested
+        }
+        index = self._usable_read_index()
+        if index is not None:
+            try:
+                return {
+                    tag_id: tuple(
+                        self._load_reusable_tag_event(path)
+                        for path in index.list_reusable_tag_event_paths(tag_id)
+                    )
+                    for tag_id in requested
+                }
+            except SelectionIndexError:
+                self._read_index = None
+        requested_set = set(requested)
         try:
             for path in sorted(self.reusable_tag_event_dir.glob("annotation-tag-event-*.json")):
                 event = SelectionReusableTagEvent.model_validate_json(
                     path.read_text(encoding="utf-8")
                 )
-                if event.tag_id == tag_id:
-                    events.append(event)
+                if event.tag_id in requested_set:
+                    events_by_tag[event.tag_id].append(event)
         except Exception as exc:
             raise SelectionStoreError("reusable tag event is invalid") from exc
-        return tuple(sorted(events, key=lambda item: (item.occurred_at, item.event_id)))
+        return {
+            tag_id: tuple(sorted(events, key=lambda event: (event.occurred_at, event.event_id)))
+            for tag_id, events in events_by_tag.items()
+        }
 
     def set_reusable_tag_label(
         self,
@@ -271,8 +324,10 @@ class SelectionImportStore:
                 raise SelectionStoreError(
                     "reusable tag event identity already has different content"
                 )
+            self._update_read_index(lambda index: index.upsert_reusable_tag_event(existing, path))
             return existing
         _write_selection_text(path, event.model_dump_json(indent=2))
+        self._update_read_index(lambda index: index.upsert_reusable_tag_event(event, path))
         return event
 
     def create_formula(
@@ -471,6 +526,29 @@ class SelectionImportStore:
         _write_selection_text(path, annotation.model_dump_json(indent=2))
         return annotation
 
+    def list_labels_for_candidates(
+        self,
+        candidate_ids: Iterable[str],
+    ) -> dict[str, tuple[ManualSelectionLabel, ...]]:
+        requested = tuple(dict.fromkeys(candidate_ids))
+        if not requested:
+            return {}
+        labels_by_candidate: dict[str, list[ManualSelectionLabel]] = {
+            candidate_id: [] for candidate_id in requested
+        }
+        requested_set = set(requested)
+        try:
+            for path in sorted(self.label_dir.glob("label-*.json")):
+                label = ManualSelectionLabel.model_validate_json(path.read_text(encoding="utf-8"))
+                if label.candidate_id in requested_set:
+                    labels_by_candidate[label.candidate_id].append(label)
+        except Exception as exc:
+            raise SelectionStoreError("selection label is invalid") from exc
+        return {
+            candidate_id: tuple(sorted(labels, key=lambda label: label.labeled_at))
+            for candidate_id, labels in labels_by_candidate.items()
+        }
+
     def list_annotations(self, candidate_id: str) -> tuple[SelectionAnnotation, ...]:
         annotations: list[SelectionAnnotation] = []
         try:
@@ -483,6 +561,33 @@ class SelectionImportStore:
         except Exception as exc:
             raise SelectionStoreError("selection annotation is invalid") from exc
         return tuple(sorted(annotations, key=lambda item: (item.recorded_at, item.annotation_id)))
+
+    def list_annotations_for_candidates(
+        self,
+        candidate_ids: Iterable[str],
+    ) -> dict[str, tuple[SelectionAnnotation, ...]]:
+        requested = tuple(dict.fromkeys(candidate_ids))
+        if not requested:
+            return {}
+        annotations_by_candidate: dict[str, list[SelectionAnnotation]] = {
+            candidate_id: [] for candidate_id in requested
+        }
+        requested_set = set(requested)
+        try:
+            for path in sorted(self.annotation_dir.glob("annotation-*.json")):
+                annotation = SelectionAnnotation.model_validate_json(
+                    path.read_text(encoding="utf-8")
+                )
+                if annotation.candidate_id in requested_set:
+                    annotations_by_candidate[annotation.candidate_id].append(annotation)
+        except Exception as exc:
+            raise SelectionStoreError("selection annotation is invalid") from exc
+        return {
+            candidate_id: tuple(
+                sorted(annotations, key=lambda item: (item.recorded_at, item.annotation_id))
+            )
+            for candidate_id, annotations in annotations_by_candidate.items()
+        }
 
     def latest_annotation(
         self,
@@ -546,6 +651,33 @@ class SelectionImportStore:
             raise SelectionStoreError("selection exclusion is invalid") from exc
         return tuple(sorted(exclusions, key=lambda item: (item.recorded_at, item.exclusion_id)))
 
+    def list_exclusions_for_candidates(
+        self,
+        candidate_ids: Iterable[str],
+    ) -> dict[str, tuple[SelectionCandidateExclusion, ...]]:
+        requested = tuple(dict.fromkeys(candidate_ids))
+        if not requested:
+            return {}
+        exclusions_by_candidate: dict[str, list[SelectionCandidateExclusion]] = {
+            candidate_id: [] for candidate_id in requested
+        }
+        requested_set = set(requested)
+        try:
+            for path in sorted(self.exclusion_dir.glob("exclusion-*.json")):
+                exclusion = SelectionCandidateExclusion.model_validate_json(
+                    path.read_text(encoding="utf-8")
+                )
+                if exclusion.candidate_id in requested_set:
+                    exclusions_by_candidate[exclusion.candidate_id].append(exclusion)
+        except Exception as exc:
+            raise SelectionStoreError("selection exclusion is invalid") from exc
+        return {
+            candidate_id: tuple(
+                sorted(exclusions, key=lambda item: (item.recorded_at, item.exclusion_id))
+            )
+            for candidate_id, exclusions in exclusions_by_candidate.items()
+        }
+
     def latest_exclusion(
         self,
         candidate_id: str,
@@ -596,8 +728,10 @@ class SelectionImportStore:
                 raise SelectionStoreError(
                     f"selection outcome identity has different content: {outcome_id}"
                 )
+            self._update_read_index(lambda index: index.upsert_outcome(existing, path))
             return existing
         _write_selection_text(path, outcome.model_dump_json(indent=2))
+        self._update_read_index(lambda index: index.upsert_outcome(outcome, path))
         return outcome
 
     def write_performance(self, performance: SelectionPerformance) -> SelectionPerformance:
@@ -645,8 +779,10 @@ class SelectionImportStore:
                 raise SelectionStoreError(
                     f"selection performance identity has different content: {performance_id}"
                 )
+            self._update_read_index(lambda index: index.upsert_performance(existing, path))
             return existing
         _write_selection_text(path, performance.model_dump_json(indent=2))
+        self._update_read_index(lambda index: index.upsert_performance(performance, path))
         return performance
 
     def find_performance_for_task(
@@ -654,12 +790,21 @@ class SelectionImportStore:
         maturity_task_id: str,
         candidate_id: str,
     ) -> SelectionPerformance | None:
-        matches = tuple(
-            performance
-            for performance in self._list_all_performances()
-            if performance.maturity_task_id == maturity_task_id
-            and performance.candidate_id == candidate_id
+        indexed_paths = self._indexed_paths(
+            lambda index: index.find_performance_paths_for_task(
+                maturity_task_id,
+                candidate_id,
+            )
         )
+        if indexed_paths is None:
+            matches = tuple(
+                performance
+                for performance in self._list_all_performances()
+                if performance.maturity_task_id == maturity_task_id
+                and performance.candidate_id == candidate_id
+            )
+        else:
+            matches = tuple(self._load_performance(path) for path in indexed_paths)
         if len(matches) > 1:
             raise SelectionStoreError(
                 "maturity task candidate has more than one performance: "
@@ -668,42 +813,90 @@ class SelectionImportStore:
         return matches[0] if matches else None
 
     def list_performances(self, candidate_id: str) -> tuple[SelectionPerformance, ...]:
-        performances = [
-            performance
-            for performance in self._list_all_performances()
-            if performance.candidate_id == candidate_id
-        ]
-        return tuple(
-            sorted(
-                performances,
-                key=lambda performance: (
-                    performance.performance_policy_id,
-                    performance.evaluated_at,
-                ),
-            )
+        indexed_paths = self._indexed_paths(
+            lambda index: index.list_performance_paths(candidate_id)
         )
+        if indexed_paths is None:
+            performances = [
+                performance
+                for performance in self._list_all_performances()
+                if performance.candidate_id == candidate_id
+            ]
+        else:
+            performances = [self._load_performance(path) for path in indexed_paths]
+        return tuple(performances)
+
+    def list_performances_for_candidates(
+        self,
+        candidate_ids: Iterable[str],
+    ) -> dict[str, tuple[SelectionPerformance, ...]]:
+        requested = tuple(dict.fromkeys(candidate_ids))
+        if not requested:
+            return {}
+        performances_by_candidate: dict[str, list[SelectionPerformance]] = {
+            candidate_id: [] for candidate_id in requested
+        }
+        index = self._usable_read_index()
+        if index is not None:
+            try:
+                return {
+                    candidate_id: tuple(
+                        self._load_performance(path)
+                        for path in index.list_performance_paths(candidate_id)
+                    )
+                    for candidate_id in requested
+                }
+            except SelectionIndexError:
+                self._read_index = None
+        for performance in self._list_all_performances():
+            if performance.candidate_id in performances_by_candidate:
+                performances_by_candidate[performance.candidate_id].append(performance)
+        return {
+            candidate_id: tuple(
+                sorted(
+                    rows,
+                    key=lambda performance: (
+                        performance.performance_policy_id,
+                        performance.evaluated_at,
+                    ),
+                )
+            )
+            for candidate_id, rows in performances_by_candidate.items()
+        }
 
     def _list_all_performances(self) -> tuple[SelectionPerformance, ...]:
         performances: list[SelectionPerformance] = []
         for path in sorted(self.performance_dir.glob("performance-*.json")):
-            try:
-                performances.append(
-                    SelectionPerformance.model_validate_json(path.read_text(encoding="utf-8"))
-                )
-            except Exception as exc:
-                raise SelectionStoreError(f"selection performance is invalid: {path.name}") from exc
+            performances.append(self._load_performance(path))
         return tuple(performances)
+
+    def _load_performance(self, source_path: str | Path) -> SelectionPerformance:
+        path = self._source_path(source_path)
+        try:
+            return SelectionPerformance.model_validate_json(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise SelectionStoreError(f"selection performance is invalid: {path.name}") from exc
 
     def find_outcome_for_task(
         self,
         maturity_task_id: str,
         candidate_id: str,
     ) -> SelectionOutcome | None:
-        matches = tuple(
-            outcome
-            for outcome in self._list_all_outcomes()
-            if outcome.maturity_task_id == maturity_task_id and outcome.candidate_id == candidate_id
+        indexed_paths = self._indexed_paths(
+            lambda index: index.find_outcome_paths_for_task(
+                maturity_task_id,
+                candidate_id,
+            )
         )
+        if indexed_paths is None:
+            matches = tuple(
+                outcome
+                for outcome in self._list_all_outcomes()
+                if outcome.maturity_task_id == maturity_task_id
+                and outcome.candidate_id == candidate_id
+            )
+        else:
+            matches = tuple(self._load_outcome(path) for path in indexed_paths)
         if len(matches) > 1:
             raise SelectionStoreError(
                 "maturity task candidate has more than one outcome: "
@@ -712,31 +905,72 @@ class SelectionImportStore:
         return matches[0] if matches else None
 
     def list_maturity_task_outcomes(self, maturity_task_id: str) -> tuple[SelectionOutcome, ...]:
-        outcomes = tuple(
-            outcome
-            for outcome in self._list_all_outcomes()
-            if outcome.maturity_task_id == maturity_task_id
+        indexed_paths = self._indexed_paths(
+            lambda index: index.list_maturity_task_outcome_paths(maturity_task_id)
         )
-        return tuple(
-            sorted(outcomes, key=lambda outcome: (outcome.candidate_id, outcome.evaluated_at))
-        )
+        if indexed_paths is None:
+            outcomes = tuple(
+                outcome
+                for outcome in self._list_all_outcomes()
+                if outcome.maturity_task_id == maturity_task_id
+            )
+        else:
+            outcomes = tuple(self._load_outcome(path) for path in indexed_paths)
+        return outcomes
 
     def list_outcomes(self, candidate_id: str) -> tuple[SelectionOutcome, ...]:
-        outcomes = [
-            outcome for outcome in self._list_all_outcomes() if outcome.candidate_id == candidate_id
-        ]
+        indexed_paths = self._indexed_paths(lambda index: index.list_outcome_paths(candidate_id))
+        if indexed_paths is None:
+            outcomes = [
+                outcome
+                for outcome in self._list_all_outcomes()
+                if outcome.candidate_id == candidate_id
+            ]
+        else:
+            outcomes = [self._load_outcome(path) for path in indexed_paths]
         return tuple(sorted(outcomes, key=lambda outcome: outcome.evaluated_at))
+
+    def list_outcomes_for_candidates(
+        self,
+        candidate_ids: Iterable[str],
+    ) -> dict[str, tuple[SelectionOutcome, ...]]:
+        requested = tuple(dict.fromkeys(candidate_ids))
+        if not requested:
+            return {}
+        outcomes_by_candidate: dict[str, list[SelectionOutcome]] = {
+            candidate_id: [] for candidate_id in requested
+        }
+        index = self._usable_read_index()
+        if index is not None:
+            try:
+                return {
+                    candidate_id: tuple(
+                        self._load_outcome(path) for path in index.list_outcome_paths(candidate_id)
+                    )
+                    for candidate_id in requested
+                }
+            except SelectionIndexError:
+                self._read_index = None
+        for outcome in self._list_all_outcomes():
+            if outcome.candidate_id in outcomes_by_candidate:
+                outcomes_by_candidate[outcome.candidate_id].append(outcome)
+        return {
+            candidate_id: tuple(sorted(rows, key=lambda outcome: outcome.evaluated_at))
+            for candidate_id, rows in outcomes_by_candidate.items()
+        }
 
     def _list_all_outcomes(self) -> tuple[SelectionOutcome, ...]:
         outcomes: list[SelectionOutcome] = []
         for path in sorted(self.outcome_dir.glob("outcome-*.json")):
-            try:
-                outcomes.append(
-                    SelectionOutcome.model_validate_json(path.read_text(encoding="utf-8"))
-                )
-            except Exception as exc:
-                raise SelectionStoreError(f"selection outcome is invalid: {path.name}") from exc
+            outcomes.append(self._load_outcome(path))
         return tuple(outcomes)
+
+    def _load_outcome(self, source_path: str | Path) -> SelectionOutcome:
+        path = self._source_path(source_path)
+        try:
+            return SelectionOutcome.model_validate_json(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise SelectionStoreError(f"selection outcome is invalid: {path.name}") from exc
 
     def list_labels(self, candidate_id: str) -> tuple[ManualSelectionLabel, ...]:
         labels: list[ManualSelectionLabel] = []
@@ -894,6 +1128,11 @@ class SelectionImportStore:
         entity_type: Literal["formula", "batch"],
         entity_id: str,
     ) -> tuple[SelectionLifecycleEvent, ...]:
+        indexed_paths = self._indexed_paths(
+            lambda index: index.list_lifecycle_event_paths(entity_type, entity_id)
+        )
+        if indexed_paths is not None:
+            return tuple(self._load_lifecycle_event(path) for path in indexed_paths)
         events: list[SelectionLifecycleEvent] = []
         try:
             for path in self.lifecycle_dir.glob("lifecycle-*.json"):
@@ -905,6 +1144,44 @@ class SelectionImportStore:
         except Exception as exc:
             raise SelectionStoreError("selection lifecycle event is invalid") from exc
         return tuple(sorted(events, key=lambda event: (event.changed_at, event.event_id)))
+
+    def list_lifecycle_events_for_entities(
+        self,
+        entity_type: Literal["formula", "batch"],
+        entity_ids: Iterable[str],
+    ) -> dict[str, tuple[SelectionLifecycleEvent, ...]]:
+        requested = tuple(dict.fromkeys(entity_ids))
+        if not requested:
+            return {}
+        events_by_entity: dict[str, list[SelectionLifecycleEvent]] = {
+            entity_id: [] for entity_id in requested
+        }
+        index = self._usable_read_index()
+        if index is not None:
+            try:
+                return {
+                    entity_id: tuple(
+                        self._load_lifecycle_event(path)
+                        for path in index.list_lifecycle_event_paths(entity_type, entity_id)
+                    )
+                    for entity_id in requested
+                }
+            except SelectionIndexError:
+                self._read_index = None
+        requested_set = set(requested)
+        try:
+            for path in self.lifecycle_dir.glob("lifecycle-*.json"):
+                event = SelectionLifecycleEvent.model_validate_json(
+                    path.read_text(encoding="utf-8")
+                )
+                if event.entity_type == entity_type and event.entity_id in requested_set:
+                    events_by_entity[event.entity_id].append(event)
+        except Exception as exc:
+            raise SelectionStoreError("selection lifecycle event is invalid") from exc
+        return {
+            entity_id: tuple(sorted(events, key=lambda event: (event.changed_at, event.event_id)))
+            for entity_id, events in events_by_entity.items()
+        }
 
     def is_entity_active(self, entity_type: Literal["formula", "batch"], entity_id: str) -> bool:
         events = self.list_lifecycle_events(entity_type, entity_id)
@@ -983,13 +1260,74 @@ class SelectionImportStore:
         path = self.lifecycle_dir / f"{event_id}.json"
         if path.exists():
             try:
-                return SelectionLifecycleEvent.model_validate_json(path.read_text(encoding="utf-8"))
+                existing = SelectionLifecycleEvent.model_validate_json(
+                    path.read_text(encoding="utf-8")
+                )
             except Exception as exc:
                 raise SelectionStoreError(
                     f"selection lifecycle event is invalid: {event_id}"
                 ) from exc
+            self._update_read_index(lambda index: index.upsert_lifecycle_event(existing, path))
+            return existing
         _write_selection_text(path, event.model_dump_json(indent=2))
+        self._update_read_index(lambda index: index.upsert_lifecycle_event(event, path))
         return event
+
+    def _usable_read_index(self) -> SelectionReadIndex | None:
+        index = self._read_index
+        if index is None:
+            return None
+        if not index.is_ready():
+            self._read_index = None
+            return None
+        return index
+
+    def _indexed_paths(
+        self,
+        query: Callable[[SelectionReadIndex], tuple[str, ...]],
+    ) -> tuple[str, ...] | None:
+        index = self._usable_read_index()
+        if index is None:
+            return None
+        try:
+            return query(index)
+        except SelectionIndexError:
+            self._read_index = None
+            return None
+
+    def _update_read_index(
+        self,
+        update: Callable[[SelectionReadIndex], None],
+    ) -> None:
+        index = self._read_index
+        if index is None:
+            return
+        try:
+            update(index)
+        except SelectionIndexError:
+            try:
+                index.mark_stale()
+            except SelectionIndexError:
+                pass
+            self._read_index = None
+
+    def _source_path(self, source_path: str | Path) -> Path:
+        path = Path(source_path)
+        return path if path.is_absolute() else self.root / path
+
+    def _load_lifecycle_event(self, source_path: str | Path) -> SelectionLifecycleEvent:
+        path = self._source_path(source_path)
+        try:
+            return SelectionLifecycleEvent.model_validate_json(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise SelectionStoreError(f"selection lifecycle event is invalid: {path.name}") from exc
+
+    def _load_reusable_tag_event(self, source_path: str | Path) -> SelectionReusableTagEvent:
+        path = self._source_path(source_path)
+        try:
+            return SelectionReusableTagEvent.model_validate_json(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise SelectionStoreError(f"reusable tag event is invalid: {path.name}") from exc
 
     def _maturity_task_path(self, task_id: str) -> Path:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", task_id):

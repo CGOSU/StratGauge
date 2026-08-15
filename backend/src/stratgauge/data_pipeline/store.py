@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -77,6 +77,26 @@ class SnapshotManifest(BaseModel):
     universe_snapshot_id: str | None = None
     source_daily_snapshot_id: str | None = None
     request_sha256: str | None = None
+
+
+_SNAPSHOT_CATALOG_COLUMNS = (
+    "snapshot_id",
+    "provider",
+    "adapter_version",
+    "start_date",
+    "end_date",
+    "row_count",
+    "content_sha256",
+    "raw_path",
+    "normalized_path",
+    "status",
+    "quality_run_id",
+    "created_at",
+    "request_kind",
+    "universe_snapshot_id",
+    "source_daily_snapshot_id",
+    "request_sha256",
+)
 
 
 class SnapshotStore:
@@ -275,6 +295,31 @@ class SnapshotStore:
         except Exception as exc:
             raise SnapshotStoreError(f"quality report is invalid: {quality_run_id}") from exc
 
+    def verify_fast(self) -> SnapshotVerificationReport:
+        """Check catalog membership and file presence without reading file contents.
+
+        This is a cheap operational health check. It deliberately does not validate
+        raw hashes, manifest JSON contents, or Parquet row counts; use ``verify``
+        for that deep integrity check.
+        """
+
+        with local_write_lock(self.root):
+            catalog_manifests = self._query_catalog_manifests()
+            catalog_ids = {manifest.snapshot_id for manifest in catalog_manifests}
+            manifest_ids = {path.stem for path in self.manifest_dir.glob("snapshot-*.json")}
+            missing_files: list[str] = []
+            for manifest in catalog_manifests:
+                if not (self.root / manifest.raw_path).is_file():
+                    missing_files.append(f"{manifest.snapshot_id}:raw")
+                if not (self.root / manifest.normalized_path).is_file():
+                    missing_files.append(f"{manifest.snapshot_id}:normalized")
+            return SnapshotVerificationReport(
+                checked_manifests=len(catalog_manifests),
+                missing_files=tuple(sorted(missing_files)),
+                catalog_missing=tuple(sorted(manifest_ids - catalog_ids)),
+                catalog_orphans=tuple(sorted(catalog_ids - manifest_ids)),
+            )
+
     def verify(self) -> SnapshotVerificationReport:
         """Check immutable files and the DuckDB catalog without changing them."""
 
@@ -337,17 +382,62 @@ class SnapshotStore:
         universe_snapshot_id: str,
         source_daily_snapshot_id: str,
     ) -> SnapshotManifest | None:
-        for manifest in self.list_manifests(SnapshotStatus.APPROVED):
-            if (
-                manifest.request_kind == "adjustment_factor"
-                and manifest.provider == provider
-                and manifest.start_date == session_date
-                and manifest.end_date == session_date
-                and manifest.universe_snapshot_id == universe_snapshot_id
-                and manifest.source_daily_snapshot_id == source_daily_snapshot_id
-            ):
-                return manifest
-        return None
+        matches = self._query_catalog_manifests(
+            """
+            WHERE status = ?
+              AND provider = ?
+              AND request_kind = ?
+              AND start_date = ?
+              AND end_date = ?
+              AND universe_snapshot_id = ?
+              AND source_daily_snapshot_id = ?
+            """,
+            (
+                SnapshotStatus.APPROVED.value,
+                provider,
+                "adjustment_factor",
+                session_date,
+                session_date,
+                universe_snapshot_id,
+                source_daily_snapshot_id,
+            ),
+        )
+        return matches[0] if matches else None
+
+    def find_approved_market_snapshots(
+        self,
+        *,
+        provider: str,
+        session_dates: Iterable[date],
+        universe_snapshot_id: str,
+    ) -> dict[date, SnapshotManifest]:
+        """Find approved market snapshots for several sessions in one catalog query."""
+
+        dates = tuple(dict.fromkeys(session_dates))
+        if not dates:
+            return {}
+        placeholders = ", ".join("?" for _ in dates)
+        matches = self._query_catalog_manifests(
+            f"""
+            WHERE status = ?
+              AND provider = ?
+              AND request_kind = ?
+              AND start_date = end_date
+              AND universe_snapshot_id = ?
+              AND start_date IN ({placeholders})
+            """,
+            (
+                SnapshotStatus.APPROVED.value,
+                provider,
+                "market_daily",
+                universe_snapshot_id,
+                *dates,
+            ),
+        )
+        snapshots: dict[date, SnapshotManifest] = {}
+        for manifest in matches:
+            snapshots.setdefault(manifest.start_date, manifest)
+        return snapshots
 
     def find_approved_market_snapshot(
         self,
@@ -356,16 +446,11 @@ class SnapshotStore:
         session_date: date,
         universe_snapshot_id: str,
     ) -> SnapshotManifest | None:
-        for manifest in self.list_manifests(SnapshotStatus.APPROVED):
-            if (
-                manifest.request_kind == "market_daily"
-                and manifest.provider == provider
-                and manifest.start_date == session_date
-                and manifest.end_date == session_date
-                and manifest.universe_snapshot_id == universe_snapshot_id
-            ):
-                return manifest
-        return None
+        return self.find_approved_market_snapshots(
+            provider=provider,
+            session_dates=(session_date,),
+            universe_snapshot_id=universe_snapshot_id,
+        ).get(session_date)
 
     def find_approved_security_snapshot(
         self,
@@ -376,28 +461,45 @@ class SnapshotStore:
         """Find an approved single-security snapshot with the exact request."""
 
         request_sha256 = _canonical_sha256(request.model_dump(mode="json"))
-        for manifest in self.list_manifests(SnapshotStatus.APPROVED):
-            if manifest.request_kind != request.request_kind or manifest.provider != provider:
-                continue
+        matches = self._query_catalog_manifests(
+            """
+            WHERE status = ?
+              AND provider = ?
+              AND request_kind = ?
+              AND (request_sha256 = ? OR request_sha256 IS NULL)
+            """,
+            (
+                SnapshotStatus.APPROVED.value,
+                provider,
+                request.request_kind,
+                request_sha256,
+            ),
+        )
+        for manifest in matches:
             if manifest.request_sha256 == request_sha256:
                 return manifest
-            if (
-                manifest.request_sha256 is None
-                and _raw_request_sha256(manifest, self.root) == request_sha256
-            ):
+            if _raw_request_sha256(manifest, self.root) == request_sha256:
                 return manifest
         return None
 
     def list_manifests(self, status: SnapshotStatus | None = None) -> tuple[SnapshotManifest, ...]:
-        query = "SELECT snapshot_id FROM snapshot_catalog"
-        parameters: list[str] = []
-        if status is not None:
-            query += " WHERE status = ?"
-            parameters.append(status.value)
+        if status is None:
+            return self._query_catalog_manifests()
+        return self._query_catalog_manifests("WHERE status = ?", (status.value,))
+
+    def _query_catalog_manifests(
+        self,
+        where_clause: str = "",
+        parameters: tuple[Any, ...] = (),
+    ) -> tuple[SnapshotManifest, ...]:
+        columns = ", ".join(_SNAPSHOT_CATALOG_COLUMNS)
+        query = f"SELECT {columns} FROM snapshot_catalog"
+        if where_clause:
+            query += f" {where_clause.strip()}"
         query += " ORDER BY created_at, snapshot_id"
         with duckdb.connect(str(self.catalog_path), read_only=True) as connection:
             rows = connection.execute(query, parameters).fetchall()
-        return tuple(self.load_manifest(row[0]) for row in rows)
+        return tuple(_manifest_from_catalog_row(row) for row in rows)
 
     def _initialize_catalog(self) -> None:
         with duckdb.connect(str(self.catalog_path)) as connection:
@@ -436,6 +538,30 @@ class SnapshotStore:
             )
             connection.execute(
                 "ALTER TABLE snapshot_catalog ADD COLUMN IF NOT EXISTS request_sha256 VARCHAR"
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS snapshot_catalog_market_lookup
+                ON snapshot_catalog (
+                    status, provider, request_kind, start_date, end_date,
+                    universe_snapshot_id
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS snapshot_catalog_factor_lookup
+                ON snapshot_catalog (
+                    status, provider, request_kind, start_date, end_date,
+                    universe_snapshot_id, source_daily_snapshot_id
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS snapshot_catalog_request_lookup
+                ON snapshot_catalog (status, provider, request_kind, request_sha256)
+                """
             )
             connection.execute(
                 """
@@ -480,6 +606,10 @@ class SnapshotStore:
                     manifest.request_sha256,
                 ],
             )
+
+
+def _manifest_from_catalog_row(row: tuple[Any, ...]) -> SnapshotManifest:
+    return SnapshotManifest.model_validate(dict(zip(_SNAPSHOT_CATALOG_COLUMNS, row, strict=True)))
 
 
 def _json_safe(value: Any) -> Any:

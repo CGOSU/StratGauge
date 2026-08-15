@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -58,6 +59,14 @@ class JobRecord(DomainModel):
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class JobCreateResult:
+    """The durable record and whether this call created it."""
+
+    job: JobRecord
+    created: bool
+
+
 class LocalJobStore:
     """Persist job state under one local data root with a separate job lock."""
 
@@ -67,15 +76,18 @@ class LocalJobStore:
         self.job_dir.mkdir(parents=True, exist_ok=True)
 
     def create(self, job: JobRecord) -> JobRecord:
+        return self.create_with_result(job).job
+
+    def create_with_result(self, job: JobRecord) -> JobCreateResult:
         with local_write_lock(self.root, name="jobs"):
             path = self._path(job.job_id)
             if path.exists():
                 existing = self.load(job.job_id)
                 if not _same_configuration(existing, job):
                     raise LocalJobError("job identity already exists with different configuration")
-                return existing
+                return JobCreateResult(job=existing, created=False)
             _write_job_record(path, job.model_dump_json(indent=2))
-            return job
+            return JobCreateResult(job=job, created=True)
 
     def load(self, job_id: str) -> JobRecord:
         path = self._path(job_id)
@@ -86,10 +98,17 @@ class LocalJobStore:
         except Exception as exc:
             raise LocalJobError(f"job is invalid: {job_id}") from exc
 
-    def list(self, *, status: JobStatus | None = None) -> tuple[JobRecord, ...]:
+    def list(
+        self,
+        *,
+        status: JobStatus | None = None,
+        kind: str | None = None,
+    ) -> tuple[JobRecord, ...]:
         jobs = tuple(self.load(path.stem) for path in self.job_dir.glob("job-*.json"))
         if status is not None:
             jobs = tuple(job for job in jobs if job.status is status)
+        if kind is not None:
+            jobs = tuple(job for job in jobs if job.kind == kind)
         return tuple(sorted(jobs, key=lambda job: (job.created_at, job.job_id)))
 
     def start(self, job_id: str, *, now: datetime) -> JobRecord:
@@ -135,6 +154,56 @@ class LocalJobStore:
                 }
             )
             return self._save(updated)
+
+    def cancel(
+        self, job_id: str, *, now: datetime, reason: str = "cancelled by operator"
+    ) -> JobRecord:
+        """Cancel a job only while it is still queued."""
+
+        with local_write_lock(self.root, name="jobs"):
+            job = self.load(job_id)
+            if job.status is not JobStatus.QUEUED:
+                raise LocalJobError("only queued jobs may be cancelled")
+            return self._save(
+                job.model_copy(
+                    update={
+                        "status": JobStatus.CANCELLED,
+                        "updated_at": now,
+                        "finished_at": now,
+                        "error": reason,
+                    }
+                )
+            )
+
+    def recover_running(
+        self,
+        *,
+        now: datetime,
+        kind: str | None = None,
+    ) -> tuple[JobRecord, ...]:
+        """Requeue or fail jobs abandoned by a previous runner process."""
+
+        recovered: list[JobRecord] = []
+        with local_write_lock(self.root, name="jobs"):
+            for job in self.list(status=JobStatus.RUNNING, kind=kind):
+                if job.started_at is not None:
+                    elapsed = (now - job.started_at).total_seconds()
+                    if elapsed < job.timeout_seconds:
+                        continue
+                retryable = job.attempt_count <= job.max_retries
+                recovered.append(
+                    self._save(
+                        job.model_copy(
+                            update={
+                                "status": JobStatus.RETRYING if retryable else JobStatus.FAILED,
+                                "updated_at": now,
+                                "finished_at": None if retryable else now,
+                                "error": "runner process stopped before job completion",
+                            }
+                        )
+                    )
+                )
+        return tuple(recovered)
 
     def _save(self, job: JobRecord) -> JobRecord:
         _write_job_record(self._path(job.job_id), job.model_dump_json(indent=2))

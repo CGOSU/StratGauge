@@ -80,6 +80,13 @@ class MarketDailySyncTests(unittest.TestCase):
             self.assertEqual(len(first), 2)
             self.assertTrue(all(item.status is SnapshotStatus.APPROVED for item in first))
             self.assertTrue(all(item.skipped for item in second))
+            approved = store.find_approved_market_snapshots(
+                provider=adapter.provider,
+                session_dates=(date(2026, 1, 5), date(2026, 1, 6)),
+                universe_snapshot_id=universe.universe_snapshot_id,
+            )
+            self.assertEqual(set(approved), {date(2026, 1, 5), date(2026, 1, 6)})
+            self.assertEqual(approved[date(2026, 1, 5)].snapshot_id, first[0].snapshot_id)
 
     def test_range_sync_rejects_duplicate_or_future_scoped_sessions(self) -> None:
         securities = (security("security-1", "000001", Exchange.SZ),)

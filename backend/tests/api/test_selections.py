@@ -4,7 +4,10 @@ import unittest
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from tempfile import TemporaryDirectory
+from typing import Any, cast
+from unittest.mock import patch
 
+from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 
 from stratgauge.api.app import create_app
@@ -135,6 +138,118 @@ class SelectionApiTests(unittest.TestCase):
             json={},
         )
         self.assertTrue(restored_formula.json()["active"])
+
+    def test_batch_reads_use_bulk_candidate_queries(self) -> None:
+        formula = self.client.post(
+            "/v1/formulas",
+            json={"name": "批量读取公式", "version": "v1"},
+        ).json()["formula"]
+        imported = self.client.post(
+            "/v1/selection-batches/manual",
+            json={
+                "selection_date": "2026-01-05",
+                "recorded_at": "2026-01-05T15:05:00+08:00",
+                "formula_id": formula["formula_id"],
+                "candidates": [
+                    {"local_code": "000001", "exchange": "SZ"},
+                    {"local_code": "000002", "exchange": "SZ"},
+                ],
+            },
+        )
+        self.assertEqual(imported.status_code, 201)
+        batch_id = imported.json()["batch"]["batch_id"]
+
+        with (
+            patch.object(self.store, "list_labels", side_effect=AssertionError("label N+1 scan")),
+            patch.object(
+                self.store,
+                "list_annotations",
+                side_effect=AssertionError("annotation N+1 scan"),
+            ),
+            patch.object(
+                self.store,
+                "list_exclusions",
+                side_effect=AssertionError("exclusion N+1 scan"),
+            ),
+            patch.object(
+                self.store, "list_outcomes", side_effect=AssertionError("outcome N+1 scan")
+            ),
+            patch.object(
+                self.store,
+                "list_performances",
+                side_effect=AssertionError("performance N+1 scan"),
+            ),
+            patch.object(
+                self.store,
+                "list_lifecycle_events",
+                side_effect=AssertionError("lifecycle N+1 scan"),
+            ),
+        ):
+            fetched = self.client.get(f"/v1/selection-batches/{batch_id}")
+            managed = self.client.get("/v1/data-management/batches")
+            stats = self.client.get("/v1/data-management/stats")
+
+        self.assertEqual(fetched.status_code, 200)
+        self.assertEqual(len(fetched.json()["candidates"]), 2)
+        self.assertEqual(managed.status_code, 200)
+        self.assertEqual(managed.json()[0]["batch"]["batch_id"], batch_id)
+        self.assertEqual(stats.status_code, 200)
+        self.assertEqual(stats.json()["candidate_count"], 2)
+
+    def test_paged_lists_and_streaming_dataset_exports_preserve_legacy_contracts(self) -> None:
+        first = self.client.post(
+            "/v1/selection-batches",
+            json={
+                "content_base64": base64.b64encode(CONTENT).decode(),
+                "selection_date": "2026-01-05",
+                "exported_at": "2026-01-05T15:05:00+08:00",
+                "formula_name": "分页公式",
+            },
+        ).json()
+        second = self.client.post(
+            "/v1/selection-batches",
+            json={
+                "content_base64": base64.b64encode(CONTENT).decode(),
+                "selection_date": "2026-01-06",
+                "exported_at": "2026-01-06T15:05:00+08:00",
+                "formula_name": "分页公式",
+            },
+        ).json()
+
+        page = self.client.get(
+            "/v1/selection-batches/page",
+            params={"page": 1, "page_size": 1},
+        )
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.json()["total"], 2)
+        self.assertTrue(page.json()["has_next"])
+        self.assertEqual(page.json()["items"][0]["batch_id"], second["batch"]["batch_id"])
+        invalid_page = self.client.get(
+            "/v1/selection-batches/page",
+            params={"page": 1, "page_size": 201},
+        )
+        self.assertEqual(invalid_page.status_code, 422)
+
+        dataset = self.client.get(
+            f"/v1/data-management/batches/{second['batch']['batch_id']}/dataset"
+        )
+        self.assertEqual(dataset.status_code, 200)
+        self.assertIn("application/x-ndjson", dataset.headers["content-type"])
+        self.assertEqual(
+            json.loads(dataset.content.decode().splitlines()[0])["batch_id"],
+            second["batch"]["batch_id"],
+        )
+        self.assertIn("filename=selection-", dataset.headers["content-disposition"])
+        app = cast(Any, self.client.app)
+        stream_route = next(
+            route
+            for route in app.routes
+            if getattr(route, "path", None) == "/v1/data-management/batches/{batch_id}/dataset"
+        )
+        stream_response = stream_route.endpoint(second["batch"]["batch_id"])
+        self.assertIsInstance(stream_response, StreamingResponse)
+        self.assertEqual(stream_response.media_type, "application/x-ndjson")
+        self.assertNotEqual(first["batch"]["batch_id"], second["batch"]["batch_id"])
 
     def test_candidate_analysis_returns_evidence_insufficient_without_history(self) -> None:
         imported = self.client.post(

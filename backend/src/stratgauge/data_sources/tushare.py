@@ -26,7 +26,7 @@ from stratgauge.data_sources.base import (
     normalize_daily_rows,
     now_utc,
 )
-from stratgauge.data_sources.tushare_api import query_tushare
+from stratgauge.data_sources.tushare_api import TushareTransport, TushareTransportProtocol
 from stratgauge.domain.models import DailyBar, Security
 
 
@@ -43,6 +43,7 @@ class TushareAdapter(MarketDataAdapter, AdjustmentFactorDataAdapter):
         market_fetcher: MarketFetcher | None = None,
         adjustment_factor_fetcher: AdjustmentFactorFetcher | None = None,
         clock: Clock = now_utc,
+        transport: TushareTransportProtocol | None = None,
     ) -> None:
         self._fetcher = fetcher or self._fetch_from_tushare
         self._market_fetcher = market_fetcher or self._fetch_market_from_tushare
@@ -50,6 +51,16 @@ class TushareAdapter(MarketDataAdapter, AdjustmentFactorDataAdapter):
             adjustment_factor_fetcher or self._fetch_adjustment_factors_from_tushare
         )
         self._clock = clock
+        self._transport = transport or TushareTransport()
+
+    def close(self) -> None:
+        self._transport.close()
+
+    def __enter__(self) -> TushareAdapter:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
 
     def fetch_daily_bars(self, request: DailyBarRequest) -> AdapterResult:
         fetched_at = self._clock()
@@ -189,25 +200,25 @@ class TushareAdapter(MarketDataAdapter, AdjustmentFactorDataAdapter):
             factors=tuple(sorted(factors, key=lambda factor: (factor.symbol, factor.session_date))),
         )
 
-    @staticmethod
-    def _fetch_market_from_tushare(request: MarketDailyRequest) -> Iterable[Mapping[str, Any]]:
-        return query_tushare(
+    def _fetch_market_from_tushare(
+        self, request: MarketDailyRequest
+    ) -> Iterable[Mapping[str, Any]]:
+        return self._transport.query(
             "daily",
             {"trade_date": request.session_date.strftime("%Y%m%d")},
         )
 
-    @staticmethod
     def _fetch_adjustment_factors_from_tushare(
+        self,
         request: AdjustmentFactorRequest,
     ) -> Iterable[Mapping[str, Any]]:
-        return query_tushare(
+        return self._transport.query(
             "adj_factor",
             {"trade_date": request.session_date.strftime("%Y%m%d")},
         )
 
-    @staticmethod
-    def _fetch_from_tushare(request: DailyBarRequest) -> Iterable[Mapping[str, Any]]:
-        return query_tushare(
+    def _fetch_from_tushare(self, request: DailyBarRequest) -> Iterable[Mapping[str, Any]]:
+        return self._transport.query(
             "daily",
             {
                 "ts_code": request.security.symbol,

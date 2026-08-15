@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from stratgauge.data_pipeline.selection_store import SelectionImportStore, SelectionStoreError
-from stratgauge.ml.registry import ModelRegistryError, ModelRegistryStore
+from stratgauge.ml.registry import ModelRegistryError, ModelRegistryStore, RegisteredModel
 from stratgauge.ml.shadow import ShadowScore, ShadowScoreError, ShadowScoreStore
 
 
@@ -59,6 +60,14 @@ class CandidateModelScoresView(BaseModel):
     failures: tuple[ModelScoreFailureView, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class _ModelScoreContext:
+    registered: RegisteredModel
+    validation_count: int | None
+    manifest_start: date | None
+    manifest_end: date | None
+
+
 class ModelScoreService:
     """Resolve immutable shadow scores without creating a decision signal."""
 
@@ -101,9 +110,10 @@ class ModelScoreService:
 
         scores: list[ModelScoreView] = []
         failures: list[ModelScoreFailureView] = []
+        contexts: dict[str, _ModelScoreContext] = {}
         for score in shadow_scores:
             try:
-                scores.append(self._to_view(score))
+                scores.append(self._to_view(score, contexts))
             except (ModelRegistryError, OSError, TypeError, ValueError, KeyError) as exc:
                 failures.append(
                     ModelScoreFailureView(
@@ -119,18 +129,28 @@ class ModelScoreService:
             failures=tuple(failures),
         )
 
-    def _to_view(self, score: ShadowScore) -> ModelScoreView:
-        registered = self._model_registry.load(score.model_version_id)
-        manifest = _read_manifest(
-            self._model_registry.read_training_manifest(score.model_version_id)
-        )
-        validation_count = _validation_row_count(manifest)
-        manifest_start = _optional_date(manifest.get("train_end"))
-        manifest_end = _optional_date(manifest.get("validation_end"))
+    def _to_view(
+        self,
+        score: ShadowScore,
+        contexts: dict[str, _ModelScoreContext],
+    ) -> ModelScoreView:
+        context = contexts.get(score.model_version_id)
+        if context is None:
+            registered = self._model_registry.load(score.model_version_id)
+            manifest = _read_manifest(
+                self._model_registry.read_training_manifest(score.model_version_id)
+            )
+            context = _ModelScoreContext(
+                registered=registered,
+                validation_count=_validation_row_count(manifest),
+                manifest_start=_optional_date(manifest.get("train_end")),
+                manifest_end=_optional_date(manifest.get("validation_end")),
+            )
+            contexts[score.model_version_id] = context
         return ModelScoreView(
             model_version_id=score.model_version_id,
-            model_type=registered.model_type,
-            lifecycle=registered.lifecycle.value,
+            model_type=context.registered.model_type,
+            lifecycle=context.registered.lifecycle.value,
             tracking_policy_id=score.tracking_policy_id,
             scored_at=score.scored_at.isoformat(),
             uncalibrated_model_score=str(score.uncalibrated_model_score),
@@ -139,12 +159,16 @@ class ModelScoreService:
                 None if score.calibrated_model_score is None else str(score.calibrated_model_score)
             ),
             calibrated=score.calibrated,
-            sample_count=(score.calibration_sample_count if score.calibrated else validation_count),
+            sample_count=(
+                score.calibration_sample_count if score.calibrated else context.validation_count
+            ),
             calibration_sample_count=score.calibration_sample_count,
             applicable_date_start=(
-                score.calibration_date_start if score.calibrated else manifest_start
+                score.calibration_date_start if score.calibrated else context.manifest_start
             ),
-            applicable_date_end=score.calibration_date_end if score.calibrated else manifest_end,
+            applicable_date_end=(
+                score.calibration_date_end if score.calibrated else context.manifest_end
+            ),
         )
 
 
