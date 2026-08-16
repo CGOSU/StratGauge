@@ -103,7 +103,7 @@ class TrainingFeatureLightGBMTests(unittest.TestCase):
         )
 
         with patch(
-            "stratgauge.ml.training_feature_lightgbm.import_module",
+            "stratgauge.ml.training_feature_lightgbm.helpers.import_module",
             side_effect=_fake_import,
         ):
             result = train_feature_lightgbm(split_input, minimum_labeled_samples=5, random_seed=7)
@@ -139,7 +139,7 @@ class TrainingFeatureLightGBMTests(unittest.TestCase):
         )
 
         with patch(
-            "stratgauge.ml.training_feature_lightgbm.import_module",
+            "stratgauge.ml.training_feature_lightgbm.helpers.import_module",
             side_effect=_fake_import,
         ):
             result = train_feature_lightgbm(split_input, minimum_labeled_samples=4)
@@ -162,7 +162,7 @@ class TrainingFeatureLightGBMTests(unittest.TestCase):
         )
 
         with patch(
-            "stratgauge.ml.training_feature_lightgbm.import_module",
+            "stratgauge.ml.training_feature_lightgbm.helpers.import_module",
             side_effect=ModuleNotFoundError("lightgbm"),
         ):
             with self.assertRaisesRegex(ValueError, "contains failures"):
@@ -176,7 +176,7 @@ class TrainingFeatureLightGBMTests(unittest.TestCase):
         )
 
         with patch(
-            "stratgauge.ml.training_feature_lightgbm.import_module",
+            "stratgauge.ml.training_feature_lightgbm.helpers.import_module",
             side_effect=ModuleNotFoundError("lightgbm"),
         ):
             with self.assertRaises(FeatureLightGBMUnavailableError):

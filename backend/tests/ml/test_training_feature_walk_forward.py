@@ -98,7 +98,7 @@ class TrainingFeatureWalkForwardTests(unittest.TestCase):
             with self.subTest(purpose=purpose):
                 split, registration, training = _fixture(purpose)
                 with patch(
-                    "stratgauge.ml.training_feature_walk_forward.import_module",
+                    "stratgauge.ml.training_feature_walk_forward.helpers_b.import_module",
                     side_effect=_fake_import,
                 ):
                     report = validate_feature_walk_forward(
@@ -133,7 +133,7 @@ class TrainingFeatureWalkForwardTests(unittest.TestCase):
     def test_purges_labels_by_validation_start_and_rejects_unavailable_evaluation(self) -> None:
         split, registration, training = _fixture(TrainingDatasetPurpose.CANDIDATE_SUCCESS)
         with patch(
-            "stratgauge.ml.training_feature_walk_forward.import_module",
+            "stratgauge.ml.training_feature_walk_forward.helpers_b.import_module",
             side_effect=_fake_import,
         ):
             report = validate_feature_walk_forward(
@@ -201,7 +201,7 @@ class TrainingFeatureWalkForwardTests(unittest.TestCase):
     def test_report_store_is_immutable_and_detects_tampering(self) -> None:
         split, registration, training = _fixture(TrainingDatasetPurpose.CANDIDATE_SUCCESS)
         with patch(
-            "stratgauge.ml.training_feature_walk_forward.import_module",
+            "stratgauge.ml.training_feature_walk_forward.helpers_b.import_module",
             side_effect=_fake_import,
         ):
             report = validate_feature_walk_forward(
@@ -235,7 +235,7 @@ class TrainingFeatureWalkForwardTests(unittest.TestCase):
     def test_missing_lightgbm_is_reported_after_contract_validation(self) -> None:
         split, registration, training = _fixture(TrainingDatasetPurpose.BUY_TIMING)
         with patch(
-            "stratgauge.ml.training_feature_walk_forward.import_module",
+            "stratgauge.ml.training_feature_walk_forward.helpers_b.import_module",
             side_effect=ModuleNotFoundError("lightgbm"),
         ):
             with self.assertRaises(FeatureWalkForwardUnavailableError):

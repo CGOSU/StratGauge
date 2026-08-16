@@ -71,7 +71,7 @@ class TrainingFeatureShadowTests(unittest.TestCase):
             )
             inputs = (_input(registration.purpose, _snapshot("feature-1", date(2026, 3, 5))),)
 
-            with patch("stratgauge.ml.training_feature_shadow.import_module"):
+            with patch("stratgauge.ml.training_feature_shadow.helpers.import_module"):
                 with self.assertRaisesRegex(FeatureShadowError, "shadow lifecycle"):
                     score_feature_shadow_batch(
                         inputs,
@@ -89,7 +89,7 @@ class TrainingFeatureShadowTests(unittest.TestCase):
                 operator="researcher",
             )
             with patch(
-                "stratgauge.ml.training_feature_shadow.import_module",
+                "stratgauge.ml.training_feature_shadow.helpers.import_module",
                 side_effect=lambda name: FakeLightGBM if name == "lightgbm" else FakeNumpy,
             ):
                 report = score_feature_shadow_batch(
@@ -155,7 +155,7 @@ class TrainingFeatureShadowTests(unittest.TestCase):
                 )
 
             with patch(
-                "stratgauge.ml.training_feature_shadow.import_module",
+                "stratgauge.ml.training_feature_shadow.helpers.import_module",
                 side_effect=lambda name: FakeLightGBM if name == "lightgbm" else FakeNumpy,
             ):
                 report = score_feature_shadow_batch(
@@ -199,7 +199,7 @@ class TrainingFeatureShadowTests(unittest.TestCase):
             )
             FakeLightGBM.booster_type = FakeMulticlassBooster
             with patch(
-                "stratgauge.ml.training_feature_shadow.import_module",
+                "stratgauge.ml.training_feature_shadow.helpers.import_module",
                 side_effect=lambda name: FakeLightGBM if name == "lightgbm" else FakeNumpy,
             ):
                 report = score_feature_shadow_batch(
