@@ -29,10 +29,6 @@ export type PortfolioWorkspaceProps = {
   formatPrice: (value: string | null) => string
 }
 
-function toShanghaiDateTime(value: string): string {
-  return `${value}:00+08:00`
-}
-
 function numericQuantity(value: string): number {
   const quantity = Number(value)
   return Number.isFinite(quantity) ? quantity : 0

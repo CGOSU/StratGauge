@@ -42,7 +42,18 @@
 
 ## 常用命令
 
-- 测试：`待项目维护者补充。`
+在 `backend/` 目录执行（默认测试不访问网络）：
+
+- 后端测试：`PYTHONPATH=src uv run python -m unittest discover -s tests -t . -q`
+- 后端 lint 与类型检查：`uv run ruff check . && uv run ruff format --check . && uv run mypy`（`[tool.mypy] files` 已含 `start.py`、`src`、`tests`、`scripts`）
+- 真实数据源验证（需显式设置 Token，访问网络）：`PYTHONPATH=src uv run python scripts/verify_live_adapters.py`
+
+在 `frontend/` 目录执行（`corepack`/`node` 不在 PATH 时先按 `docs/pitfalls.md` 定位 fnm 管理的 Node.js）：
+
+- 前端类型检查：`corepack pnpm typecheck`
+- 前端 lint（ESLint）：`corepack pnpm lint`
+- 前端构建：`corepack pnpm build`
+- 前端视觉回归：`corepack pnpm test:visual`（Playwright 会自动启动本地 dev server）
 
 如果命令尚未补充，先检查项目现有脚本和工具链，不要猜测命令。
 

@@ -276,3 +276,10 @@
 - 根因：通达信不同版本可能改变名称列的括号版本号；而普通表格的代码-only 行又必须继续拒绝，不能直接放宽为所有无交易所代码都按前缀推断。
 - 修复：仅在第一列为代码、存在 `涨幅%` 且表头匹配 `名称(n)` 时进入通达信行情表分支，再按该格式的代码命名空间映射交易所；普通表格仍要求明确交易所或代码后缀。
 - 验证：`名称(5)` GB18030 样例解析出 5 个候选；针对性导入测试通过。
+
+### 2026-08-16：typescript-eslint 硬性拦截 TypeScript 7.x
+
+- 现象：安装 typescript-eslint 后运行 ESLint 直接报错 `typescript-eslint does not support TS 7.0`，与是否配置无关；`pnpm peers check` 同时报 typescript peer 范围为 `>=4.8.4 <6.1.0`。
+- 根因：TypeScript 7 是原生编译器线，不含 typescript-eslint 依赖的完整 JS API；TS 官方以 6.x 作为同语言版本的 JS API 并行发布线，供工具链使用。
+- 修复：项目 `typescript` 固定在 `~6.0.3`，tsc/Vite/typescript-eslint 共用同一条工具链；若未来要回到 TS 7 原生编译器提速，需先确认 typescript-eslint 已声明支持（跟踪 issue typescript-eslint#10940），不能只改版本号。
+- 验证：`corepack pnpm add -D typescript@~6.0.3` 后 `pnpm peers check` 无问题，`eslint .` 正常解析并产出结果。

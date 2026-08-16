@@ -8,6 +8,15 @@
 
 ## 已确认决策
 
+### 2026-08-16：前端引入真实 ESLint，TypeScript 固定在 6.x 工具链线
+
+- 决定：新增 `frontend/eslint.config.js`（ESLint 10 flat config + typescript-eslint recommended + react-hooks recommended）；`lint` 脚本从重复的 `tsc` 改为 `eslint .`，类型检查继续由 `typecheck`/`build` 承担。
+- 决定：`typescript` 从 7.0.2 降到 `~6.0.3`。TS 7 是原生编译器线，typescript-eslint 硬性拦截 TS 7.0；TS 6.x 是同一语言版本的 JS API 并行线（官方为工具链兼容保留），tsc/Vite/typescript-eslint 共用一条工具链，类型检查语义等价。
+- 决定：`react-hooks/set-state-in-effect` 在配置中降级为 `warn` 并注释原因：既有数据加载和表单重置 effect 广泛使用"effect 内同步 setState"模式，行为正确但被新规则反对，待 `App.tsx` 按领域拆分时逐步重构；`rules-of-hooks` 保持 error。
+- 决定：删除前端成熟任务死代码（`{false && ...}` 禁用面板、三个任务函数、相关状态/类型/helper，共约 470 行）。这些代码自 2026-08-13 移除成熟操作区后不再有任何调用点；后端成熟任务账本、CLI 和兼容 API 全部保留不动。
+- 原因：此前 `lint` 与 `typecheck` 脚本完全相同且无 ESLint 配置，历次"lint 通过"实际只是类型检查；React Hooks 依赖错误和死代码（如 `no-constant-binary-expression` 发现的常量条件 JSX）长期无检查。
+- 验证：`corepack pnpm lint` 通过（0 error、21 warning，全部为上述基线 warn 项）；`typecheck`、`build`、`git diff --check` 通过。
+
 ### 2026-08-15：IO 优化保持事实文件不变，以可重建投影、分页和显式任务降低读取与执行放大
 
 - 决定：JSON、Parquet、manifest 和追加事件文件继续作为事实/审计来源；DuckDB catalog 与 `SelectionReadIndex` 只保存查询元数据和事实文件路径，可删除后重建，不能替代事实文件。

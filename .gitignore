@@ -16,3 +16,7 @@ artifacts/
 # Frontend dependencies and build output
 frontend/node_modules/
 frontend/dist/
+frontend/test-results/
+
+# Local agent skills (user-installed, not project code)
+.agents/

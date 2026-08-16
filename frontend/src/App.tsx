@@ -5,7 +5,6 @@ import {
   BarChart3,
   Briefcase,
   ChartLine,
-  Database,
   Eye,
   Download,
   LayoutDashboard,
@@ -16,7 +15,6 @@ import {
   RotateCcw,
   Settings2,
   Upload,
-  WalletCards,
   X,
 } from 'lucide-react'
 import { apiBaseUrl, healthUrl, requestJson } from '@/api/client'
@@ -27,9 +25,6 @@ import {
   type ManualOrder,
   type ManualSellReason,
   type PortfolioPosition,
-  type PortfolioReview,
-  type SecurityMasterRecord,
-  type SecurityMasterResponse,
 } from '@/api/contracts'
 import { CalendarInput } from '@/components/calendar-input'
 import { MainBoardMarketSyncPanel } from '@/components/main-board-market-sync-panel'
@@ -80,8 +75,6 @@ type LifecycleStatus = 'active' | 'archived'
 type ManagementFilter = 'all' | LifecycleStatus
 type BatchSource = 'tongdaxin' | 'manual'
 type ManagementSourceFilter = 'all' | BatchSource
-type Provider = 'tushare' | 'akshare' | 'baostock' | 'waizao'
-type MaturityTaskStatus = 'queued' | 'running' | 'completed' | 'partial' | 'failed'
 
 type Formula = {
   formula_id: string
@@ -363,41 +356,6 @@ type ManagementStats = {
   summary: StatsSummary
 }
 
-type MaturityTaskEvent = {
-  event_id?: string
-  event_type?: string
-  status?: MaturityTaskStatus
-  occurred_at?: string
-  created_at?: string
-  message?: string | null
-  reason?: string | null
-  failure_reason?: string | null
-  retryable?: boolean
-}
-
-type MaturityTask = {
-  task_id: string
-  batch_id: string
-  provider: Provider
-  evaluated_at: string
-  target_evaluation_date: string
-  tracking_policy_id: string
-  horizon_sessions: number
-  position_notional: string | number
-  max_retries: number
-  timeout_seconds: number
-  status: MaturityTaskStatus
-  attempt_count: number
-  outcomes_written: number
-  rejected_candidates: Array<[string, string]>
-  market_snapshot_ids: string[]
-  failure_reason: string | null
-  retryable: boolean
-  created_at: string
-  updated_at: string
-  events: MaturityTaskEvent[]
-}
-
 type WorkbenchMarketEvidence = {
   status: 'available' | 'unavailable' | 'incomplete'
   snapshot_id: string | null
@@ -520,13 +478,6 @@ type WorkbenchReviewFilter = 'all' | 'unreviewed' | 'bullish' | 'watching' | 'pr
 type StockDrawerTab = 'market' | 'judgment' | 'signal' | 'trade' | 'analysis'
 
 const apiBase = apiBaseUrl
-
-const providerLabels: Record<Provider, string> = {
-  tushare: 'Tushare Pro（主源）',
-  akshare: 'AKShare（兼容）',
-  baostock: 'BaoStock（备用）',
-  waizao: '歪枣网（临时恢复源）',
-}
 
 const exchangeLabels: Record<Exchange, string> = {
   SH: '上海 SH',
@@ -1720,20 +1671,9 @@ function App() {
   const [file, setFile] = useState<File | null>(null)
   const [selectionDate, setSelectionDate] = useState('')
   const [exportedAt, setExportedAt] = useState('')
-  const [provider, setProvider] = useState<Provider>('tushare')
-  const [evaluatedAt, setEvaluatedAt] = useState('')
-  const [horizonSessions, setHorizonSessions] = useState('5')
-  const [positionNotional, setPositionNotional] = useState('10000')
-  const [targetReturn, setTargetReturn] = useState('')
-  const [maxRetries, setMaxRetries] = useState('2')
-  const [timeoutSeconds, setTimeoutSeconds] = useState('900')
-  const [maturityTasks, setMaturityTasks] = useState<MaturityTask[]>([])
-  const [maturityTaskAction, setMaturityTaskAction] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [batchReloadToken, setBatchReloadToken] = useState(0)
   const [loadingBatches, setLoadingBatches] = useState(true)
   const [loadingBatch, setLoadingBatch] = useState(false)
-  const [loadingMaturityTasks, setLoadingMaturityTasks] = useState(false)
   const [annotationCandidateId, setAnnotationCandidateId] = useState<string | null>(null)
   const [annotationReviewedAt, setAnnotationReviewedAt] = useState('')
   const [annotationScore, setAnnotationScore] = useState('3')
@@ -1868,7 +1808,7 @@ function App() {
       })
 
     return () => controller.abort()
-  }, [selectedBatchId, batchReloadToken])
+  }, [selectedBatchId])
 
   async function loadFormulas(preferredFormulaId?: string) {
     try {
@@ -1943,118 +1883,6 @@ function App() {
     }
   }
 
-  async function createAndRunMaturityTask(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!selectedBatchId || !evaluatedAt || !horizonSessions || !positionNotional) {
-      return
-    }
-
-    const horizon = Number(horizonSessions)
-    const retries = Number(maxRetries)
-    const timeout = Number(timeoutSeconds)
-    const notional = Number(positionNotional)
-    const target = targetReturn === '' ? null : Number(targetReturn)
-    if (!Number.isInteger(horizon) || horizon < 1) {
-      setError('持有交易日必须是正整数。')
-      return
-    }
-    if (!Number.isInteger(retries) || retries < 0 || retries > 5) {
-      setError('最大重试必须是 0 到 5 之间的整数。')
-      return
-    }
-    if (!Number.isInteger(timeout) || timeout < 1 || timeout > 86400) {
-      setError('超时秒数必须是 1 到 86400 之间的整数。')
-      return
-    }
-    if (!Number.isFinite(notional) || notional <= 0) {
-      setError('单笔名义金额必须是正数。')
-      return
-    }
-    if (target !== null && (!Number.isFinite(target) || target < 0)) {
-      setError('目标收益必须是非负数，例如 0.10 表示 10%。')
-      return
-    }
-
-    const batchId = selectedBatchId
-    setMaturityTaskAction('create-run')
-    setError(null)
-    try {
-      const createdTask = await requestJson<MaturityTask>(
-        `${apiBase}/v1/selection-batches/${encodeURIComponent(batchId)}/maturity-tasks`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            provider,
-            evaluated_at: toShanghaiDateTime(evaluatedAt),
-            horizon_sessions: horizon,
-            position_notional: positionNotional,
-            target_return: targetReturn === '' ? null : targetReturn,
-            max_retries: retries,
-            timeout_seconds: timeout,
-          }),
-        },
-      )
-      setMaturityTasks((current) => upsertMaturityTask(current, createdTask))
-
-      const executedTask = await requestJson<MaturityTask>(
-        `${apiBase}/v1/maturity-tasks/${encodeURIComponent(createdTask.task_id)}/run`,
-        { method: 'POST' },
-      )
-      setMaturityTasks((current) => upsertMaturityTask(current, executedTask))
-      setBatchReloadToken((current) => current + 1)
-    } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : '创建或执行成熟任务失败。')
-    } finally {
-      setMaturityTaskAction(null)
-    }
-  }
-
-  async function refreshMaturityTasks() {
-    if (!selectedBatchId || maturityTaskAction !== null) {
-      return
-    }
-    const batchId = selectedBatchId
-    setMaturityTaskAction('refresh')
-    setError(null)
-    try {
-      const tasks = await requestJson<MaturityTask[]>(
-        `${apiBase}/v1/selection-batches/${encodeURIComponent(batchId)}/maturity-tasks`,
-      )
-      if (selectedBatchId === batchId) {
-        setMaturityTasks(tasks)
-      }
-    } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : '刷新成熟任务失败。')
-    } finally {
-      setMaturityTaskAction(null)
-    }
-  }
-
-  async function runMaturityTask(taskId: string) {
-    if (!selectedBatchId || maturityTaskAction !== null) {
-      return
-    }
-    const task = maturityTasks.find((item) => item.task_id === taskId)
-    if (!task || task.status !== 'queued') {
-      return
-    }
-    setMaturityTaskAction(`run:${taskId}`)
-    setError(null)
-    try {
-      const executedTask = await requestJson<MaturityTask>(
-        `${apiBase}/v1/maturity-tasks/${encodeURIComponent(taskId)}/run`,
-        { method: 'POST' },
-      )
-      setMaturityTasks((current) => upsertMaturityTask(current, executedTask))
-      setBatchReloadToken((current) => current + 1)
-    } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : '执行成熟任务失败。')
-    } finally {
-      setMaturityTaskAction(null)
-    }
-  }
-
   async function loadCandidateAnalysis(candidateId: string) {
     if (!selectedBatchId || analysisLoadingId !== null) {
       return
@@ -2111,18 +1939,6 @@ function App() {
     }
   }
 
-  function openAnnotation(candidateView: CandidateView) {
-    setAnnotationCandidateId(candidateView.candidate.candidate_id)
-    setAnnotationReviewedAt(new Date().toISOString().slice(0, 16))
-    setAnnotationScore('3')
-    setAnnotationOutlook('neutral')
-    setAnnotationDecision('watch')
-    setAnnotationTags({})
-    setAnnotationReusableTagIds([])
-    setAnnotationNewTagLabels({ position: '', pattern: '', price_volume: '', sector: '' })
-    setAnnotationNote('')
-  }
-
   function closeAnnotation() {
     if (!annotationBusy) {
       setAnnotationCandidateId(null)
@@ -2177,18 +1993,6 @@ function App() {
     } finally {
       setAnnotationTagBusy(null)
     }
-  }
-
-  function openCandidateTrade(candidateView: CandidateView) {
-    const now = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16)
-    setTradeCandidateId(candidateView.candidate.candidate_id)
-    setTradeOrderId(`order-${Date.now()}`)
-    setTradeFillId(`fill-${Date.now()}`)
-    setTradeOrderedAt(now)
-    setTradeFilledAt(now)
-    setTradeQuantity('100')
-    setTradePrice(candidateView.candidate.source_fields['现价'] ?? '')
-    setTradeNote('')
   }
 
   function closeCandidateTrade() {
@@ -3181,241 +2985,6 @@ function App() {
           </form>
         </DialogContent>
       </Dialog>
-
-      {false && <Card className="mature-panel panel" aria-labelledby="mature-title">
-        <div className="section-heading maturity-section-heading">
-          <div>
-            <p className="eyebrow">04 · 成熟</p>
-            <h2 id="mature-title">跟踪客观结果</h2>
-          </div>
-          <div className="maturity-task-heading-actions">
-            <Badge variant="outline">{maturityTasks.length} 个任务</Badge>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="maturity-action-button"
-              disabled={!selectedBatchId || maturityTaskAction !== null || loadingMaturityTasks}
-              data-saving={maturityTaskAction === 'refresh'}
-              onClick={() => void refreshMaturityTasks()}
-            >
-              <RotateCcw className="h-4 w-4" />
-              {maturityTaskAction === 'refresh' ? '刷新中…' : '刷新任务'}
-            </Button>
-          </div>
-        </div>
-        <form className="mature-form" onSubmit={createAndRunMaturityTask}>
-          <div className="field">
-            <Label htmlFor="provider-select">行情源</Label>
-            <Select
-              value={provider}
-              onValueChange={(value) => setProvider(value as Provider)}
-              disabled={maturityTaskAction !== null}
-            >
-              <SelectTrigger id="provider-select">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(providerLabels).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="field">
-            <Label htmlFor="evaluated-at">评估时间（北京时间）</Label>
-            <CalendarInput
-              id="evaluated-at"
-              type="datetime-local"
-              value={evaluatedAt}
-              onChange={setEvaluatedAt}
-              disabled={maturityTaskAction !== null}
-              required
-            />
-          </div>
-          <div className="field">
-            <Label htmlFor="horizon-sessions">持有交易日</Label>
-            <Input
-              id="horizon-sessions"
-              type="number"
-              min="1"
-              value={horizonSessions}
-              onChange={(event) => setHorizonSessions(event.target.value)}
-              disabled={maturityTaskAction !== null}
-              required
-            />
-          </div>
-          <div className="field">
-            <Label htmlFor="position-notional">单笔名义金额</Label>
-            <Input
-              id="position-notional"
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={positionNotional}
-              onChange={(event) => setPositionNotional(event.target.value)}
-              disabled={maturityTaskAction !== null}
-              required
-            />
-          </div>
-          <div className="field">
-            <Label htmlFor="target-return">目标收益（可选）</Label>
-            <Input
-              id="target-return"
-              type="number"
-              min="0"
-              step="0.01"
-              value={targetReturn}
-              onChange={(event) => setTargetReturn(event.target.value)}
-              disabled={maturityTaskAction !== null}
-              placeholder="例如 0.10"
-            />
-            <small>留空不判断达标；0.10 表示 10%。</small>
-          </div>
-          <div className="field">
-            <Label htmlFor="max-retries">最大重试次数</Label>
-            <Input
-              id="max-retries"
-              type="number"
-              min="0"
-              max="5"
-              step="1"
-              value={maxRetries}
-              onChange={(event) => setMaxRetries(event.target.value)}
-              disabled={maturityTaskAction !== null}
-              required
-            />
-            <small>默认 2 次，允许 0—5 次。</small>
-          </div>
-          <div className="field">
-            <Label htmlFor="timeout-seconds">超时秒数</Label>
-            <Input
-              id="timeout-seconds"
-              type="number"
-              min="1"
-              max="86400"
-              step="1"
-              value={timeoutSeconds}
-              onChange={(event) => setTimeoutSeconds(event.target.value)}
-              disabled={maturityTaskAction !== null}
-              required
-            />
-            <small>默认 900 秒，允许 1—86400 秒。</small>
-          </div>
-          <Button
-            type="submit"
-            disabled={maturityTaskAction !== null || !selectedBatchId}
-            data-saving={maturityTaskAction === 'create-run'}
-          >
-            {maturityTaskAction === 'create-run'
-              ? '创建并执行中…'
-              : selectedBatchId
-                ? '创建并执行一次'
-                : '先选择批次'}
-          </Button>
-        </form>
-        <p className="form-hint">先创建幂等成熟任务，再同步执行一次；不会轮询、连接券商或自动下单。</p>
-
-        {loadingMaturityTasks ? (
-          <div className="maturity-task-loading" aria-label="成熟任务加载中">
-            <Skeleton />
-            <Skeleton />
-          </div>
-        ) : !selectedBatchId ? (
-          <p className="empty-copy">选择一个批次后查看成熟任务。</p>
-        ) : maturityTasks.length === 0 ? (
-          <p className="empty-copy">当前批次还没有成熟任务。提交上方表单后会立即创建并执行。</p>
-        ) : (
-          <div className="maturity-task-list" aria-label="成熟任务列表">
-            {maturityTasks.map((task) => {
-              const failureReason = maturityTaskFailureReason(task)
-              const showRetryHint =
-                Boolean(failureReason) ||
-                task.retryable ||
-                task.status === 'failed' ||
-                task.status === 'partial'
-              const runAction = `run:${task.task_id}`
-              return (
-                <article className="maturity-task-card" key={task.task_id}>
-                  <div className="maturity-task-card-heading">
-                    <div className="maturity-task-identity">
-                      <strong>{taskProviderLabel(task.provider)}</strong>
-                      <span>任务 {task.task_id}</span>
-                    </div>
-                    <Badge
-                      variant="outline"
-                      className={`maturity-status maturity-status--${task.status}`}
-                      role="status"
-                    >
-                      {maturityTaskStatusLabel(task.status)}
-                    </Badge>
-                  </div>
-                  <div className="maturity-task-meta">
-                    <div>
-                      <span>评估时间</span>
-                      <strong>{formatManagementDate(task.evaluated_at)}</strong>
-                    </div>
-                    <div>
-                      <span>目标评估日</span>
-                      <strong>{task.target_evaluation_date}</strong>
-                    </div>
-                    <div>
-                      <span>持有交易日</span>
-                      <strong>{task.horizon_sessions}</strong>
-                    </div>
-                    <div>
-                      <span>单笔名义金额</span>
-                      <strong>{formatNotional(task.position_notional)}</strong>
-                    </div>
-                    <div>
-                      <span>尝试次数</span>
-                      <strong>{task.attempt_count}</strong>
-                    </div>
-                    <div>
-                      <span>写入 / 拒绝</span>
-                      <strong>
-                        {task.outcomes_written} / {task.rejected_candidates.length}
-                      </strong>
-                    </div>
-                  </div>
-                  <div className="maturity-task-secondary-meta">
-                    <span>策略 {task.tracking_policy_id}</span>
-                    <span>最大重试 {task.max_retries} 次</span>
-                    <span>超时 {task.timeout_seconds} 秒</span>
-                    <span>事件 {task.events.length} 条</span>
-                    <span>更新于 {formatManagementDate(task.updated_at)}</span>
-                  </div>
-                  {showRetryHint && (
-                    <p className="maturity-task-feedback" role="status">
-                      {failureReason && <span>最近错误：{failureReason}</span>}
-                      <strong className={task.retryable ? 'retryable' : 'not-retryable'}>
-                        {task.retryable ? '可重试' : '不可重试'}
-                      </strong>
-                    </p>
-                  )}
-                  {task.status === 'queued' && (
-                    <div className="maturity-task-actions">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="maturity-action-button"
-                        disabled={maturityTaskAction !== null}
-                        data-saving={maturityTaskAction === runAction}
-                        onClick={() => void runMaturityTask(task.task_id)}
-                      >
-                        {maturityTaskAction === runAction ? '执行中…' : '执行一次'}
-                      </Button>
-                    </div>
-                  )}
-                </article>
-              )
-            })}
-          </div>
-        )}
-      </Card>}
 
       <section className="principles" aria-labelledby="principles-title">
         <h2 id="principles-title">当前边界</h2>
@@ -4414,54 +3983,6 @@ function DataManagementWorkspace({
       </Dialog>
     </section>
   )
-}
-
-function upsertMaturityTask(tasks: MaturityTask[], task: MaturityTask): MaturityTask[] {
-  const existingIndex = tasks.findIndex((item) => item.task_id === task.task_id)
-  if (existingIndex === -1) {
-    return [task, ...tasks]
-  }
-  return tasks.map((item) => (item.task_id === task.task_id ? task : item))
-}
-
-function taskProviderLabel(provider: Provider): string {
-  return providerLabels[provider]
-}
-
-function maturityTaskStatusLabel(status: MaturityTaskStatus): string {
-  const labels: Record<MaturityTaskStatus, string> = {
-    queued: '排队中',
-    running: '执行中',
-    completed: '已完成',
-    partial: '部分完成',
-    failed: '失败',
-  }
-  return labels[status]
-}
-
-function maturityTaskFailureReason(task: MaturityTask): string | null {
-  const directReason = task.failure_reason?.trim()
-  if (directReason) {
-    return directReason
-  }
-  for (const event of [...task.events].reverse()) {
-    const eventReason = event.failure_reason?.trim()
-    if (eventReason) {
-      return eventReason
-    }
-  }
-  return null
-}
-
-function formatNotional(value: string | number): string {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) {
-    return String(value)
-  }
-  return numeric.toLocaleString('zh-CN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
 }
 
 function matchesManagementFilter(active: boolean, filter: ManagementFilter): boolean {

@@ -579,3 +579,12 @@
 
 - 完成内容：应用壳固定为 `100dvh`，body/#root 高度与 body `overflow: hidden`，主内容改为独立纵向滚动；顶部状态栏固定 60px（移动端 72px），Drawer layer 从状态栏底部开始，Drawer 内部保持 body 滚动，避免详情覆盖顶部导航。
 - 实际验证：`cd frontend && corepack pnpm typecheck`、`corepack pnpm lint`、`corepack pnpm build`、`git diff --check` 通过；Chrome CDP 在 1440 视口确认 bar top=0 height=60、drawer layer top=60 height=784、document scrollHeight=clientHeight=844；此前 390/720/1024/1440 视口均确认整体无滚动条。未执行 git add/commit/push。
+
+### 2026-08-16 前端引入真实 ESLint 与仓库卫生收口
+
+- 完成内容：发现并修复 `lint` 脚本与 `typecheck` 完全相同且无 ESLint 配置的问题；新增 `frontend/eslint.config.js`（ESLint 10 flat config + typescript-eslint 8.67 recommended + react-hooks 7 recommended + browser globals），`lint` 脚本改为 `eslint .`。
+- 完成内容：`typescript` 从 7.0.2 降为 `~6.0.3`。typescript-eslint 8.67 对 TS 7.0 硬性报错（peer 范围 `>=4.8.4 <6.1.0`）；按 TS 官方并行发布策略，6.x 是与 7.0 同语言版本的 JS API 线，类型检查语义等价。安装后 `pnpm peers check` 无问题。
+- 完成内容：按 ESLint 结果清理死代码——删除 2026-08-13 起被 `{false && ...}` 禁用的成熟任务面板 JSX、三个无调用点的任务函数（createAndRunMaturityTask/refreshMaturityTasks/runMaturityTask）、相关 10 个状态、`MaturityTask`/`MaturityTaskStatus`/`Provider` 类型、`providerLabels`、4 个模块级 helper、`batchReloadToken`（setter 已无调用方，令牌永不递增）和 `formatNotional`；删除未使用导入（Database、WalletCards、PortfolioReview、SecurityMasterRecord、SecurityMasterResponse、portfolio-workspace 本地 `toShanghaiDateTime`）。`App.tsx` 4557 → 4078 行。后端成熟任务账本、CLI 和兼容 API 未做任何改动。
+- 基线决策：`react-hooks/set-state-in-effect` 降为 `warn`（配置内有注释），既有数据加载/表单重置 effect 模式行为正确但被新规则反对，待 App.tsx 按领域拆分时逐步重构；`rules-of-hooks` 保持 error；`exhaustive-deps` 维持插件默认 warn。
+- 仓库卫生：`.gitignore` 新增 `frontend/test-results/`（Playwright 输出）与 `.agents/`（本地安装的 agent skills，非项目代码）；删除根目录遗留空目录树 `nonexistent-task-test/`（仅空目录、无文件）；修复 `docs/current-state.md` 一处 `+- ` diff 残留；补齐 `AGENTS.md` 常用命令（后端测试/lint/mypy、真实数据源验证、前端 typecheck/lint/build/test:visual 及 fnm PATH 提示）。
+- 实际验证：`cd frontend && corepack pnpm lint` 通过（0 error、21 warning，全部为已声明 warn 基线）；`corepack pnpm typecheck` 通过；`corepack pnpm build` 通过（Vite 10.66s）；`git diff --check` 通过；`corepack pnpm peers check` 无问题。后端无改动，未运行后端测试；视觉回归未运行（本轮改动为删除永不渲染的代码与 lint 基线，构建与类型检查已覆盖）。未执行 git add/commit/push。
