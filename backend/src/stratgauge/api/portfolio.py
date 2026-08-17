@@ -341,3 +341,77 @@ class PortfolioService:
             return self._store.list_reviews()
         except PortfolioStoreError as exc:
             raise PortfolioApiError("PORTFOLIO_READ_FAILED", str(exc), 409) from exc
+
+
+def create_portfolio_router(
+    portfolio: PortfolioService,
+    selections: SelectionService | None = None,
+) -> APIRouter:
+    """FastAPI router for manual portfolio endpoints."""
+    from fastapi import APIRouter
+
+    router = APIRouter(tags=["portfolio"])
+
+    @router.get("/v1/positions", response_model=list[PortfolioPosition])
+    def list_positions() -> list[PortfolioPosition]:
+        return list(portfolio.positions())
+
+    @router.get("/v1/manual-orders", response_model=list[ManualOrder])
+    def list_manual_orders() -> list[ManualOrder]:
+        return list(portfolio.orders())
+
+    @router.get("/v1/manual-fills", response_model=list[ManualFill])
+    def list_manual_fills() -> list[ManualFill]:
+        return list(portfolio.fills())
+
+    @router.get("/v1/portfolio-reviews", response_model=list[PortfolioReview])
+    def list_portfolio_reviews() -> list[PortfolioReview]:
+        return list(portfolio.reviews())
+
+    @router.post("/v1/manual-orders", response_model=ManualOrder, status_code=201)
+    def create_manual_order(request: ManualOrderRequest) -> ManualOrder:
+        return portfolio.create_order(request)
+
+    @router.post(
+        "/v1/manual-trades/confirm",
+        response_model=tuple[ManualOrder, ManualFill],
+        status_code=201,
+    )
+    def confirm_manual_trade(
+        request: ConfirmedManualTradeRequest,
+    ) -> tuple[ManualOrder, ManualFill]:
+        return portfolio.confirm_trade(request)
+
+    @router.post("/v1/manual-fills", response_model=ManualFill, status_code=201)
+    def record_manual_fill(request: ManualFillRequest) -> ManualFill:
+        return portfolio.record_fill(request)
+
+    @router.post(
+        "/v1/selection-candidate-trades",
+        response_model=tuple[ManualOrder, ManualFill],
+        status_code=201,
+    )
+    def record_selection_candidate_trade(
+        request: CandidateTradeRequest,
+    ) -> tuple[ManualOrder, ManualFill]:
+        if request.filled_at < request.ordered_at:
+            raise PortfolioApiError(
+                "PORTFOLIO_TRADE_REJECTED",
+                "成交时间不能早于下单时间。",
+                422,
+            )
+        if selections is not None:
+            candidate = selections.get_candidate(request.selection_candidate_id)
+            if candidate.local_code != request.local_code or candidate.exchange != request.exchange:
+                raise PortfolioApiError(
+                    "PORTFOLIO_TRADE_REJECTED",
+                    "实际买入的证券必须与候选证券一致。",
+                    422,
+                )
+        return portfolio.record_candidate_trade(request)
+
+    @router.post("/v1/portfolio-reviews", response_model=PortfolioReview, status_code=201)
+    def write_portfolio_review(request: PortfolioReviewRequest) -> PortfolioReview:
+        return portfolio.write_review(request)
+
+    return router
