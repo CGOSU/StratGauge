@@ -18,6 +18,7 @@ from stratgauge.api.market_sync.models import (
     to_market_sync_task_api_error,
     to_market_sync_task_view,
 )
+from stratgauge.api.market_sync.routes import create_market_sync_router
 from stratgauge.api.market_sync.sync import (
     sync_main_board_close,
     to_market_sync_api_error,
@@ -40,4 +41,5 @@ __all__ = [
     "to_market_sync_task_api_error",
     "sync_main_board_close",
     "to_market_sync_api_error",
+    "create_market_sync_router",
 ]

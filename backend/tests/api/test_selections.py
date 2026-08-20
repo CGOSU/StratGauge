@@ -251,6 +251,208 @@ class SelectionApiTests(unittest.TestCase):
         self.assertEqual(stream_response.media_type, "application/x-ndjson")
         self.assertNotEqual(first["batch"]["batch_id"], second["batch"]["batch_id"])
 
+    def test_maturity_status_page_covers_all_states_and_latest_policies(self) -> None:
+        formula = self.client.post(
+            "/v1/formulas",
+            json={"name": "成熟状态公式", "version": "v1"},
+        ).json()["formula"]
+        imported = self.client.post(
+            "/v1/selection-batches/manual",
+            json={
+                "selection_date": "2026-01-05",
+                "recorded_at": "2026-01-05T15:05:00+08:00",
+                "formula_id": formula["formula_id"],
+                "candidates": [
+                    {"local_code": "000001", "exchange": "SZ", "name": "候选一"},
+                    {"local_code": "000002", "exchange": "SH", "name": "候选二"},
+                    {"local_code": "000003", "exchange": "SZ", "name": "候选三"},
+                    {"local_code": "000004", "exchange": "SH", "name": "候选四"},
+                    {"local_code": "000005", "exchange": "SZ", "name": "候选五"},
+                ],
+            },
+        )
+        self.assertEqual(imported.status_code, 201)
+        batch = imported.json()["batch"]
+        candidates = {
+            item["candidate"]["local_code"]: item["candidate"]
+            for item in imported.json()["candidates"]
+        }
+
+        def write_outcome(
+            local_code: str,
+            status: SelectionOutcomeStatus,
+            tracking_policy_id: str,
+            evaluated_at: datetime,
+            net_return: str | None = None,
+        ) -> None:
+            is_trade = status in {
+                SelectionOutcomeStatus.WIN,
+                SelectionOutcomeStatus.LOSS,
+                SelectionOutcomeStatus.FLAT,
+            }
+            exit_price = None
+            gross_return = None
+            if status is SelectionOutcomeStatus.WIN:
+                exit_price = Decimal("11")
+                gross_return = Decimal("0.1")
+            elif status is SelectionOutcomeStatus.LOSS:
+                exit_price = Decimal("9")
+                gross_return = Decimal("-0.1")
+            elif is_trade:
+                exit_price = Decimal("10")
+                gross_return = Decimal("0")
+            self.store.write_outcome(
+                SelectionOutcome(
+                    candidate_id=candidates[local_code]["candidate_id"],
+                    batch_id=batch["batch_id"],
+                    selection_date=date(2026, 1, 5),
+                    status=status,
+                    evaluated_at=evaluated_at,
+                    horizon_sessions=10,
+                    entry_session=date(2026, 1, 6) if is_trade else None,
+                    exit_session=date(2026, 1, 12) if is_trade else None,
+                    entry_price=Decimal("10") if is_trade else None,
+                    exit_price=exit_price,
+                    gross_return=gross_return,
+                    net_return=Decimal(net_return) if net_return is not None else None,
+                    reason="fixed_horizon" if is_trade else status.value,
+                    tracking_policy_id=tracking_policy_id,
+                    outcome_policy_id="outcome-v1",
+                )
+            )
+
+        write_outcome(
+            "000001",
+            SelectionOutcomeStatus.LOSS,
+            "policy-a",
+            datetime(2026, 1, 12, 17, tzinfo=UTC),
+            "-0.11",
+        )
+        write_outcome(
+            "000001",
+            SelectionOutcomeStatus.WIN,
+            "policy-a",
+            datetime(2026, 1, 13, 17, tzinfo=UTC),
+            "0.09",
+        )
+        write_outcome(
+            "000001",
+            SelectionOutcomeStatus.LOSS,
+            "policy-b",
+            datetime(2026, 1, 12, 17, tzinfo=UTC),
+            "-0.11",
+        )
+        write_outcome(
+            "000002",
+            SelectionOutcomeStatus.FLAT,
+            "policy-a",
+            datetime(2026, 1, 12, 17, tzinfo=UTC),
+            "0",
+        )
+        write_outcome(
+            "000003",
+            SelectionOutcomeStatus.NO_ENTRY,
+            "policy-a",
+            datetime(2026, 1, 12, 17, tzinfo=UTC),
+        )
+        write_outcome(
+            "000004",
+            SelectionOutcomeStatus.UNRESOLVED,
+            "policy-a",
+            datetime(2026, 1, 12, 17, tzinfo=UTC),
+        )
+
+        excluded = self.client.post(
+            f"/v1/selection-batches/{batch['batch_id']}/exclusions",
+            json={
+                "candidate_id": candidates["000005"]["candidate_id"],
+                "excluded_at": "2026-01-06T09:00:00+08:00",
+                "reason": "测试排除",
+            },
+        )
+        self.assertEqual(excluded.status_code, 200)
+        archived = self.client.post(
+            f"/v1/data-management/batches/{batch['batch_id']}/archive",
+            json={"reason": "测试归档"},
+        )
+        self.assertEqual(archived.status_code, 200)
+
+        page = self.client.get(
+            "/v1/selection-maturity/page",
+            params={"page": 1, "page_size": 2},
+        )
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.json()["total"], 6)
+        self.assertTrue(page.json()["has_next"])
+        self.assertEqual(
+            page.json()["status_counts"],
+            {"flat": 1, "loss": 1, "no_entry": 1, "pending": 1, "unresolved": 1, "win": 1},
+        )
+        readiness = self.client.get("/v1/ml/readiness")
+        self.assertEqual(readiness.status_code, 200)
+        self.assertEqual(readiness.json()["outcome_counts"], page.json()["status_counts"])
+        all_items = self.client.get(
+            "/v1/selection-maturity/page",
+            params={"page": 1, "page_size": 200},
+        ).json()["items"]
+        self.assertEqual(len(all_items), 6)
+        self.assertTrue(all(not item["active"] for item in all_items))
+        excluded_items = [item for item in all_items if item["excluded"]]
+        self.assertEqual(len(excluded_items), 1)
+        self.assertEqual(excluded_items[0]["status"], "pending")
+        self.assertEqual(excluded_items[0]["latest_exclusion"]["reason"], "测试排除")
+        self.assertEqual(
+            sorted(
+                item["outcome"]["tracking_policy_id"]
+                for item in all_items
+                if item["outcome"] is not None and item["candidate"]["local_code"] == "000001"
+            ),
+            ["policy-a", "policy-b"],
+        )
+        policy_a = next(
+            item
+            for item in all_items
+            if item["candidate"]["local_code"] == "000001"
+            and item["outcome"]["tracking_policy_id"] == "policy-a"
+        )
+        self.assertEqual(policy_a["status"], "win")
+
+        for status in ("pending", "win", "loss", "flat", "no_entry", "unresolved"):
+            filtered = self.client.get(
+                "/v1/selection-maturity/page",
+                params={"status": status, "page_size": 200},
+            )
+            self.assertEqual(filtered.status_code, 200)
+            self.assertEqual(filtered.json()["total"], 1)
+            self.assertEqual(filtered.json()["items"][0]["status"], status)
+
+        second_page = self.client.get(
+            "/v1/selection-maturity/page",
+            params={"page": 2, "page_size": 2},
+        )
+        self.assertEqual(second_page.status_code, 200)
+        self.assertEqual(len(second_page.json()["items"]), 2)
+        self.assertEqual(
+            {item["candidate"]["candidate_id"] for item in page.json()["items"]}.isdisjoint(
+                item["candidate"]["candidate_id"] for item in second_page.json()["items"]
+            ),
+            True,
+        )
+        self.assertEqual(
+            self.client.get(
+                "/v1/selection-maturity/page",
+                params={"status": "invalid"},
+            ).status_code,
+            422,
+        )
+        self.assertEqual(
+            self.client.get(
+                "/v1/selection-maturity/page",
+                params={"page_size": 201},
+            ).status_code,
+            422,
+        )
+
     def test_candidate_analysis_returns_evidence_insufficient_without_history(self) -> None:
         imported = self.client.post(
             "/v1/selection-batches",

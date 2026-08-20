@@ -15,6 +15,7 @@ from stratgauge.api.selections.requests import (
     SelectionReusableTagCreateRequest,
     SelectionReusableTagRenameRequest,
 )
+from stratgauge.api.selections.routes import create_selections_router
 from stratgauge.api.selections.service import SelectionService
 from stratgauge.api.selections.views import (
     SelectionBatchPage,
@@ -68,4 +69,5 @@ __all__ = [
     "SelectionAnnotationRequest",
     "SelectionExclusionRequest",
     "SelectionMatureRequest",
+    "create_selections_router",
 ]

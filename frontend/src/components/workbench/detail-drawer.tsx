@@ -356,7 +356,7 @@ export function StockDetailDrawer({
             </section>
           )}
           {tab === 'judgment' && (
-            <section className="drawer-tab-panel" aria-labelledby="drawer-judgment-title">
+            <section className="drawer-tab-panel h-full" aria-labelledby="drawer-judgment-title">
               <WorkbenchAnnotationPanel apiBase={apiBase} signal={signal} onSaved={onAnnotationSaved} />
             </section>
           )}

@@ -12,6 +12,7 @@ import { ErrorAlert } from '@/components/error-alert'
 import { PaginationControls } from '@/components/pagination-controls'
 import { MainBoardMarketSyncPanel } from '@/components/main-board-market-sync-panel'
 import { MlReadinessPanel } from '@/components/ml-readiness-panel'
+import { MaturityStatusListPanel } from '@/components/import/maturity-status-list-panel'
 import { sourceLabel } from '@/components/management/helpers'
 import { formatFileSize } from '@/lib/format'
 import type { HealthState } from '@/types'
@@ -70,11 +71,9 @@ export function ImportWorkspace({ data, healthState }: { data: ImportData; healt
 
       {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
 
-      <MlReadinessPanel apiBase={apiBase} />
-
-      <MainBoardMarketSyncPanel apiBase={apiBase} />
-
-      <section className="research-layout" aria-label="通达信选股研究工作区">
+      <div className="import-page-content">
+        <div className="import-main-flow">
+          <section className="research-layout" aria-label="通达信选股研究工作区">
         <Card className="import-panel panel">
           <div className="section-heading">
             <div>
@@ -237,18 +236,25 @@ export function ImportWorkspace({ data, healthState }: { data: ImportData; healt
             </>
           )}
         </Card>
-      </section>
+          </section>
+          <CandidatePanel data={data} />
+        </div>
 
+        <section className="import-support-panels" aria-label="研究运行状态">
+          <MlReadinessPanel apiBase={apiBase} />
+          <MaturityStatusListPanel apiBase={apiBase} />
+          <MainBoardMarketSyncPanel apiBase={apiBase} />
+        </section>
 
-      <CandidatePanel data={data} />
-      <section className="principles" aria-labelledby="principles-title">
-        <h2 id="principles-title">当前边界</h2>
-        <ul>
-          <li>收盘后导入，最早下一交易日跟踪。</li>
-          <li>人工标签与客观行情结果分开保存。</li>
-          <li>系统不连接券商，也不会自动下单。</li>
-        </ul>
-      </section>
+        <section className="principles" aria-labelledby="principles-title">
+          <h2 id="principles-title">当前边界</h2>
+          <ul>
+            <li>收盘后导入，最早下一交易日跟踪。</li>
+            <li>人工标签与客观行情结果分开保存。</li>
+            <li>系统不连接券商，也不会自动下单。</li>
+          </ul>
+        </section>
+      </div>
     </>
   )
 }

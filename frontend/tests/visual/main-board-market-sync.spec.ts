@@ -258,6 +258,24 @@ async function installApiMocks(page: Page, scenario: MockScenario): Promise<Mock
       await fulfillJson(route, createMlReadiness())
       return
     }
+    if (path === '/api/v1/selection-maturity/page' && method === 'GET') {
+      await fulfillJson(route, {
+        items: [],
+        page: 1,
+        page_size: 8,
+        total: 0,
+        has_next: false,
+        status_counts: {
+          pending: 0,
+          win: 0,
+          loss: 0,
+          flat: 0,
+          no_entry: 0,
+          unresolved: 0,
+        },
+      })
+      return
+    }
     if (path === '/api/v1/workbench/summary' && method === 'GET') {
       await fulfillJson(route, createWorkbenchSummary())
       return

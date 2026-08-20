@@ -39,6 +39,85 @@ function createReadiness() {
   }
 }
 
+function createMaturityPage(url: URL) {
+  const statuses = ['pending', 'win', 'loss', 'flat', 'no_entry', 'unresolved', 'win', 'loss', 'flat']
+  const allItems = statuses.map((status, index) => {
+    const candidateId = `candidate-${index + 1}`
+    const archived = index === 7
+    const excluded = index === 7
+    return {
+      batch: {
+        batch_id: `batch-${index + 1}`,
+        source: 'tongdaxin',
+        source_filename: `selection-${index + 1}.txt`,
+        formula_id: 'formula-test',
+        selection_date: `2026-01-${String(index + 5).padStart(2, '0')}`,
+        exported_at: '2026-01-05T15:05:00+08:00',
+        imported_at: '2026-01-05T15:10:00+08:00',
+        formula_name: '趋势公式',
+        formula_version: 'v1',
+        formula_sha256: null,
+        source_file_sha256: 'a'.repeat(64),
+        candidate_count: 1,
+      },
+      candidate: {
+        candidate_id: candidateId,
+        batch_id: `batch-${index + 1}`,
+        local_code: String(index + 1).padStart(6, '0'),
+        symbol: `${String(index + 1).padStart(6, '0')}.SZ`,
+        exchange: 'SZ',
+        name: `测试候选 ${index + 1}`,
+        source_fields: {},
+      },
+      status,
+      outcome: status === 'pending'
+        ? null
+        : {
+            status,
+            evaluated_at: '2026-01-15T17:00:00+00:00',
+            net_return: status === 'no_entry' || status === 'unresolved' ? null : index % 2 === 0 ? '0.09' : '-0.03',
+            reason: status === 'no_entry' ? '固定窗口内没有满足入场条件' : status === 'unresolved' ? '未来行情证据不足' : 'fixed_horizon',
+            tracking_policy_id: 'tracking-v1',
+          },
+      latest_exclusion: excluded
+        ? {
+            exclusion_id: 'exclusion-test',
+            candidate_id: candidateId,
+            excluded_at: '2026-01-06T09:00:00+08:00',
+            recorded_at: '2026-01-06T09:01:00+08:00',
+            reason: '测试排除',
+          }
+        : null,
+      excluded,
+      active: !archived,
+    }
+  })
+  const statusCounts = {
+    pending: 0,
+    win: 0,
+    loss: 0,
+    flat: 0,
+    no_entry: 0,
+    unresolved: 0,
+  }
+  for (const item of allItems) {
+    statusCounts[item.status as keyof typeof statusCounts] += 1
+  }
+  const status = url.searchParams.get('status')
+  const filteredItems = status ? allItems.filter((item) => item.status === status) : allItems
+  const page = Number(url.searchParams.get('page') ?? '1')
+  const pageSize = Number(url.searchParams.get('page_size') ?? '8')
+  const start = (page - 1) * pageSize
+  return {
+    items: filteredItems.slice(start, start + pageSize),
+    page,
+    page_size: pageSize,
+    total: filteredItems.length,
+    has_next: start + pageSize < filteredItems.length,
+    status_counts: statusCounts,
+  }
+}
+
 async function installMocks(page: Page) {
   let readinessRequestCount = 0
   const unexpectedRequests: string[] = []
@@ -57,6 +136,10 @@ async function installMocks(page: Page) {
     if (path === '/api/v1/ml/readiness' && method === 'GET') {
       readinessRequestCount += 1
       await fulfillJson(route, createReadiness())
+      return
+    }
+    if (path === '/api/v1/selection-maturity/page' && method === 'GET') {
+      await fulfillJson(route, createMaturityPage(new URL(request.url())))
       return
     }
     if (path === '/api/v1/annotation-tags' && method === 'GET') {
@@ -98,6 +181,18 @@ test('shows blocked ML readiness and supports deterministic refresh', async ({ p
   await page.goto('/')
   await page.getByRole('button', { name: '导入数据' }).click()
 
+  const desktopLayout = await page.locator('.research-layout').evaluate((element) => {
+    const cards = Array.from(element.children).map((child) => child.getBoundingClientRect())
+    return {
+      columns: getComputedStyle(element).gridTemplateColumns.split(/\s+/).length,
+      widthDelta: Math.abs(cards[0].width - cards[1].width),
+      noHorizontalOverflow: document.documentElement.scrollWidth <= window.innerWidth,
+    }
+  })
+  expect(desktopLayout.columns).toBe(2)
+  expect(desktopLayout.widthDelta).toBeLessThan(4)
+  expect(desktopLayout.noHorizontalOverflow).toBe(true)
+
   const panel = page.locator('.ml-readiness-panel')
   await expect(panel).toBeVisible()
   await expect(panel).toContainText('什么时候可以运行机器学习？')
@@ -111,4 +206,68 @@ test('shows blocked ML readiness and supports deterministic refresh', async ({ p
   await expect.poll(mocks.getReadinessRequestCount).toBe(initialRequestCount + 1)
   expect(mocks.unexpectedRequests).toEqual([])
   await expect(panel).toHaveScreenshot('ml-readiness-blocked.png')
+})
+
+test('filters and paginates the read-only maturity status list', async ({ page }) => {
+  const mocks = await installMocks(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: '导入数据' }).click()
+
+  const panel = page.locator('.maturity-status-panel')
+  await expect(panel).toBeVisible()
+  await expect(panel).toContainText('成熟结果列表')
+  await expect(panel).toContainText('待成熟')
+  await expect(panel).toContainText('胜')
+  await expect(panel).toContainText('已归档')
+  await expect(panel).toContainText('已排除')
+  await expect(panel.locator('.maturity-status-row')).toHaveCount(8)
+
+  const filter = panel.getByRole('combobox', { name: '查看状态' })
+  await filter.selectOption('pending')
+  await expect(panel.locator('.maturity-status-row')).toHaveCount(1)
+  await expect(panel).toContainText('尚未生成客观结果')
+  await expect(panel.locator('.pagination-controls')).toHaveCount(0)
+
+  await filter.selectOption('win')
+  await expect(panel.locator('.maturity-status-row')).toHaveCount(2)
+  await expect(panel).toContainText('跟踪策略 tracking-v1')
+
+  await filter.selectOption('all')
+  await expect(panel.getByRole('button', { name: '下一页' })).toBeEnabled()
+  await panel.getByRole('button', { name: '下一页' }).click()
+  await expect(panel.locator('.maturity-status-row')).toHaveCount(1)
+  await expect(panel).toContainText('000009.SZ')
+
+  await filter.selectOption('pending')
+  await expect(panel.locator('.maturity-status-row')).toHaveCount(1)
+  await expect(panel).toContainText('尚未生成客观结果')
+  expect(mocks.unexpectedRequests).toEqual([])
+})
+
+test('stacks the import workflow without horizontal overflow on narrow screens', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await installMocks(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: '导入数据' }).click()
+
+  const narrowLayout = await page.locator('.research-layout').evaluate((element) => {
+    const cards = Array.from(element.children).map((child) => child.getBoundingClientRect())
+    return {
+      columns: getComputedStyle(element).gridTemplateColumns.split(/\s+/).length,
+      firstCardTop: cards[0].top,
+      secondCardTop: cards[1].top,
+      noHorizontalOverflow: document.documentElement.scrollWidth <= window.innerWidth,
+    }
+  })
+  expect(narrowLayout.columns).toBe(1)
+  expect(narrowLayout.secondCardTop).toBeGreaterThan(narrowLayout.firstCardTop)
+  expect(narrowLayout.noHorizontalOverflow).toBe(true)
+  const maturityPanel = page.locator('.maturity-status-panel')
+  await expect(maturityPanel).toBeVisible()
+  const maturityLayout = await maturityPanel.locator('.maturity-status-row').first().evaluate((element) => ({
+    columns: getComputedStyle(element).gridTemplateColumns.split(/\s+/).length,
+    noHorizontalOverflow: document.documentElement.scrollWidth <= window.innerWidth,
+  }))
+  expect(maturityLayout.columns).toBe(1)
+  expect(maturityLayout.noHorizontalOverflow).toBe(true)
 })

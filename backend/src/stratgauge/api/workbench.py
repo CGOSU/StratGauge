@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from fastapi import APIRouter, FastAPI, Query
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from stratgauge.application.workbench import (
@@ -19,8 +19,6 @@ from stratgauge.application.workbench import (
 )
 from stratgauge.domain.selections import SelectionCandidateReviewState
 
-router = APIRouter(prefix="/v1/workbench", tags=["workbench"])
-
 
 class WorkbenchSignalPage(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -32,20 +30,18 @@ class WorkbenchSignalPage(BaseModel):
     has_next: bool
 
 
-def register_workbench_routes(
-    router_target: APIRouter | FastAPI,
-    service: WorkbenchService,
-) -> None:
-    """Register workbench routes on the application-owned router."""
+def create_workbench_router(service: WorkbenchService) -> APIRouter:
+    """Create the read-only workbench router."""
+    router = APIRouter(prefix="/v1/workbench", tags=["workbench"])
 
-    @router_target.get("/summary", response_model=WorkbenchSummary)
+    @router.get("/summary", response_model=WorkbenchSummary)
     def get_workbench_summary(
         selection_date: date | None = None,
         as_of: datetime | None = None,
     ) -> WorkbenchSummary:
         return service.summary(selection_date=selection_date, as_of=as_of)
 
-    @router_target.get("/daily-signals", response_model=tuple[WorkbenchSignalView, ...])
+    @router.get("/daily-signals", response_model=tuple[WorkbenchSignalView, ...])
     def list_daily_signals(
         selection_date: date | None = None,
         query: str = "",
@@ -61,7 +57,7 @@ def register_workbench_routes(
             as_of=as_of,
         )
 
-    @router_target.get("/daily-signals/page", response_model=WorkbenchSignalPage)
+    @router.get("/daily-signals/page", response_model=WorkbenchSignalPage)
     def list_daily_signals_page(
         selection_date: date | None = None,
         query: str = "",
@@ -80,14 +76,14 @@ def register_workbench_routes(
         )
         return _page(items, page, page_size)
 
-    @router_target.get("/watchlist", response_model=tuple[WorkbenchSignalView, ...])
+    @router.get("/watchlist", response_model=tuple[WorkbenchSignalView, ...])
     def list_watchlist(
         query: str = "",
         as_of: datetime | None = None,
     ) -> tuple[WorkbenchSignalView, ...]:
         return service.list_watchlist(query=query, as_of=as_of)
 
-    @router_target.get("/watchlist/page", response_model=WorkbenchSignalPage)
+    @router.get("/watchlist/page", response_model=WorkbenchSignalPage)
     def list_watchlist_page(
         query: str = "",
         as_of: datetime | None = None,
@@ -96,28 +92,30 @@ def register_workbench_routes(
     ) -> WorkbenchSignalPage:
         return _page(service.list_watchlist(query=query, as_of=as_of), page, page_size)
 
-    @router_target.get("/strategies", response_model=tuple[WorkbenchStrategyView, ...])
+    @router.get("/strategies", response_model=tuple[WorkbenchStrategyView, ...])
     def list_strategies(as_of: datetime | None = None) -> tuple[WorkbenchStrategyView, ...]:
         return service.list_strategies(as_of=as_of)
 
-    @router_target.get("/analytics", response_model=WorkbenchAnalyticsView)
+    @router.get("/analytics", response_model=WorkbenchAnalyticsView)
     def get_analytics(as_of: datetime | None = None) -> WorkbenchAnalyticsView:
         return service.analytics(as_of=as_of)
 
-    @router_target.get("/positions", response_model=tuple[WorkbenchPositionView, ...])
+    @router.get("/positions", response_model=tuple[WorkbenchPositionView, ...])
     def list_positions(as_of: datetime | None = None) -> tuple[WorkbenchPositionView, ...]:
         return service.list_positions(as_of=as_of)
 
-    @router_target.get("/trades", response_model=tuple[WorkbenchTradeView, ...])
+    @router.get("/trades", response_model=tuple[WorkbenchTradeView, ...])
     def list_trades() -> tuple[WorkbenchTradeView, ...]:
         return service.list_trades()
 
-    @router_target.get("/stocks/{symbol}", response_model=WorkbenchStockDetail)
+    @router.get("/stocks/{symbol}", response_model=WorkbenchStockDetail)
     def get_stock_detail(
         symbol: str,
         as_of: datetime | None = None,
     ) -> WorkbenchStockDetail:
         return service.stock_detail(symbol, as_of=as_of)
+
+    return router
 
 
 def _page(
@@ -136,4 +134,4 @@ def _page(
     )
 
 
-__all__ = ["WorkbenchSignalPage", "register_workbench_routes", "router"]
+__all__ = ["WorkbenchSignalPage", "create_workbench_router"]

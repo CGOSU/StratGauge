@@ -4,6 +4,16 @@ export type HealthResponse = {
   version: string
 }
 
+export type MaturityStatus =
+  | 'pending'
+  | 'win'
+  | 'loss'
+  | 'flat'
+  | 'no_entry'
+  | 'unresolved'
+
+export type MaturityStatusCounts = Record<MaturityStatus, number>
+
 export type MlReadinessStage =
   | 'collecting_labels'
   | 'awaiting_feature_evidence'

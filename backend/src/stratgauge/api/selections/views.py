@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from stratgauge.application.selection_management import SelectionApiError as SelectionApiError
@@ -55,6 +57,29 @@ class SelectionMatureView(BaseModel):
     performances_written: int = Field(default=0, ge=0)
     rejected_candidates: tuple[tuple[str, str], ...]
     market_snapshot_ids: tuple[str, ...]
+
+
+class SelectionMaturityStatus(StrEnum):
+    """Display status for one candidate and its latest tracking-policy outcome."""
+
+    PENDING = "pending"
+    WIN = "win"
+    LOSS = "loss"
+    FLAT = "flat"
+    NO_ENTRY = "no_entry"
+    UNRESOLVED = "unresolved"
+
+
+class SelectionMaturityStatusView(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    batch: SelectionBatch
+    candidate: SelectionCandidate
+    status: SelectionMaturityStatus
+    outcome: SelectionOutcome | None = None
+    latest_exclusion: SelectionCandidateExclusion | None = None
+    excluded: bool = False
+    active: bool = True
 
 
 class SelectionCandidateView(BaseModel):
@@ -135,6 +160,17 @@ class SelectionObservationPage(BaseModel):
     has_next: bool
 
 
+class SelectionMaturityStatusPage(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    items: tuple[SelectionMaturityStatusView, ...]
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=200)
+    total: int = Field(ge=0)
+    has_next: bool
+    status_counts: dict[str, int]
+
+
 class SelectionManagedBatchPage(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -150,6 +186,8 @@ __all__ = [
     "SelectionManagedFormulaView",
     "SelectionManagedBatchView",
     "SelectionMatureView",
+    "SelectionMaturityStatus",
+    "SelectionMaturityStatusView",
     "SelectionCandidateView",
     "SelectionObservationView",
     "SelectionBatchView",
@@ -158,5 +196,6 @@ __all__ = [
     "SelectionManagementStatsView",
     "SelectionBatchPage",
     "SelectionObservationPage",
+    "SelectionMaturityStatusPage",
     "SelectionManagedBatchPage",
 ]

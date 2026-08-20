@@ -6,6 +6,24 @@
 
 每次记录应包含日期、完成内容、实际执行的验证及遗留问题。
 
+### 2026-08-16 清理成熟任务前端遗留样式
+
+- 完成内容：确认成熟任务操作区已于前一轮移除，前端源码和测试没有相关 class 消费者；删除 `frontend/src/styles.css` 中成熟任务专用基础/状态/响应式规则，保留 `.import-form` 与 `.dialog-form` 的共享布局。未修改当前未提交的后端路由拆分及其他既有工作区改动。
+- 实际验证：`cd frontend && corepack pnpm typecheck && corepack pnpm lint && corepack pnpm build`（通过；lint 0 error、23 条既有基线 warning）；`cd frontend && corepack pnpm exec playwright test tests/visual`（7 项通过）；`git diff --check`（通过，仅 Windows 换行警告）。
+- 遗留问题：大组件和综合服务仍按领域边界待后续小步拆分；本轮未执行 commit/push。
+
+### 2026-08-16 调整导入数据页布局
+
+- 完成内容：导入数据页改为“导入/批次/候选”主流程优先，机器学习前置检查和主板行情同步归入后置运行状态区；导入与批次宽屏均分双列，中窄屏单列；新增桌面列宽均衡和窄屏无横向溢出回归断言。同步更新受布局变化影响的视觉快照。
+- 实际验证：`cd frontend && corepack pnpm typecheck && corepack pnpm lint && corepack pnpm build`（通过；lint 0 error、23 条既有基线 warning）；`cd frontend && corepack pnpm exec playwright test tests/visual`（8 项通过）；`git diff --check`（通过，仅 Windows 换行警告）。
+- 遗留问题：成熟任务 Web 操作区仍未恢复；本轮未修改当前未提交的后端路由拆分，未执行 commit/push。
+
+### 2026-08-16 修正机器学习前置检查卡片内边距
+
+- 完成内容：为 `frontend/src/styles.css` 的 `.ml-readiness-panel` 补充与其他面板一致的 `var(--space-5)` 内边距，修复内容贴近卡片边框的问题；更新受页面纵向布局影响的移动端行情同步视觉快照。
+- 实际验证：`cd frontend && corepack pnpm typecheck`（通过）；`cd frontend && corepack pnpm exec playwright test tests/visual`（8 项通过）；`git diff --check`（通过，仅 Windows 换行警告）。
+- 遗留问题：本轮未执行 commit/push。
+
 ### 2026-08-15 机器学习就绪提示
 
 - 完成内容：新增只读 `MLReadinessService`、`GET /v1/ml/readiness` 和导入数据页机器学习前置检查卡片。就绪投影统计候选成功率用途的成熟结果、训练类别、结果政策、特征快照、独立基准、复权因子、用途模型注册及 shadow 状态；Web 只刷新本地事实，不启动 provider、训练、注册或 shadow。新增后端应用/API 测试和确定性 Playwright 回归，更新相关使用文档、系统规格、当前状态和设计决策。
@@ -588,3 +606,9 @@
 - 基线决策：`react-hooks/set-state-in-effect` 降为 `warn`（配置内有注释），既有数据加载/表单重置 effect 模式行为正确但被新规则反对，待 App.tsx 按领域拆分时逐步重构；`rules-of-hooks` 保持 error；`exhaustive-deps` 维持插件默认 warn。
 - 仓库卫生：`.gitignore` 新增 `frontend/test-results/`（Playwright 输出）与 `.agents/`（本地安装的 agent skills，非项目代码）；删除根目录遗留空目录树 `nonexistent-task-test/`（仅空目录、无文件）；修复 `docs/current-state.md` 一处 `+- ` diff 残留；补齐 `AGENTS.md` 常用命令（后端测试/lint/mypy、真实数据源验证、前端 typecheck/lint/build/test:visual 及 fnm PATH 提示）。
 - 实际验证：`cd frontend && corepack pnpm lint` 通过（0 error、21 warning，全部为已声明 warn 基线）；`corepack pnpm typecheck` 通过；`corepack pnpm build` 通过（Vite 10.66s）；`git diff --check` 通过；`corepack pnpm peers check` 无问题。后端无改动，未运行后端测试；视觉回归未运行（本轮改动为删除永不渲染的代码与 lint 基线，构建与类型检查已覆盖）。未执行 git add/commit/push。
+
+### 2026-08-20 只读成熟结果列表文档收口
+
+- 完成内容：在 `docs/使用文档.md` 说明导入数据页成熟结果列表的位置、只读边界、跨全部历史批次范围、归档/排除证据、六类状态、`pending`/`no_entry`/`unresolved` 与训练标签的区别，以及 `GET /v1/selection-maturity/page` 的 `status`、`page`、`page_size` 参数和分页/汇总契约。在 `docs/decisions.md` 记录列表与 ML readiness 统计口径一致、按候选与 tracking policy 保留最新结果及不恢复 Web 成熟执行入口的决策；在 `docs/current-state.md` 更新当前事实和最近一次更新。
+- 实际验证：`git diff --check -- docs/使用文档.md docs/decisions.md docs/current-state.md docs/session-log.md` 通过（仅 Windows 换行警告）；使用 `grep` 核对新增文档包含 `GET /v1/selection-maturity/page`、六类状态、归档/排除、`pending`、`no_entry`、`unresolved` 和只读边界。
+- 遗留问题：工作区仍包含本轮及此前未提交改动；未执行 git add/commit/push。

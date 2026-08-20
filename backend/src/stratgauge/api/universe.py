@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from stratgauge.data_pipeline.universe import (
@@ -230,3 +231,38 @@ def _matches(security: Security, query: str) -> bool:
         or query in security.local_code
         or bool(security.name and query in security.name.upper())
     )
+
+
+def create_universe_router(universe: UniverseSearchService) -> APIRouter:
+    """FastAPI router for point-in-time universe search endpoints."""
+    router = APIRouter(tags=["universe"])
+
+    @router.post("/v1/universe/overrides", response_model=SecurityOverrideRequest, status_code=201)
+    def create_universe_override(request: SecurityOverrideRequest) -> SecurityOverrideRequest:
+        return SecurityOverrideRequest.model_validate(
+            universe.create_override(request).model_dump()
+        )
+
+    @router.get("/v1/universe/master", response_model=SecurityMasterSearchResponse)
+    def search_security_master(
+        effective_date: date,
+        known_at: datetime,
+        query: str = "",
+        limit: int = 50,
+    ) -> SecurityMasterSearchResponse:
+        return universe.search_master(
+            query=query,
+            effective_date=effective_date,
+            known_at=known_at,
+            limit=limit,
+        )
+
+    @router.get("/v1/universe/securities", response_model=UniverseSearchResponse)
+    def search_universe(
+        as_of: datetime,
+        query: str = "",
+        limit: int = 50,
+    ) -> UniverseSearchResponse:
+        return universe.search(query=query, as_of=as_of, limit=limit)
+
+    return router

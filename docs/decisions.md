@@ -8,6 +8,14 @@
 
 ## 已确认决策
 
+### 2026-08-20：成熟状态列表只读投影与机器学习前置检查保持同一范围
+
+- 决定：导入数据页在机器学习前置检查之后展示独立的“成熟结果列表”，只调用 `GET /v1/selection-maturity/page`；不恢复成熟任务的 Web 创建/执行入口，也不在请求中启动行情、成熟、训练、评分或交易操作。
+- 决定：列表跨全部历史批次读取，包含归档批次和已排除候选；记录按“候选 + tracking policy”保留每个 policy 的最新客观结果。没有任何结果的候选显示为 `pending`（待成熟），`no_entry` 和 `unresolved` 保留为独立状态。
+- 决定：列表的 `status_counts` 始终统计全部范围的六类状态，`status` 筛选只影响当前 `items/total`；分页继续使用 `page/page_size/total/has_next`，并沿用既有状态语义色和分页控件。
+- 原因：用户需要在不改变事实账本和成熟执行边界的前提下检查历史覆盖。待成熟、未入场和未解决都不是可训练的 `win/loss/flat` 标签，归档与排除证据也必须与 ML readiness 统计保持一致。
+- 约束：该投影只读，不改变成熟任务 API、CLI、客观结果持久化格式或影子评分的 `used_for_decision=false` 边界。
+
 ### 2026-08-16：前端引入真实 ESLint，TypeScript 固定在 6.x 工具链线
 
 - 决定：新增 `frontend/eslint.config.js`（ESLint 10 flat config + typescript-eslint recommended + react-hooks recommended）；`lint` 脚本从重复的 `tsc` 改为 `eslint .`，类型检查继续由 `typecheck`/`build` 承担。

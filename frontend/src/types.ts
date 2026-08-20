@@ -1,7 +1,17 @@
-import type { Exchange, ManualFill, ManualOrder, PortfolioPosition } from '@/api/contracts'
+import type {
+  Exchange,
+  ManualFill,
+  ManualOrder,
+  MaturityStatus,
+  MaturityStatusCounts,
+  PortfolioPosition,
+} from '@/api/contracts'
+
+export type { MaturityStatus } from '@/api/contracts'
 
 
 export type HealthState = 'checking' | 'online' | 'offline'
+export type MaturityStatusFilter = 'all' | MaturityStatus
 export type Decision = 'buy_candidate' | 'watch' | 'pass' | 'invalid'
 export type AnnotationOutlook = 'bullish' | 'neutral' | 'bearish'
 export type AnnotationDecision = 'discard' | 'watch' | 'prepare_buy'
@@ -29,7 +39,7 @@ export type ReusableTagSnapshot = {
   category: ReusableTagCategory
   label: string
 }
-export type OutcomeStatus = 'win' | 'loss' | 'flat' | 'no_entry' | 'unresolved'
+export type OutcomeStatus = Exclude<MaturityStatus, 'pending'>
 export type Workspace = 'research' | 'management' | 'portfolio'
 export type AppRoute = 'workbench' | 'signals' | 'watchlist' | 'positions' | 'trades' | 'strategies' | 'analytics' | 'import' | 'settings'
 export type LifecycleStatus = 'active' | 'archived'
@@ -65,6 +75,7 @@ export type Outcome = {
   evaluated_at: string
   net_return: string | null
   reason: string
+  tracking_policy_id: string
 }
 
 export type PerformancePoint = {
@@ -162,6 +173,25 @@ export type BatchPage = {
   page_size: number
   total: number
   has_next: boolean
+}
+
+export type MaturityStatusItem = {
+  batch: Batch
+  candidate: Candidate
+  status: MaturityStatus
+  outcome: Outcome | null
+  latest_exclusion: Exclusion | null
+  excluded: boolean
+  active: boolean
+}
+
+export type MaturityStatusPage = {
+  items: MaturityStatusItem[]
+  page: number
+  page_size: number
+  total: number
+  has_next: boolean
+  status_counts: MaturityStatusCounts
 }
 
 export type StatsSummary = {

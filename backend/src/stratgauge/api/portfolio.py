@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
+from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from stratgauge.data_pipeline.portfolio_store import ManualPortfolioStore, PortfolioStoreError
@@ -17,6 +19,9 @@ from stratgauge.domain.portfolio import (
     PortfolioPosition,
     PortfolioReview,
 )
+
+if TYPE_CHECKING:
+    from stratgauge.api.selections import SelectionService
 
 
 class PortfolioApiError(Exception):
@@ -345,11 +350,9 @@ class PortfolioService:
 
 def create_portfolio_router(
     portfolio: PortfolioService,
-    selections: SelectionService | None = None,
+    selections: SelectionService,
 ) -> APIRouter:
     """FastAPI router for manual portfolio endpoints."""
-    from fastapi import APIRouter
-
     router = APIRouter(tags=["portfolio"])
 
     @router.get("/v1/positions", response_model=list[PortfolioPosition])
@@ -400,14 +403,13 @@ def create_portfolio_router(
                 "成交时间不能早于下单时间。",
                 422,
             )
-        if selections is not None:
-            candidate = selections.get_candidate(request.selection_candidate_id)
-            if candidate.local_code != request.local_code or candidate.exchange != request.exchange:
-                raise PortfolioApiError(
-                    "PORTFOLIO_TRADE_REJECTED",
-                    "实际买入的证券必须与候选证券一致。",
-                    422,
-                )
+        candidate = selections.get_candidate(request.selection_candidate_id)
+        if candidate.local_code != request.local_code or candidate.exchange != request.exchange:
+            raise PortfolioApiError(
+                "PORTFOLIO_TRADE_REJECTED",
+                "实际买入的证券必须与候选证券一致。",
+                422,
+            )
         return portfolio.record_candidate_trade(request)
 
     @router.post("/v1/portfolio-reviews", response_model=PortfolioReview, status_code=201)

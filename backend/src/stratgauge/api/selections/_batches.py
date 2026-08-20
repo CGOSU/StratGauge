@@ -33,15 +33,20 @@ from stratgauge.api.selections.views import (  # noqa: F401
     SelectionManagedFormulaView,
     SelectionManagementStatsView,
     SelectionMatureView,
+    SelectionMaturityStatus,
+    SelectionMaturityStatusPage,
+    SelectionMaturityStatusView,
     SelectionObservationPage,
     SelectionObservationView,
     SelectionStatsView,
 )
 from stratgauge.application.selection_management import SelectionApiError as SelectionApiError
 from stratgauge.application.selection_management import (
+    is_entity_active,
     page_slice,
     validate_page,
 )
+from stratgauge.backtest.selection_outcomes import latest_selection_outcomes
 from stratgauge.data_pipeline.manual_selection import (
     ManualSelectionCandidateInput,
     ManualSelectionError,
@@ -132,6 +137,88 @@ class BatchesMixin(SelectionServiceBase):
             total=total,
             has_next=has_next,
         )
+
+    def list_maturity_status_page(
+        self,
+        *,
+        status: SelectionMaturityStatus | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> SelectionMaturityStatusPage:
+        """Return the read-only maturity projection across all selection history."""
+
+        validate_page(page, page_size)
+        try:
+            manifests = self._store.list_manifests(include_archived=True)
+            imports = tuple(self._store.load_import(manifest.batch_id) for manifest in manifests)
+            batch_ids = tuple(imported.batch.batch_id for imported in imports)
+            candidate_ids = tuple(
+                candidate.candidate_id for imported in imports for candidate in imported.candidates
+            )
+            outcomes_by_candidate = self._store.list_outcomes_for_candidates(candidate_ids)
+            exclusions_by_candidate = self._store.list_exclusions_for_candidates(candidate_ids)
+            lifecycle_by_batch = self._store.list_lifecycle_events_for_entities(
+                "batch",
+                batch_ids,
+            )
+            rows: list[SelectionMaturityStatusView] = []
+            for imported in imports:
+                batch = imported.batch
+                active = is_entity_active(lifecycle_by_batch[batch.batch_id])
+                for candidate in imported.candidates:
+                    latest_exclusion = (
+                        exclusions_by_candidate[candidate.candidate_id][-1]
+                        if exclusions_by_candidate[candidate.candidate_id]
+                        else None
+                    )
+                    latest_outcomes = latest_selection_outcomes(
+                        outcomes_by_candidate[candidate.candidate_id]
+                    )
+                    outcomes = latest_outcomes or (None,)
+                    for outcome in outcomes:
+                        row_status = (
+                            SelectionMaturityStatus.PENDING
+                            if outcome is None
+                            else SelectionMaturityStatus(outcome.status.value)
+                        )
+                        rows.append(
+                            SelectionMaturityStatusView(
+                                batch=batch,
+                                candidate=candidate,
+                                status=row_status,
+                                outcome=outcome,
+                                latest_exclusion=latest_exclusion,
+                                excluded=latest_exclusion is not None,
+                                active=active,
+                            )
+                        )
+            rows.sort(
+                key=lambda item: (
+                    item.batch.selection_date,
+                    item.batch.batch_id,
+                    item.candidate.symbol,
+                    item.status.value,
+                    item.outcome.tracking_policy_id if item.outcome else "",
+                    item.outcome.evaluated_at if item.outcome else datetime.min.replace(tzinfo=UTC),
+                    item.candidate.candidate_id,
+                ),
+                reverse=True,
+            )
+            status_counts = {status_item.value: 0 for status_item in SelectionMaturityStatus}
+            for item in rows:
+                status_counts[item.status.value] += 1
+            filtered = tuple(item for item in rows if status is None or item.status is status)
+            page_items, total, has_next = page_slice(filtered, page, page_size)
+            return SelectionMaturityStatusPage(
+                items=page_items,
+                page=page,
+                page_size=page_size,
+                total=total,
+                has_next=has_next,
+                status_counts=status_counts,
+            )
+        except SelectionStoreError as exc:
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
 
     def list_batches_page(
         self,

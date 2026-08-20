@@ -570,6 +570,7 @@
   gap: var(--space-4);
   margin-top: var(--space-4);
   min-width: 0;
+  padding: var(--space-5);
 }
 
 .ml-readiness-heading,
@@ -730,6 +731,164 @@
   font-size: 0.78rem;
 }
 
+.maturity-status-panel {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  min-width: 0;
+  padding: var(--space-5);
+}
+
+.maturity-status-heading {
+  margin-bottom: 0;
+}
+
+.maturity-status-summary {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.maturity-status-toolbar {
+  align-items: end;
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  min-width: 0;
+}
+
+.maturity-status-filter {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.maturity-status-filter > span {
+  color: var(--color-heading-soft);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.maturity-status-counts {
+  align-items: center;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.maturity-status-counts span {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.maturity-status-counts strong {
+  color: var(--color-text);
+}
+
+.maturity-status-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.maturity-status-row {
+  align-items: start;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(0, 1.5fr);
+  min-width: 0;
+  padding: 14px;
+}
+
+.maturity-status-identity,
+.maturity-status-result,
+.maturity-status-evidence {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.maturity-status-identity strong {
+  color: var(--color-accent-strong);
+  font-size: 1rem;
+}
+
+.maturity-status-identity span,
+.maturity-status-identity small,
+.maturity-status-evidence span {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.maturity-status-identity small {
+  line-height: 1.45;
+}
+
+.maturity-status-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.maturity-status-evidence strong {
+  color: var(--color-text-soft);
+  flex: 1 1 100%;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.maturity-origin-badge--archived {
+  background: var(--color-warning-soft);
+  border-color: var(--color-warning-border);
+  color: var(--color-warning);
+}
+
+.maturity-origin-badge--excluded {
+  background: var(--color-danger-soft);
+  border-color: var(--color-danger-border);
+  color: var(--color-danger);
+}
+
+.maturity-status-error {
+  align-items: center;
+  background: var(--color-danger-soft);
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+}
+
+.maturity-status-error p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.maturity-status-loading {
+  display: grid;
+  gap: 10px;
+}
+
+.maturity-status-loading > div {
+  height: 74px;
+}
+
 .health-status--online {
   background: var(--color-success-soft);
   border-color: var(--color-success-border);
@@ -754,11 +913,28 @@
   box-shadow: var(--shadow-2);
 }
 
-.research-layout {
+.import-page-content,
+.import-main-flow,
+.import-support-panels {
   display: grid;
   gap: var(--space-5);
-  grid-template-columns: minmax(300px, 0.75fr) minmax(0, 1.25fr);
+  min-width: 0;
+}
+
+.import-support-panels {
+  align-items: start;
+}
+
+.import-page-content {
   margin-top: var(--space-5);
+}
+
+.research-layout {
+  align-items: start;
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0;
 }
 
 .management-workspace {
@@ -1278,7 +1454,6 @@
 }
 
 .import-form,
-.mature-form,
 .dialog-form {
   display: grid;
   gap: 14px;
@@ -1507,166 +1682,6 @@
   color: var(--color-danger);
   font-size: 0.82rem;
   margin: 0;
-}
-
-.mature-panel {
-  margin-top: 20px;
-}
-
-.maturity-task-heading-actions {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.maturity-action-button[data-saving="true"] {
-  border-color: var(--color-accent);
-  color: var(--color-accent-strong);
-}
-
-.maturity-task-loading {
-  display: grid;
-  gap: 10px;
-  margin-top: 20px;
-}
-
-.maturity-task-loading > div {
-  height: 112px;
-}
-
-.maturity-task-list {
-  display: grid;
-  gap: 12px;
-  margin-top: 20px;
-  min-width: 0;
-}
-
-.maturity-task-card {
-  background: var(--color-bg);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 0.65rem;
-  display: grid;
-  gap: 14px;
-  min-width: 0;
-  padding: 16px;
-}
-
-.maturity-task-card-heading {
-  align-items: flex-start;
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-  min-width: 0;
-}
-
-.maturity-task-card-heading > :last-child {
-  flex: 0 0 auto;
-}
-
-.maturity-task-identity {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.maturity-task-identity strong,
-.maturity-task-identity span {
-  overflow-wrap: anywhere;
-}
-
-.maturity-task-identity strong {
-  color: var(--color-text);
-}
-
-.maturity-task-identity span,
-.maturity-task-secondary-meta,
-.maturity-task-meta span {
-  color: var(--color-muted);
-  font-size: 0.78rem;
-  line-height: 1.5;
-}
-
-.maturity-task-meta {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.maturity-task-meta div {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.maturity-task-meta strong {
-  color: var(--color-heading-soft);
-  overflow-wrap: anywhere;
-}
-
-.maturity-task-secondary-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px 14px;
-  min-width: 0;
-}
-
-.maturity-task-secondary-meta span {
-  overflow-wrap: anywhere;
-}
-
-.maturity-task-feedback {
-  align-items: baseline;
-  background: var(--color-warning-soft-strong);
-  border: 1px solid var(--color-warning-border-strong);
-  border-radius: 0.5rem;
-  color: var(--color-warning);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  line-height: 1.5;
-  margin: 0;
-  overflow-wrap: anywhere;
-  padding: 8px 10px;
-}
-
-.maturity-task-feedback .retryable {
-  color: var(--color-success);
-}
-
-.maturity-task-feedback .not-retryable {
-  color: var(--color-danger);
-}
-
-.maturity-task-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.maturity-status--queued,
-.maturity-status--running {
-  background: var(--color-info-soft);
-  border-color: var(--color-info-border);
-  color: var(--color-accent-dark);
-}
-
-.maturity-status--completed {
-  background: var(--color-success-soft);
-  border-color: var(--color-success-border);
-  color: var(--color-success);
-}
-
-.maturity-status--partial {
-  background: var(--color-warning-soft);
-  border-color: var(--color-warning-border);
-  color: var(--color-warning);
-}
-
-.maturity-status--failed {
-  background: var(--color-danger-soft);
-  border-color: var(--color-danger-border);
-  color: var(--color-danger);
 }
 
 .form-hint {
@@ -2552,13 +2567,6 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .mature-form {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .maturity-task-meta {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 640px) {
@@ -2620,6 +2628,16 @@
     justify-content: flex-start;
   }
 
+  .maturity-status-toolbar,
+  .maturity-status-row {
+    grid-template-columns: 1fr;
+  }
+
+  .maturity-status-error {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .ml-readiness-summary,
   .ml-readiness-details {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2644,31 +2662,12 @@
   }
 
   .candidate-row,
-  .mature-form,
   .portfolio-entry-grid,
   .portfolio-search-form,
   .portfolio-ledger-grid,
   .portfolio-fill-cost-grid,
-  .manual-entry-fields,
-  .maturity-task-meta {
+  .manual-entry-fields {
     grid-template-columns: 1fr;
-  }
-
-  .maturity-section-heading {
-    display: block;
-  }
-
-  .maturity-task-heading-actions {
-    justify-content: flex-start;
-    margin-top: 12px;
-  }
-
-  .maturity-task-card-heading {
-    flex-direction: column;
-  }
-
-  .maturity-task-card-heading > :last-child {
-    align-self: flex-start;
   }
 
   .manual-entry-fields > button {
@@ -3084,7 +3083,6 @@
     margin-top: 0;
   }
 
-  .app-content-shell .research-layout,
   .app-content-shell .management-workspace,
   .app-content-shell .portfolio-workspace {
     margin-top: 20px;
@@ -3831,7 +3829,6 @@
     box-shadow: -12px 0 36px rgb(15 23 42 / 15%);
     display: flex;
     flex-direction: column;
-    height: 100%;
     pointer-events: auto;
     position: absolute;
     right: 0;
@@ -3931,6 +3928,7 @@
 
   .stock-drawer-body {
     min-height: 0;
+    max-height: 1200px;
     overflow: auto;
     padding: 18px 22px 30px;
   }
