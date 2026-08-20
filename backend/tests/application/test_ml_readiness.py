@@ -5,13 +5,24 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from stratgauge.application.ml_readiness import MLReadinessService
+from stratgauge.data_pipeline.ingest import ingest
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
+from stratgauge.data_pipeline.store import SnapshotStore
 from stratgauge.data_pipeline.tdx_import import import_tdx_export
+from stratgauge.data_sources.akshare import AKShareAdapter
+from stratgauge.data_sources.base import DailyBarRequest, IndexDailyRequest
+from stratgauge.domain.models import Exchange, Security
 from stratgauge.domain.selections import (
     SelectionOutcome,
     SelectionOutcomeStatus,
     TdxSelectionImport,
 )
+
+
+class _OtherIndexDailyRequest(DailyBarRequest):
+    @property
+    def request_kind(self) -> str:
+        return "index_daily"
 
 
 class MLReadinessTests(unittest.TestCase):
@@ -72,6 +83,73 @@ class MLReadinessTests(unittest.TestCase):
             self.assertTrue(any("index_daily" in blocker for blocker in report.blockers))
             self.assertTrue(any("特征快照不足" in blocker for blocker in report.blockers))
 
+    def test_only_approved_csi300_index_daily_counts_as_benchmark_evidence(self) -> None:
+        with TemporaryDirectory() as selection_directory, TemporaryDirectory() as directory:
+            market_root = Path(directory) / "market"
+            _write_approved_market_snapshot(
+                market_root,
+                _OtherIndexDailyRequest(
+                    security=Security(
+                        security_id="index-000905.SH",
+                        local_code="000905",
+                        symbol="000905.SH",
+                        exchange=Exchange.SH,
+                    ),
+                    start_date=date(2026, 1, 5),
+                    end_date=date(2026, 1, 5),
+                ),
+            )
+            _write_approved_market_snapshot(
+                market_root,
+                DailyBarRequest(
+                    security=Security(
+                        security_id="security-000001.SZ",
+                        local_code="000001",
+                        symbol="000001.SZ",
+                        exchange=Exchange.SZ,
+                    ),
+                    start_date=date(2026, 1, 5),
+                    end_date=date(2026, 1, 5),
+                ),
+            )
+            (market_root / "manifests" / "invalid.json").write_text("{}", encoding="utf-8")
+
+            service = MLReadinessService(
+                SelectionImportStore(selection_directory),
+                data_root=Path(directory) / "data",
+                market_root=market_root,
+                model_root=Path(directory) / "models",
+            )
+            without_supported_benchmark = service.get_readiness()
+            self.assertEqual(without_supported_benchmark.benchmark_snapshot_count, 0)
+            self.assertTrue(
+                any(
+                    "缺少已批准的 000300.SH" in blocker
+                    for blocker in without_supported_benchmark.blockers
+                )
+            )
+
+            _write_approved_market_snapshot(
+                market_root,
+                IndexDailyRequest(
+                    security=Security(
+                        security_id="index-000300.SH",
+                        local_code="000300",
+                        symbol="000300.SH",
+                        exchange=Exchange.SH,
+                    ),
+                    start_date=date(2026, 1, 5),
+                    end_date=date(2026, 1, 5),
+                ),
+            )
+            report = service.get_readiness()
+
+            self.assertEqual(report.benchmark_snapshot_count, 1)
+            self.assertEqual(report.invalid_market_manifest_count, 1)
+            self.assertFalse(
+                any("缺少已批准的 000300.SH" in blocker for blocker in report.blockers)
+            )
+
     def test_pending_candidate_is_not_counted_as_training_label(self) -> None:
         with TemporaryDirectory() as selection_directory, TemporaryDirectory() as directory:
             store = SelectionImportStore(selection_directory)
@@ -104,6 +182,31 @@ class MLReadinessTests(unittest.TestCase):
             self.assertEqual(report.outcome_counts["unresolved"], 1)
             self.assertNotIn("no_entry", report.target_counts)
             self.assertNotIn("unresolved", report.target_counts)
+
+
+def _write_approved_market_snapshot(root: Path, request: DailyBarRequest) -> None:
+    result = ingest(
+        AKShareAdapter(
+            fetcher=lambda _: [
+                {
+                    "日期": "2026-01-05",
+                    "开盘": "10.00",
+                    "最高": "10.50",
+                    "最低": "9.80",
+                    "收盘": "10.20",
+                    "成交量": "1000",
+                    "成交额": "10200",
+                }
+            ],
+            clock=lambda: datetime(2026, 1, 6, 8, tzinfo=UTC),
+        ),
+        request,
+        SnapshotStore(root),
+        expected_sessions=[date(2026, 1, 5)],
+        expected_security_ids=[request.security.security_id],
+    )
+    if not result.quality.approved:
+        raise AssertionError("test market fixture must be approved")
 
 
 def _write_batch(store: SelectionImportStore, count: int) -> TdxSelectionImport:

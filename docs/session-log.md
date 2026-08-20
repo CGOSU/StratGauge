@@ -2,6 +2,13 @@
 
 本文件按时间追加每次工作的完成内容、实际验证和遗留问题，不记录敏感信息或未经验证的结果。
 
+### 2026-08-20 数据导入、独立基准证据与走步结果边界收口
+
+- 完成内容：完成只读成熟结果列表及 API 回归收口；新增只允许 `000300.SH` 的 `IndexDailyRequest`、Tushare `index_daily` 适配和 `sync_tushare_index_daily.py`，复用不可变 `ingest`/`SnapshotStore` 快照管道；`MLReadinessService` 只认可已批准、日期匹配的独立 `000300.SH` `index_daily` 快照；将 walk-forward 客观结果索引、收益/回撤/换手计算和日期/Decimal 解析提取到 `backend/src/stratgauge/ml/walk_forward_outcomes.py`，保留公共 API、报告身份、哈希输入、计算语义和异常文字。
+- 研究边界：本轮没有执行真实 Tushare 请求，没有执行成熟任务、事后行情/特征生成、训练、模型注册或 shadow；没有恢复成熟任务 Web 执行入口，也没有在 API 请求中启动后台线程。
+- 实际验证：`cd backend && PYTHONPATH=src uv run python -m unittest tests.ml.test_walk_forward -v`（7 项通过）；`cd backend && PYTHONPATH=src uv run python -m unittest discover -s tests -t . -q`（371 项通过、1 项跳过）；`cd backend && uv run ruff check .`（通过）；`cd backend && uv run ruff format --check .`（316 个文件已格式化）；`cd backend && uv run mypy`（317 个源文件通过）；`git diff --check`（通过，仅 Windows 换行转换提示）。
+- 遗留问题：当前本地 readiness 仍缺足量成熟标签、特征快照和独立基准证据；`master` 未配置远程仓库，未执行 commit/push；未跟踪 `.zcode/` 保留且未纳入。
+
 ## 记录格式
 
 每次记录应包含日期、完成内容、实际执行的验证及遗留问题。

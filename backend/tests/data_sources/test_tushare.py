@@ -9,7 +9,12 @@ from typing import Any, cast
 from unittest.mock import patch
 
 from stratgauge.data_pipeline.universe import UniverseSnapshotStore, build_universe_snapshot
-from stratgauge.data_sources.base import AdapterError, DailyBarRequest, RetryableAdapterError
+from stratgauge.data_sources.base import (
+    AdapterError,
+    DailyBarRequest,
+    IndexDailyRequest,
+    RetryableAdapterError,
+)
 from stratgauge.data_sources.tushare import TushareAdapter
 from stratgauge.data_sources.tushare_api import TushareRetryPolicy, TushareTransport
 from stratgauge.data_sources.tushare_reference import (
@@ -193,16 +198,18 @@ class FakeConnection:
 
 
 class _RecordingTransport:
-    def __init__(self) -> None:
+    def __init__(self, index_symbol: str = "000300.SH") -> None:
         self.closed = 0
+        self.index_symbol = index_symbol
         self.queries: list[tuple[str, Mapping[str, str]]] = []
 
     def query(self, endpoint: str, params: Mapping[str, str]) -> tuple[dict[str, Any], ...]:
         self.queries.append((endpoint, params))
+        symbol = self.index_symbol if endpoint == "index_daily" else "000001.SZ"
         return (
             {
                 "trade_date": "20260105",
-                "ts_code": "000001.SZ",
+                "ts_code": symbol,
                 "pre_close": "10.00",
                 "open": "10.10",
                 "high": "10.50",
@@ -375,6 +382,62 @@ class TushareTransportTests(unittest.TestCase):
         self.assertEqual(result.bars[0].symbol, "000001.SZ")
         self.assertEqual(transport.queries[0][0], "daily")
         self.assertEqual(transport.closed, 1)
+
+    def test_index_daily_uses_dedicated_endpoint_and_benchmark_scope(self) -> None:
+        transport = _RecordingTransport()
+        adapter = TushareAdapter(
+            transport=transport,
+            clock=lambda: datetime(2026, 1, 6, 8, tzinfo=UTC),
+        )
+        security = Security(
+            security_id="index-000300.SH",
+            local_code="000300",
+            symbol="000300.SH",
+            exchange=Exchange.SH,
+        )
+        result = adapter.fetch_daily_bars(
+            IndexDailyRequest(
+                security=security,
+                start_date=date(2026, 1, 5),
+                end_date=date(2026, 1, 5),
+            )
+        )
+
+        self.assertEqual(result.request.request_kind, "index_daily")
+        self.assertEqual(transport.queries[0][0], "index_daily")
+        self.assertEqual(result.bars[0].symbol, "000300.SH")
+        with self.assertRaises(ValueError):
+            IndexDailyRequest(
+                security=Security(
+                    security_id="index-000905.SH",
+                    local_code="000905",
+                    symbol="000905.SH",
+                    exchange=Exchange.SH,
+                ),
+                start_date=date(2026, 1, 5),
+                end_date=date(2026, 1, 5),
+            )
+
+    def test_index_daily_rejects_provider_rows_for_other_symbols(self) -> None:
+        adapter = TushareAdapter(
+            transport=_RecordingTransport(index_symbol="000001.SZ"),
+            clock=lambda: datetime(2026, 1, 6, 8, tzinfo=UTC),
+        )
+        security = Security(
+            security_id="index-000300.SH",
+            local_code="000300",
+            symbol="000300.SH",
+            exchange=Exchange.SH,
+        )
+
+        with self.assertRaises(AdapterError):
+            adapter.fetch_daily_bars(
+                IndexDailyRequest(
+                    security=security,
+                    start_date=date(2026, 1, 5),
+                    end_date=date(2026, 1, 5),
+                )
+            )
 
     def test_proxy_selection_uses_environment_and_closes_transport_context(self) -> None:
         connection = FakeConnection([FakeResponse(200, self.success_payload())])

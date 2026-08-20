@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 from stratgauge.data_sources.base import (
+    INDEX_DAILY_BENCHMARK_SYMBOL,
     AdapterError,
     AdapterResult,
     AdjustmentFactorAdapterResult,
@@ -16,6 +17,7 @@ from stratgauge.data_sources.base import (
     Clock,
     DailyBarRequest,
     Fetcher,
+    IndexDailyRequest,
     MarketAdapterResult,
     MarketDailyRequest,
     MarketDataAdapter,
@@ -67,6 +69,8 @@ class TushareAdapter(MarketDataAdapter, AdjustmentFactorDataAdapter):
         try:
             raw_records = tuple(self._fetcher(request))
             contract_records = tuple(_to_contract_row(row) for row in raw_records)
+            if isinstance(request, IndexDailyRequest):
+                _validate_index_daily_rows(contract_records)
             bars = normalize_daily_rows(
                 contract_records,
                 request,
@@ -218,14 +222,28 @@ class TushareAdapter(MarketDataAdapter, AdjustmentFactorDataAdapter):
         )
 
     def _fetch_from_tushare(self, request: DailyBarRequest) -> Iterable[Mapping[str, Any]]:
+        endpoint = "index_daily" if isinstance(request, IndexDailyRequest) else "daily"
+        if endpoint == "index_daily" and request.security.symbol != INDEX_DAILY_BENCHMARK_SYMBOL:
+            raise AdapterError(f"index_daily request must target {INDEX_DAILY_BENCHMARK_SYMBOL}")
         return self._transport.query(
-            "daily",
+            endpoint,
             {
                 "ts_code": request.security.symbol,
                 "start_date": request.start_date.strftime("%Y%m%d"),
                 "end_date": request.end_date.strftime("%Y%m%d"),
             },
         )
+
+
+def _validate_index_daily_rows(rows: Iterable[Mapping[str, Any]]) -> None:
+    unexpected_symbols = {
+        str(row["code"]).strip().upper()
+        for row in rows
+        if str(row["code"]).strip().upper() != INDEX_DAILY_BENCHMARK_SYMBOL
+    }
+    if unexpected_symbols:
+        symbols = ", ".join(sorted(unexpected_symbols))
+        raise AdapterError(f"Tushare index_daily returned unexpected symbols: {symbols}")
 
 
 def _to_adjustment_factor_contract_row(row: Mapping[str, Any]) -> dict[str, Any]:

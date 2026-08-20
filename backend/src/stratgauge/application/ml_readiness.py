@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,10 @@ from pydantic import Field
 from stratgauge.backtest.selection_outcomes import latest_selection_outcomes
 from stratgauge.data_pipeline.selection_store import SelectionImportStore, SelectionStoreError
 from stratgauge.data_pipeline.store import SnapshotManifest, SnapshotStatus
+from stratgauge.data_sources.base import (
+    INDEX_DAILY_BENCHMARK_SYMBOL,
+    DailyBarRequest,
+)
 from stratgauge.domain.models import DomainModel
 from stratgauge.domain.selections import SelectionOutcomeStatus
 from stratgauge.features.contract import FeatureSnapshot
@@ -237,7 +242,11 @@ class MLReadinessService:
             if manifest.status is not SnapshotStatus.APPROVED:
                 continue
             if manifest.request_kind == "index_daily":
-                benchmark_count += 1
+                symbol = _read_index_daily_symbol(manifest, self._market_root)
+                if symbol is None:
+                    invalid_count += 1
+                elif symbol == INDEX_DAILY_BENCHMARK_SYMBOL:
+                    benchmark_count += 1
             elif manifest.request_kind == "adjustment_factor":
                 factor_count += 1
         return _MarketEvidence(benchmark_count, factor_count, invalid_count)
@@ -407,6 +416,17 @@ class MLReadinessService:
         if not steps:
             steps.append("当前证据已满足就绪门，可查看 CLI 文档执行下一步人工机器学习流水线。")
         return steps
+
+
+def _read_index_daily_symbol(manifest: SnapshotManifest, market_root: Path) -> str | None:
+    try:
+        payload = json.loads((market_root / manifest.raw_path).read_text(encoding="utf-8"))
+        request = DailyBarRequest.model_validate(payload["request"])
+    except (KeyError, OSError, TypeError, ValueError):
+        return None
+    if request.start_date != manifest.start_date or request.end_date != manifest.end_date:
+        return None
+    return request.security.symbol
 
 
 def _stage_for(

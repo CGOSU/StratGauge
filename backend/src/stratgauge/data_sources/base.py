@@ -13,6 +13,8 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from stratgauge.domain.models import AdjustmentFactor, DailyBar, Security
 
 SHANGHAI = timezone(timedelta(hours=8), name="Asia/Shanghai")
+INDEX_DAILY_BENCHMARK_SYMBOL = "000300.SH"
+INDEX_DAILY_BENCHMARK_SECURITY_ID = "index-000300.SH"
 
 
 class AdapterError(RuntimeError):
@@ -81,6 +83,20 @@ class DailyBarRequest(BaseModel):
     def validate_range(self) -> DailyBarRequest:
         if self.end_date < self.start_date:
             raise ValueError("end_date must not precede start_date")
+        return self
+
+
+class IndexDailyRequest(DailyBarRequest):
+    """A daily request for the explicitly supported CSI 300 index benchmark."""
+
+    @property
+    def request_kind(self) -> str:
+        return "index_daily"
+
+    @model_validator(mode="after")
+    def validate_benchmark(self) -> IndexDailyRequest:
+        if self.security.symbol != INDEX_DAILY_BENCHMARK_SYMBOL:
+            raise ValueError(f"index_daily request must target {INDEX_DAILY_BENCHMARK_SYMBOL}")
         return self
 
 

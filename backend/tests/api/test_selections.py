@@ -4,13 +4,14 @@ import unittest
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from tempfile import TemporaryDirectory
-from typing import Any, cast
 from unittest.mock import patch
 
 from fastapi.responses import StreamingResponse
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from stratgauge.api.app import create_app
+from stratgauge.api.selections import SelectionService, create_selections_router
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.base import DailyBarRequest
@@ -240,11 +241,16 @@ class SelectionApiTests(unittest.TestCase):
             second["batch"]["batch_id"],
         )
         self.assertIn("filename=selection-", dataset.headers["content-disposition"])
-        app = cast(Any, self.client.app)
+        selection_router = create_selections_router(
+            SelectionService(self.store),
+            adapter_factory=lambda _: AKShareAdapter(),
+            market_root=self.directory.name,
+        )
         stream_route = next(
             route
-            for route in app.routes
-            if getattr(route, "path", None) == "/v1/data-management/batches/{batch_id}/dataset"
+            for route in selection_router.routes
+            if isinstance(route, APIRoute)
+            and route.path == "/v1/data-management/batches/{batch_id}/dataset"
         )
         stream_response = stream_route.endpoint(second["batch"]["batch_id"])
         self.assertIsInstance(stream_response, StreamingResponse)
