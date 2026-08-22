@@ -1,0 +1,186 @@
+{
+  "version": 1,
+  "cases": {
+    "/healthz": {
+      "expected_status": 200
+    },
+    "/v1/annotation-tags": {
+      "expected_status": 200
+    },
+    "/v1/data-management/annotation-tags": {
+      "expected_status": 200
+    },
+    "/v1/data-management/batches": {
+      "expected_status": 200
+    },
+    "/v1/data-management/batches/page": {
+      "query": {
+        "page": 1,
+        "page_size": 50
+      },
+      "expected_status": 200
+    },
+    "/v1/data-management/batches/{batch_id}": {
+      "skip_reason": "需要有效 batch_id；隔离测试数据根不创建业务批次。"
+    },
+    "/v1/data-management/batches/{batch_id}/annotation-dataset": {
+      "skip_reason": "需要有效 batch_id；流式下载接口不使用猜测 ID。"
+    },
+    "/v1/data-management/batches/{batch_id}/dataset": {
+      "skip_reason": "需要有效 batch_id；流式下载接口不使用猜测 ID。"
+    },
+    "/v1/data-management/batches/{batch_id}/raw": {
+      "skip_reason": "需要有效 batch_id；原始文件下载不使用猜测 ID。"
+    },
+    "/v1/data-management/formulas": {
+      "expected_status": 200
+    },
+    "/v1/data-management/stats": {
+      "expected_status": 200
+    },
+    "/v1/formulas": {
+      "expected_status": 200
+    },
+    "/v1/manual-fills": {
+      "expected_status": 200
+    },
+    "/v1/manual-orders": {
+      "expected_status": 200
+    },
+    "/v1/market-sync/tasks": {
+      "query": {
+        "page": 1,
+        "page_size": 50
+      },
+      "expected_status": 200
+    },
+    "/v1/market-sync/tasks/{job_id}": {
+      "skip_reason": "需要有效 job_id；隔离测试数据根不创建行情同步任务。"
+    },
+    "/v1/ml/readiness": {
+      "expected_status": 200
+    },
+    "/v1/portfolio-reviews": {
+      "expected_status": 200
+    },
+    "/v1/positions": {
+      "expected_status": 200
+    },
+    "/v1/selection-batches": {
+      "expected_status": 200
+    },
+    "/v1/selection-batches/page": {
+      "query": {
+        "page": 1,
+        "page_size": 50
+      },
+      "expected_status": 200
+    },
+    "/v1/selection-batches/{batch_id}": {
+      "skip_reason": "需要有效 batch_id；隔离测试数据根不创建业务批次。"
+    },
+    "/v1/selection-batches/{batch_id}/candidates/{candidate_id}/analysis": {
+      "skip_reason": "需要有效 batch_id 和 candidate_id；隔离测试数据根不创建候选。"
+    },
+    "/v1/selection-batches/{batch_id}/candidates/{candidate_id}/model-scores": {
+      "skip_reason": "需要有效 batch_id 和 candidate_id；隔离测试数据根不创建候选。"
+    },
+    "/v1/selection-batches/{batch_id}/maturity-tasks": {
+      "skip_reason": "需要有效 batch_id；隔离测试数据根不创建业务批次。"
+    },
+    "/v1/selection-batches/{batch_id}/recommendation-workbench": {
+      "skip_reason": "需要有效 batch_id；隔离测试数据根不创建业务批次。"
+    },
+    "/v1/selection-batches/{batch_id}/stats": {
+      "skip_reason": "需要有效 batch_id；隔离测试数据根不创建业务批次。"
+    },
+    "/v1/selection-maturity/page": {
+      "query": {
+        "page": 1,
+        "page_size": 50
+      },
+      "expected_status": 200
+    },
+    "/v1/selection-observation-pool": {
+      "query": {
+        "include_excluded": "false"
+      },
+      "expected_status": 200
+    },
+    "/v1/selection-observation-pool/page": {
+      "query": {
+        "include_excluded": "false",
+        "page": 1,
+        "page_size": 50
+      },
+      "expected_status": 200
+    },
+    "/v1/stocks/{symbol}/analysis": {
+      "skip_reason": "需要有效证券和 as_of；隔离测试数据根不提供股票分析记录。"
+    },
+    "/v1/universe/master": {
+      "skip_reason": "需要有效 effective_date、known_at 和时间点主数据快照；隔离测试数据根不提供该证据。"
+    },
+    "/v1/universe/securities": {
+      "skip_reason": "需要有效 as_of 和时间点股票池快照；隔离测试数据根不提供该证据。"
+    },
+    "/v1/workbench/analytics": {
+      "query": {
+        "as_of": "2026-01-05T18:00:00+00:00"
+      },
+      "expected_status": 200
+    },
+    "/v1/workbench/daily-signals": {
+      "query": {
+        "as_of": "2026-01-05T18:00:00+00:00"
+      },
+      "expected_status": 200
+    },
+    "/v1/workbench/daily-signals/page": {
+      "query": {
+        "as_of": "2026-01-05T18:00:00+00:00",
+        "page": 1,
+        "page_size": 50
+      },
+      "expected_status": 200
+    },
+    "/v1/workbench/positions": {
+      "query": {
+        "as_of": "2026-01-05T18:00:00+00:00"
+      },
+      "expected_status": 200
+    },
+    "/v1/workbench/stocks/{symbol}": {
+      "skip_reason": "需要有效证券信号；隔离测试数据根不创建候选。"
+    },
+    "/v1/workbench/strategies": {
+      "query": {
+        "as_of": "2026-01-05T18:00:00+00:00"
+      },
+      "expected_status": 200
+    },
+    "/v1/workbench/summary": {
+      "query": {
+        "as_of": "2026-01-05T18:00:00+00:00"
+      },
+      "expected_status": 200
+    },
+    "/v1/workbench/trades": {
+      "expected_status": 200
+    },
+    "/v1/workbench/watchlist": {
+      "query": {
+        "as_of": "2026-01-05T18:00:00+00:00"
+      },
+      "expected_status": 200
+    },
+    "/v1/workbench/watchlist/page": {
+      "query": {
+        "as_of": "2026-01-05T18:00:00+00:00",
+        "page": 1,
+        "page_size": 50
+      },
+      "expected_status": 200
+    }
+  }
+}
