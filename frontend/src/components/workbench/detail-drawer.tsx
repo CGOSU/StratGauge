@@ -348,6 +348,7 @@ export function StockDetailDrawer({
           ))}
         </nav>
         <div className="stock-drawer-body">
+          <div>
           {tab === 'market' && (
             <section className="drawer-tab-panel" aria-labelledby="drawer-market-title">
               <div className="drawer-section-heading"><h3 id="drawer-market-title">批准行情证据</h3><span>{detail.market.provider ?? '本地快照'}</span></div>
@@ -409,6 +410,7 @@ export function StockDetailDrawer({
               ))}
             </div>
           </section>
+          </div>
         </div>
       </aside>
     </div>
