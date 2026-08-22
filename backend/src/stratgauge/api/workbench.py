@@ -67,14 +67,16 @@ def create_workbench_router(service: WorkbenchService) -> APIRouter:
         page: int = Query(default=1, ge=1),
         page_size: int = Query(default=50, ge=1, le=200),
     ) -> WorkbenchSignalPage:
-        items = service.list_daily_signals(
+        items, total = service.list_daily_signals_page(
             selection_date=selection_date,
             query=query,
             review_state=review_state,
             include_excluded=include_excluded,
             as_of=as_of,
+            page=page,
+            page_size=page_size,
         )
-        return _page(items, page, page_size)
+        return _page(items, page, page_size, total=total)
 
     @router.get("/watchlist", response_model=tuple[WorkbenchSignalView, ...])
     def list_watchlist(
@@ -90,7 +92,13 @@ def create_workbench_router(service: WorkbenchService) -> APIRouter:
         page: int = Query(default=1, ge=1),
         page_size: int = Query(default=50, ge=1, le=200),
     ) -> WorkbenchSignalPage:
-        return _page(service.list_watchlist(query=query, as_of=as_of), page, page_size)
+        items, total = service.list_watchlist_page(
+            query=query,
+            as_of=as_of,
+            page=page,
+            page_size=page_size,
+        )
+        return _page(items, page, page_size, total=total)
 
     @router.get("/strategies", response_model=tuple[WorkbenchStrategyView, ...])
     def list_strategies(as_of: datetime | None = None) -> tuple[WorkbenchStrategyView, ...]:
@@ -122,15 +130,16 @@ def _page(
     items: tuple[WorkbenchSignalView, ...],
     page: int,
     page_size: int,
+    *,
+    total: int,
 ) -> WorkbenchSignalPage:
-    start = (page - 1) * page_size
-    end = start + page_size
+    end = page * page_size
     return WorkbenchSignalPage(
-        items=items[start:end],
+        items=items,
         page=page,
         page_size=page_size,
-        total=len(items),
-        has_next=end < len(items),
+        total=total,
+        has_next=end < total,
     )
 
 

@@ -36,7 +36,7 @@ function App() {
     return () => controller.abort()
   }, [])
 
-  const data = useImportData(apiBase, workspace)
+  const data = useImportData(apiBase, activeRoute === 'import')
 
   function navigateTo(route: AppRoute) {
     setActiveRoute(route)
@@ -78,7 +78,11 @@ function App() {
       ) : workspace === 'management' ? (
         <DataManagementWorkspace
           apiBase={apiBase}
-          onFormulaCreated={() => void data.loadFormulas()}
+          onFormulaCreated={() => {
+            if (activeRoute === 'import') {
+              void data.loadFormulas()
+            }
+          }}
         />
       ) : workspace === 'portfolio' ? (
         <PortfolioWorkspace

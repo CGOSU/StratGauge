@@ -2,6 +2,19 @@
 
 本文件按时间追加每次工作的完成内容、实际验证和遗留问题，不记录敏感信息或未经验证的结果。
 
+### 2026-08-22 Web 列表读取优化收口
+
+- 完成内容：后端工作台、成熟结果和数据管理列表改为先过滤/排序/分页、再批量读取当前页详情；保留事实文件和索引回退路径，并保持旧完整列表、公开响应和成熟全范围状态统计。前端导入数据按路由加载，工作台搜索防抖且取消过期请求，刷新期间保留旧列表；统计和成熟结果按需读取，旧手工台账展开后挂载。未修改既有详情抽屉、样式文件或 `.zcode/`，未执行 commit/push。
+- 实际验证：后端相关回归此前执行为 376 项通过、1 项跳过；变更后的前端 `cd frontend && corepack pnpm typecheck`、`corepack pnpm build`、`corepack pnpm lint` 均通过。`cd frontend && corepack pnpm exec playwright test tests/visual/ml-readiness.spec.ts` 为 3 项通过；`portfolio-order-lifecycle.spec.ts` 为 2 项通过；完整 `corepack pnpm test:visual` 为 6 项通过、3 项主板行情同步截图比较失败。`git diff --check` 通过，仅有 Windows 换行转换提示。
+- 遗留问题：完整视觉回归的 3 个失败未通过覆盖既有 `frontend/src/styles.css` 或更新无关快照处理；ML readiness 仍在进入导入页时加载，当前任务允许范围只延迟了导入数据 hook、成熟列表、统计和旧手工台账；尚未连接运行中服务建立真实延迟基线。
+
+### 2026-08-22 顺序 GET 接口性能巡检
+
+- 完成内容：新增 `backend/scripts/benchmark_get_endpoints.py` 和版本化 `backend/scripts/benchmark_get_cases.json`。CLI 通过运行中 FastAPI 的 `/openapi.json` 发现 43 个 GET 路由，严格校验样例双向覆盖；28 个可运行查询使用安全分页/时间参数，15 个动态 ID、时间点证据或流式下载接口写明 `skip_reason`。每个可运行样例预热后顺序请求，输出状态码、响应字节数、中位/最大耗时；不输出响应正文，不启动服务、不写入业务数据。配置错误为退出码 2，HTTP、网络和阈值失败为退出码 1。
+- 测试边界：新增隔离 `create_app()` 回归测试，使用临时数据根、provider 哨兵和 TestClient 验证正式清单与 OpenAPI 一致且全部可运行样例返回 200；没有访问网络或真实数据根，也没有把机器相关性能阈值接入 CI。
+- 实际验证：`cd backend && PYTHONPATH=src uv run python -m unittest tests.test_benchmark_get_endpoints tests.test_benchmark_get_cases -v`（8 项通过）；`cd backend && PYTHONPATH=src uv run python -m unittest discover -s tests -t . -q`（384 项通过、1 项跳过）；`cd backend && python -m json.tool scripts/benchmark_get_cases.json > NUL`（通过）；相关 Ruff check/format check 和 `uv run mypy`（320 个源文件）通过。
+- 遗留问题：尚未连接运行中的真实服务执行一次实际延迟巡检，因此本轮没有性能数值或 CI 基线；工作树仍包含其他协作者未提交改动，未执行 commit/push，未跟踪 `.zcode/` 保留且未纳入。
+
 ### 2026-08-20 数据导入、独立基准证据与走步结果边界收口
 
 - 完成内容：完成只读成熟结果列表及 API 回归收口；新增只允许 `000300.SH` 的 `IndexDailyRequest`、Tushare `index_daily` 适配和 `sync_tushare_index_daily.py`，复用不可变 `ingest`/`SnapshotStore` 快照管道；`MLReadinessService` 只认可已批准、日期匹配的独立 `000300.SH` `index_daily` 快照；将 walk-forward 客观结果索引、收益/回撤/换手计算和日期/Decimal 解析提取到 `backend/src/stratgauge/ml/walk_forward_outcomes.py`，保留公共 API、报告身份、哈希输入、计算语义和异常文字。

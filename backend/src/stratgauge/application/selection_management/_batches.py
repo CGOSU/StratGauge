@@ -16,6 +16,7 @@ from stratgauge.backtest.selection_outcomes import latest_selection_outcomes
 from stratgauge.data_pipeline.selection_store import SelectionStoreError
 from stratgauge.domain.selections import (
     SelectionLifecycleStatus,
+    TdxSelectionImport,
 )
 
 if TYPE_CHECKING:
@@ -38,7 +39,6 @@ from stratgauge.application.selection_management.export_rows import (  # noqa: F
 )
 from stratgauge.application.selection_management.pagination import (  # noqa: F401
     is_entity_active,
-    page_slice,
     validate_page,
 )
 
@@ -66,54 +66,60 @@ class BatchesMixin(SelectionManagementBase):
         except SelectionStoreError as exc:
             raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
 
-    def list_managed_batches(self) -> tuple[SelectionManagedBatchView, ...]:
+    def _managed_batch_views(
+        self,
+        imports: tuple[TdxSelectionImport, ...],
+    ) -> tuple[SelectionManagedBatchView, ...]:
         from stratgauge.api.selections import SelectionManagedBatchView
 
+        candidate_ids = tuple(
+            candidate.candidate_id for imported in imports for candidate in imported.candidates
+        )
+        labels_by_candidate = self._store.list_labels_for_candidates(candidate_ids)
+        annotations_by_candidate = self._store.list_annotations_for_candidates(candidate_ids)
+        exclusions_by_candidate = self._store.list_exclusions_for_candidates(candidate_ids)
+        outcomes_by_candidate = self._store.list_outcomes_for_candidates(candidate_ids)
+        lifecycle_by_batch = self._store.list_lifecycle_events_for_entities(
+            "batch",
+            (imported.batch.batch_id for imported in imports),
+        )
+        managed = tuple(
+            SelectionManagedBatchView(
+                batch=imported.batch,
+                active=is_entity_active(lifecycle_by_batch[imported.batch.batch_id]),
+                label_count=sum(
+                    len(labels_by_candidate[candidate.candidate_id])
+                    for candidate in imported.candidates
+                ),
+                annotation_count=sum(
+                    len(annotations_by_candidate[candidate.candidate_id])
+                    for candidate in imported.candidates
+                ),
+                exclusion_count=sum(
+                    len(exclusions_by_candidate[candidate.candidate_id])
+                    for candidate in imported.candidates
+                ),
+                outcome_count=sum(
+                    len(outcomes_by_candidate[candidate.candidate_id])
+                    for candidate in imported.candidates
+                ),
+                lifecycle=lifecycle_by_batch[imported.batch.batch_id],
+            )
+            for imported in imports
+        )
+        return tuple(
+            sorted(
+                managed,
+                key=lambda item: (item.batch.selection_date, item.batch.batch_id),
+                reverse=True,
+            )
+        )
+
+    def list_managed_batches(self) -> tuple[SelectionManagedBatchView, ...]:
         try:
             manifests = self._store.list_manifests(include_archived=True)
             imports = tuple(self._store.load_import(manifest.batch_id) for manifest in manifests)
-            candidate_ids = tuple(
-                candidate.candidate_id for imported in imports for candidate in imported.candidates
-            )
-            labels_by_candidate = self._store.list_labels_for_candidates(candidate_ids)
-            annotations_by_candidate = self._store.list_annotations_for_candidates(candidate_ids)
-            exclusions_by_candidate = self._store.list_exclusions_for_candidates(candidate_ids)
-            outcomes_by_candidate = self._store.list_outcomes_for_candidates(candidate_ids)
-            lifecycle_by_batch = self._store.list_lifecycle_events_for_entities(
-                "batch",
-                (imported.batch.batch_id for imported in imports),
-            )
-            managed = tuple(
-                SelectionManagedBatchView(
-                    batch=imported.batch,
-                    active=is_entity_active(lifecycle_by_batch[imported.batch.batch_id]),
-                    label_count=sum(
-                        len(labels_by_candidate[candidate.candidate_id])
-                        for candidate in imported.candidates
-                    ),
-                    annotation_count=sum(
-                        len(annotations_by_candidate[candidate.candidate_id])
-                        for candidate in imported.candidates
-                    ),
-                    exclusion_count=sum(
-                        len(exclusions_by_candidate[candidate.candidate_id])
-                        for candidate in imported.candidates
-                    ),
-                    outcome_count=sum(
-                        len(outcomes_by_candidate[candidate.candidate_id])
-                        for candidate in imported.candidates
-                    ),
-                    lifecycle=lifecycle_by_batch[imported.batch.batch_id],
-                )
-                for imported in imports
-            )
-            return tuple(
-                sorted(
-                    managed,
-                    key=lambda item: (item.batch.selection_date, item.batch.batch_id),
-                    reverse=True,
-                )
-            )
+            return self._managed_batch_views(imports)
         except SelectionStoreError as exc:
             raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
 
@@ -126,15 +132,32 @@ class BatchesMixin(SelectionManagementBase):
         from stratgauge.api.selections import SelectionManagedBatchPage
 
         validate_page(page, page_size)
-        items = self.list_managed_batches()
-        page_items, total, has_next = page_slice(items, page, page_size)
-        return SelectionManagedBatchPage(
-            items=page_items,
-            page=page,
-            page_size=page_size,
-            total=total,
-            has_next=has_next,
-        )
+        try:
+            manifests = self._store.list_manifests(include_archived=True)
+            imports = tuple(self._store.load_import(manifest.batch_id) for manifest in manifests)
+            ordered_imports = tuple(
+                sorted(
+                    imports,
+                    key=lambda imported: (
+                        imported.batch.selection_date,
+                        imported.batch.batch_id,
+                    ),
+                    reverse=True,
+                )
+            )
+            start = (page - 1) * page_size
+            page_imports = ordered_imports[start : start + page_size]
+            page_items = self._managed_batch_views(page_imports)
+            total = len(ordered_imports)
+            return SelectionManagedBatchPage(
+                items=page_items,
+                page=page,
+                page_size=page_size,
+                total=total,
+                has_next=start + page_size < total,
+            )
+        except SelectionStoreError as exc:
+            raise SelectionApiError("SELECTION_STORAGE_ERROR", str(exc), 500) from exc
 
     def get_managed_batch(self, batch_id: str) -> SelectionManagedBatchDetailView:
         from stratgauge.api.selections import SelectionManagedBatchDetailView

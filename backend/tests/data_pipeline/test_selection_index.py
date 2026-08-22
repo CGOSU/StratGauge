@@ -4,6 +4,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+import duckdb
+
 from stratgauge.data_pipeline.selection_index import SelectionIndexError
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.data_pipeline.tdx_import import import_tdx_export
@@ -110,6 +112,49 @@ class SelectionReadIndexTests(unittest.TestCase):
                 )
                 self.assertEqual(store.list_reusable_tag_events(tag.tag_id), (tag_event,))
                 self.assertEqual(load_outcome.call_count, 2)
+
+    def test_candidate_batch_reads_use_one_index_query_connection(self) -> None:
+        with TemporaryDirectory() as directory:
+            content = "代码,名称,市场\n000001,平安银行,SZ\n000002,万科A,SZ\n".encode()
+            store = SelectionImportStore(directory)
+            parsed = import_tdx_export(
+                content,
+                selection_date=EXPORTED_AT.date(),
+                exported_at=EXPORTED_AT,
+                imported_at=IMPORTED_AT,
+                formula_name="批量索引",
+            )
+            store.write(content, parsed)
+            candidate_ids = tuple(candidate.candidate_id for candidate in parsed.candidates)
+            index = store._read_index
+            self.assertIsNotNone(index)
+            assert index is not None
+
+            with (
+                patch.object(index, "is_ready", return_value=True),
+                patch(
+                    "stratgauge.data_pipeline.selection_store.outcomes.duckdb.connect",
+                    wraps=duckdb.connect,
+                ) as outcome_connect,
+            ):
+                self.assertEqual(
+                    store.list_outcomes_for_candidates(candidate_ids),
+                    {candidate_id: () for candidate_id in candidate_ids},
+                )
+            self.assertEqual(outcome_connect.call_count, 1)
+
+            with (
+                patch.object(index, "is_ready", return_value=True),
+                patch(
+                    "stratgauge.data_pipeline.selection_store.lifecycle.duckdb.connect",
+                    wraps=duckdb.connect,
+                ) as lifecycle_connect,
+            ):
+                self.assertEqual(
+                    store.list_lifecycle_events_for_entities("batch", (parsed.batch.batch_id,)),
+                    {parsed.batch.batch_id: ()},
+                )
+            self.assertEqual(lifecycle_connect.call_count, 1)
 
     def test_rebuild_is_idempotent_and_recovers_existing_files(self) -> None:
         with TemporaryDirectory() as directory:

@@ -6,8 +6,9 @@ import hashlib
 from collections.abc import Iterable
 from pathlib import Path
 
+import duckdb
+
 from stratgauge.data_pipeline.locking import local_write_lock
-from stratgauge.data_pipeline.selection_index import SelectionIndexError
 from stratgauge.data_pipeline.selection_store._base import SelectionStoreBase, SelectionStoreError
 from stratgauge.data_pipeline.selection_store._io import _write_selection_text
 from stratgauge.domain.selections import (
@@ -166,18 +167,18 @@ class OutcomesMixin(SelectionStoreBase):
         performances_by_candidate: dict[str, list[SelectionPerformance]] = {
             candidate_id: [] for candidate_id in requested
         }
-        index = self._usable_read_index()
-        if index is not None:
-            try:
-                return {
-                    candidate_id: tuple(
-                        self._load_performance(path)
-                        for path in index.list_performance_paths(candidate_id)
-                    )
-                    for candidate_id in requested
-                }
-            except SelectionIndexError:
-                self._read_index = None
+        indexed_paths = self._indexed_paths_for_candidates(
+            table="performances",
+            order_by="performance_policy_id, evaluated_at, performance_id",
+            candidate_ids=requested,
+        )
+        if indexed_paths is not None:
+            return {
+                candidate_id: tuple(
+                    self._load_performance(path) for path in indexed_paths[candidate_id]
+                )
+                for candidate_id in requested
+            }
         for performance in self._list_all_performances():
             if performance.candidate_id in performances_by_candidate:
                 performances_by_candidate[performance.candidate_id].append(performance)
@@ -270,17 +271,18 @@ class OutcomesMixin(SelectionStoreBase):
         outcomes_by_candidate: dict[str, list[SelectionOutcome]] = {
             candidate_id: [] for candidate_id in requested
         }
-        index = self._usable_read_index()
-        if index is not None:
-            try:
-                return {
-                    candidate_id: tuple(
-                        self._load_outcome(path) for path in index.list_outcome_paths(candidate_id)
-                    )
-                    for candidate_id in requested
-                }
-            except SelectionIndexError:
-                self._read_index = None
+        indexed_paths = self._indexed_paths_for_candidates(
+            table="outcomes",
+            order_by="evaluated_at, outcome_id",
+            candidate_ids=requested,
+        )
+        if indexed_paths is not None:
+            return {
+                candidate_id: tuple(
+                    self._load_outcome(path) for path in indexed_paths[candidate_id]
+                )
+                for candidate_id in requested
+            }
         for outcome in self._list_all_outcomes():
             if outcome.candidate_id in outcomes_by_candidate:
                 outcomes_by_candidate[outcome.candidate_id].append(outcome)
@@ -288,6 +290,38 @@ class OutcomesMixin(SelectionStoreBase):
             candidate_id: tuple(sorted(rows, key=lambda outcome: outcome.evaluated_at))
             for candidate_id, rows in outcomes_by_candidate.items()
         }
+
+    def _indexed_paths_for_candidates(
+        self,
+        *,
+        table: str,
+        order_by: str,
+        candidate_ids: tuple[str, ...],
+    ) -> dict[str, tuple[str, ...]] | None:
+        index = self._usable_read_index()
+        if index is None:
+            return None
+        paths_by_candidate: dict[str, list[str]] = {
+            candidate_id: [] for candidate_id in candidate_ids
+        }
+        placeholders = ", ".join("?" for _ in candidate_ids)
+        try:
+            with duckdb.connect(str(index.index_path), read_only=True) as connection:
+                rows = connection.execute(
+                    f"""
+                    SELECT candidate_id, source_path
+                    FROM {table}
+                    WHERE candidate_id IN ({placeholders})
+                    ORDER BY candidate_id, {order_by}
+                    """,
+                    list(candidate_ids),
+                ).fetchall()
+        except Exception:
+            self._read_index = None
+            return None
+        for candidate_id, source_path in rows:
+            paths_by_candidate[str(candidate_id)].append(str(source_path))
+        return {candidate_id: tuple(paths) for candidate_id, paths in paths_by_candidate.items()}
 
     def _list_all_outcomes(self) -> tuple[SelectionOutcome, ...]:
         outcomes: list[SelectionOutcome] = []

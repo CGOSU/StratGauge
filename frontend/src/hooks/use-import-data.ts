@@ -13,11 +13,10 @@ import type {
   Formula,
   ManualCandidateDraft,
   RecommendationWorkbench,
-  Workspace,
 } from '@/types'
 
 
-export function useImportData(apiBase: string, workspace: Workspace) {
+export function useImportData(apiBase: string, enabled: boolean) {
   const [formulas, setFormulas] = useState<Formula[]>([])
   const [selectedFormulaId, setSelectedFormulaId] = useState('')
   const [manualDialogOpen, setManualDialogOpen] = useState(false)
@@ -53,36 +52,22 @@ export function useImportData(apiBase: string, workspace: Workspace) {
   const [error, setError] = useState<string | null>(null)
   const batchesLoadStarted = useRef(false)
   const formulasLoadStarted = useRef(false)
-  const workspaceInitialized = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const nextManualCandidateId = useRef(0)
 
   useEffect(() => {
-    if (batchesLoadStarted.current) {
+    if (!enabled) {
       return
     }
-    batchesLoadStarted.current = true
-    void loadBatches()
-  }, [])
-
-  useEffect(() => {
-    if (formulasLoadStarted.current) {
-      return
-    }
-    formulasLoadStarted.current = true
-    void loadFormulas()
-  }, [])
-
-  useEffect(() => {
-    if (!workspaceInitialized.current) {
-      workspaceInitialized.current = true
-      return
-    }
-    if (workspace === 'research') {
+    if (!batchesLoadStarted.current) {
+      batchesLoadStarted.current = true
       void loadBatches()
+    }
+    if (!formulasLoadStarted.current) {
+      formulasLoadStarted.current = true
       void loadFormulas()
     }
-  }, [workspace])
+  }, [enabled])
 
   useEffect(() => {
     if (!selectedBatchId) {

@@ -30,8 +30,12 @@ export function ManagementStatsPanel({
   const [statsPolicy, setStatsPolicy] = useState('all')
   const [stats, setStats] = useState<ManagementStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
+  const [statsRequested, setStatsRequested] = useState(false)
 
   useEffect(() => {
+    if (!statsRequested) {
+      return
+    }
     const controller = new AbortController()
     const params = new URLSearchParams()
     if (filter !== 'all') {
@@ -83,6 +87,7 @@ export function ManagementStatsPanel({
     statsDateTo,
     statsDecision,
     statsPolicy,
+    statsRequested,
   ])
 
   function resetStatsFilters() {
@@ -100,8 +105,19 @@ export function ManagementStatsPanel({
           <p className="eyebrow">统计筛选</p>
           <h2 id="management-stats-title">研究样本概览</h2>
         </div>
-        <Button type="button" size="sm" variant="outline" onClick={resetStatsFilters}>
-          清空筛选
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            if (!statsRequested) {
+              setStatsRequested(true)
+            } else {
+              resetStatsFilters()
+            }
+          }}
+        >
+          {statsRequested ? '清空筛选' : '加载统计'}
         </Button>
       </div>
       <div className="management-stats-filters">
@@ -177,7 +193,9 @@ export function ManagementStatsPanel({
       <p id="stats-date-help" className="form-hint">
         日期可留空；选择起止日期后，结束日期不能早于开始日期。
       </p>
-      {statsLoading && !stats ? (
+      {!statsRequested ? (
+        <p className="form-hint">统计读取可能较慢，点击“加载统计”后再查询。</p>
+      ) : statsLoading && !stats ? (
         <div className="management-loading" aria-label="统计加载中">
           <Skeleton />
         </div>

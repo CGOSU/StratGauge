@@ -7,8 +7,9 @@ from collections.abc import Iterable
 from datetime import datetime
 from typing import Literal
 
+import duckdb
+
 from stratgauge.data_pipeline.locking import local_write_lock
-from stratgauge.data_pipeline.selection_index import SelectionIndexError
 from stratgauge.data_pipeline.selection_store._base import (
     SelectionImportManifest,
     SelectionStoreBase,
@@ -32,8 +33,15 @@ class LifecycleMixin(SelectionStoreBase):
         )
         if include_archived:
             return manifests
+        lifecycle_by_batch = self.list_lifecycle_events_for_entities(
+            "batch",
+            tuple(manifest.batch_id for manifest in manifests),
+        )
         return tuple(
-            manifest for manifest in manifests if self.is_entity_active("batch", manifest.batch_id)
+            manifest
+            for manifest in manifests
+            if not lifecycle_by_batch[manifest.batch_id]
+            or lifecycle_by_batch[manifest.batch_id][-1].status is SelectionLifecycleStatus.ACTIVE
         )
 
     def list_lifecycle_events(
@@ -69,18 +77,17 @@ class LifecycleMixin(SelectionStoreBase):
         events_by_entity: dict[str, list[SelectionLifecycleEvent]] = {
             entity_id: [] for entity_id in requested
         }
-        index = self._usable_read_index()
-        if index is not None:
-            try:
-                return {
-                    entity_id: tuple(
-                        self._load_lifecycle_event(path)
-                        for path in index.list_lifecycle_event_paths(entity_type, entity_id)
-                    )
-                    for entity_id in requested
-                }
-            except SelectionIndexError:
-                self._read_index = None
+        indexed_paths = self._indexed_lifecycle_paths_for_entities(
+            entity_type=entity_type,
+            entity_ids=requested,
+        )
+        if indexed_paths is not None:
+            return {
+                entity_id: tuple(
+                    self._load_lifecycle_event(path) for path in indexed_paths[entity_id]
+                )
+                for entity_id in requested
+            }
         requested_set = set(requested)
         try:
             for path in self.lifecycle_dir.glob("lifecycle-*.json"):
@@ -95,6 +102,35 @@ class LifecycleMixin(SelectionStoreBase):
             entity_id: tuple(sorted(events, key=lambda event: (event.changed_at, event.event_id)))
             for entity_id, events in events_by_entity.items()
         }
+
+    def _indexed_lifecycle_paths_for_entities(
+        self,
+        *,
+        entity_type: Literal["formula", "batch"],
+        entity_ids: tuple[str, ...],
+    ) -> dict[str, tuple[str, ...]] | None:
+        index = self._usable_read_index()
+        if index is None:
+            return None
+        paths_by_entity: dict[str, list[str]] = {entity_id: [] for entity_id in entity_ids}
+        placeholders = ", ".join("?" for _ in entity_ids)
+        try:
+            with duckdb.connect(str(index.index_path), read_only=True) as connection:
+                rows = connection.execute(
+                    f"""
+                    SELECT entity_id, source_path
+                    FROM lifecycle_events
+                    WHERE entity_type = ? AND entity_id IN ({placeholders})
+                    ORDER BY entity_id, changed_at, event_id
+                    """,
+                    [entity_type, *entity_ids],
+                ).fetchall()
+        except Exception:
+            self._read_index = None
+            return None
+        for entity_id, source_path in rows:
+            paths_by_entity[str(entity_id)].append(str(source_path))
+        return {entity_id: tuple(paths) for entity_id, paths in paths_by_entity.items()}
 
     def is_entity_active(self, entity_type: Literal["formula", "batch"], entity_id: str) -> bool:
         events = self.list_lifecycle_events(entity_type, entity_id)

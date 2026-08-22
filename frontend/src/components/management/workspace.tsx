@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { requestJson } from '@/api/client'
 import { ErrorAlert } from '@/components/error-alert'
 import { Button } from '@/components/ui/button'
@@ -41,40 +41,56 @@ export function DataManagementWorkspace({
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
   const [selectedBatch, setSelectedBatch] = useState<ManagedBatchDetail | null>(null)
   const [loading, setLoading] = useState(true)
+  const [hasLoadedManagement, setHasLoadedManagement] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [managedTags, setManagedTags] = useState<ManagedReusableTag[]>([])
   const [error, setError] = useState<string | null>(null)
+  const managementController = useRef<AbortController | null>(null)
 
   async function loadManagement(requestedPage = 1) {
+    managementController.current?.abort()
+    const controller = new AbortController()
+    managementController.current = controller
     setLoading(true)
     try {
       const batchParams = new URLSearchParams({ page: String(requestedPage), page_size: String(batchPageSize) })
+      const signal = { signal: controller.signal }
       const [formulaResult, batchResult, tagResult] = await Promise.all([
-        requestJson<ManagedFormula[]>(`${apiBase}/v1/data-management/formulas`),
-        requestJson<ManagedBatchPage>(`${apiBase}/v1/data-management/batches/page?${batchParams.toString()}`),
-        requestJson<ManagedReusableTag[]>(`${apiBase}/v1/data-management/annotation-tags`),
+        requestJson<ManagedFormula[]>(`${apiBase}/v1/data-management/formulas`, signal),
+        requestJson<ManagedBatchPage>(`${apiBase}/v1/data-management/batches/page?${batchParams.toString()}`, signal),
+        requestJson<ManagedReusableTag[]>(`${apiBase}/v1/data-management/annotation-tags`, signal),
       ])
+      if (controller.signal.aborted) {
+        return
+      }
       setFormulas(formulaResult)
       setBatches(batchResult.items)
       setBatchPage(batchResult.page)
       setBatchTotal(batchResult.total)
       setManagedTags(tagResult)
+      setHasLoadedManagement(true)
       setSelectedBatchId((current) => {
         if (current && batchResult.items.some((item) => item.batch.batch_id === current)) {
           return current
         }
-        return batchResult.items[0]?.batch.batch_id ?? null
+        return null
       })
     } catch (reason: unknown) {
+      if (reason instanceof DOMException && reason.name === 'AbortError') {
+        return
+      }
       setError(reason instanceof Error ? reason.message : '加载数据管理失败。')
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) {
+        setLoading(false)
+      }
     }
   }
 
   useEffect(() => {
     void loadManagement()
+    return () => managementController.current?.abort()
   }, [])
 
   useEffect(() => {
@@ -217,7 +233,7 @@ export function DataManagementWorkspace({
         onError={setError}
       />
 
-      {loading ? (
+      {loading && !hasLoadedManagement ? (
         <div className="management-loading">
           <Skeleton />
           <Skeleton />

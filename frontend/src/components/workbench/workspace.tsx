@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { requestJson } from '@/api/client'
 import { PortfolioWorkspace } from '@/components/portfolio-workspace'
@@ -8,6 +8,9 @@ import { formatManagementDate, formatPrice, formatPercent } from '@/lib/format'
 import { PaginationControls } from '@/components/pagination-controls'
 import { appRouteLabels } from '@/components/app-shell'
 import { StockDetailDrawer } from '@/components/workbench/detail-drawer'
+
+
+const WORKBENCH_QUERY_DEBOUNCE_MS = 250
 
 
 export function workbenchReviewLabel(state: ReviewState): string {
@@ -177,83 +180,134 @@ export function WorkbenchWorkspace({
   const [stockDetail, setStockDetail] = useState<WorkbenchStockDetail | null>(null)
   const [drawerLoading, setDrawerLoading] = useState(false)
   const [drawerError, setDrawerError] = useState<string | null>(null)
+  const [loadedRoute, setLoadedRoute] = useState<WorkbenchRoute | null>(null)
+  const [legacyToolsOpen, setLegacyToolsOpen] = useState(false)
+  const requestScope = useRef({ route, filter, query })
+  const stockController = useRef<AbortController | null>(null)
+  const stockRequestId = useRef(0)
 
   useEffect(() => {
+    const scopeChanged = requestScope.current.route !== route
+      || requestScope.current.filter !== filter
+      || requestScope.current.query !== query
+    if (scopeChanged) {
+      requestScope.current = { route, filter, query }
+      if (signalPage !== 1) {
+        setSignalPage(1)
+        return
+      }
+    }
+
     const controller = new AbortController()
     setLoading(true)
     setPageError(null)
-    const signal = { signal: controller.signal }
-    const load = async () => {
-      try {
-        const pageParams = new URLSearchParams({
-          page: String(signalPage),
-          page_size: String(signalPageSize),
-        })
-        if (query.trim()) {
-          pageParams.set('query', query.trim())
-        }
-        const serverReviewState = workbenchServerReviewState(filter)
-        if (serverReviewState) {
-          pageParams.set('review_state', serverReviewState)
-        }
-        if (route === 'workbench' || route === 'signals') {
-          const [nextSummary, nextSignals] = await Promise.all([
-            requestJson<WorkbenchSummary>(`${apiBase}/v1/workbench/summary`, signal),
-            requestJson<WorkbenchSignalPage>(`${apiBase}/v1/workbench/daily-signals/page?${pageParams.toString()}`, signal),
-          ])
-          setSummary(nextSummary)
-          setSignals(nextSignals.items)
-          setSignalTotal(nextSignals.total)
-        } else if (route === 'watchlist') {
-          const nextSignals = await requestJson<WorkbenchSignalPage>(`${apiBase}/v1/workbench/watchlist/page?${pageParams.toString()}`, signal)
-          setSignals(nextSignals.items)
-          setSignalTotal(nextSignals.total)
-          setSummary(null)
-        } else if (route === 'positions') {
-          setPositions(await requestJson<WorkbenchPositionView[]>(`${apiBase}/v1/workbench/positions`, signal))
-        } else if (route === 'trades') {
-          setTrades(await requestJson<WorkbenchTradeView[]>(`${apiBase}/v1/workbench/trades`, signal))
-        } else if (route === 'strategies') {
-          setStrategies(await requestJson<WorkbenchStrategyView[]>(`${apiBase}/v1/workbench/strategies`, signal))
-        } else {
-          setAnalytics(await requestJson<WorkbenchAnalyticsView>(`${apiBase}/v1/workbench/analytics`, signal))
-        }
-      } catch (reason: unknown) {
-        if (reason instanceof DOMException && reason.name === 'AbortError') {
-          return
-        }
-        setPageError(reason instanceof Error ? reason.message : '加载工作台数据失败。')
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false)
+    const debounceTimer = window.setTimeout(() => {
+      const signal = { signal: controller.signal }
+      const load = async () => {
+        try {
+          const pageParams = new URLSearchParams({
+            page: String(signalPage),
+            page_size: String(signalPageSize),
+          })
+          if (query.trim()) {
+            pageParams.set('query', query.trim())
+          }
+          const serverReviewState = workbenchServerReviewState(filter)
+          if (serverReviewState) {
+            pageParams.set('review_state', serverReviewState)
+          }
+          if (route === 'workbench' || route === 'signals') {
+            const [nextSummary, nextSignals] = await Promise.all([
+              requestJson<WorkbenchSummary>(`${apiBase}/v1/workbench/summary`, signal),
+              requestJson<WorkbenchSignalPage>(`${apiBase}/v1/workbench/daily-signals/page?${pageParams.toString()}`, signal),
+            ])
+            setSummary(nextSummary)
+            setSignals(nextSignals.items)
+            setSignalTotal(nextSignals.total)
+          } else if (route === 'watchlist') {
+            const nextSignals = await requestJson<WorkbenchSignalPage>(`${apiBase}/v1/workbench/watchlist/page?${pageParams.toString()}`, signal)
+            setSignals(nextSignals.items)
+            setSignalTotal(nextSignals.total)
+            setSummary(null)
+          } else if (route === 'positions') {
+            setPositions(await requestJson<WorkbenchPositionView[]>(`${apiBase}/v1/workbench/positions`, signal))
+          } else if (route === 'trades') {
+            setTrades(await requestJson<WorkbenchTradeView[]>(`${apiBase}/v1/workbench/trades`, signal))
+          } else if (route === 'strategies') {
+            setStrategies(await requestJson<WorkbenchStrategyView[]>(`${apiBase}/v1/workbench/strategies`, signal))
+          } else {
+            setAnalytics(await requestJson<WorkbenchAnalyticsView>(`${apiBase}/v1/workbench/analytics`, signal))
+          }
+          setLoadedRoute(route)
+        } catch (reason: unknown) {
+          if (reason instanceof DOMException && reason.name === 'AbortError') {
+            return
+          }
+          setPageError(reason instanceof Error ? reason.message : '加载工作台数据失败。')
+        } finally {
+          if (!controller.signal.aborted) {
+            setLoading(false)
+          }
         }
       }
+      void load()
+    }, WORKBENCH_QUERY_DEBOUNCE_MS)
+
+    return () => {
+      window.clearTimeout(debounceTimer)
+      controller.abort()
     }
-    void load()
-    return () => controller.abort()
   }, [apiBase, filter, query, route, reloadToken, signalPage])
 
   useEffect(() => {
-    setSignalPage(1)
-  }, [filter, query, route])
-
-  useEffect(() => {
+    stockController.current?.abort()
+    stockController.current = null
+    stockRequestId.current += 1
     setSelectedSymbol(null)
     setStockDetail(null)
     setDrawerError(null)
+    setLegacyToolsOpen(false)
   }, [route])
 
+  function handleQueryChange(value: string) {
+    setQuery(value)
+    setSignalPage(1)
+  }
+
+  function handleFilterChange(value: WorkbenchReviewFilter) {
+    setFilter(value)
+    setSignalPage(1)
+  }
+
   async function openStock(symbol: string) {
+    stockController.current?.abort()
+    const controller = new AbortController()
+    stockController.current = controller
+    const requestId = stockRequestId.current + 1
+    stockRequestId.current = requestId
     setSelectedSymbol(symbol)
     setStockDetail(null)
     setDrawerError(null)
     setDrawerLoading(true)
     try {
-      setStockDetail(await requestJson<WorkbenchStockDetail>(`${apiBase}/v1/workbench/stocks/${encodeURIComponent(symbol)}`))
+      const detail = await requestJson<WorkbenchStockDetail>(
+        `${apiBase}/v1/workbench/stocks/${encodeURIComponent(symbol)}`,
+        { signal: controller.signal },
+      )
+      if (requestId === stockRequestId.current && !controller.signal.aborted) {
+        setStockDetail(detail)
+      }
     } catch (reason: unknown) {
-      setDrawerError(reason instanceof Error ? reason.message : '加载股票详情失败。')
+      if (reason instanceof DOMException && reason.name === 'AbortError') {
+        return
+      }
+      if (requestId === stockRequestId.current) {
+        setDrawerError(reason instanceof Error ? reason.message : '加载股票详情失败。')
+      }
     } finally {
-      setDrawerLoading(false)
+      if (requestId === stockRequestId.current && !controller.signal.aborted) {
+        setDrawerLoading(false)
+      }
     }
   }
 
@@ -293,8 +347,8 @@ export function WorkbenchWorkspace({
       {route === 'workbench' && (
         <>
           <div className="workbench-section-heading"><div><span className="eyebrow">TODAY · ACTION QUEUE</span><h2>今天需要处理什么</h2><p>按“未判断 → 观察复评 → 已确认事实”排序；点击股票，在右侧详情中追加判断。</p></div><div className="workbench-heading-actions"><span className="workbench-as-of">证据截至 {summary ? formatManagementDate(summary.as_of) : '—'}</span><button type="button" className="workbench-primary-action" onClick={openNextActionable} disabled={!nextActionableSignal || loading}>连续处理待办</button></div></div>
-          <WorkbenchFilterBar query={query} onQueryChange={setQuery} filter={filter} onFilterChange={setFilter} onRefresh={() => setReloadToken((value) => value + 1)} busy={loading} />
-          {loading ? <div className="workbench-loading">正在读取本地研究证据…</div> : <WorkbenchSignalTable signals={visibleSignals.slice(0, 12)} onOpen={(symbol) => void openStock(symbol)} emptyMessage="当前没有待处理信号。" />}
+          <WorkbenchFilterBar query={query} onQueryChange={handleQueryChange} filter={filter} onFilterChange={handleFilterChange} onRefresh={() => setReloadToken((value) => value + 1)} busy={loading} />
+          {loading && loadedRoute !== route ? <div className="workbench-loading">正在读取本地研究证据…</div> : <WorkbenchSignalTable signals={visibleSignals.slice(0, 12)} onOpen={(symbol) => void openStock(symbol)} emptyMessage="当前没有待处理信号。" />}
           {!loading && visibleSignals.length > 12 && <p className="workbench-queue-note">当前页显示前 12 条；点击“连续处理待办”可从优先级最高的未判断信号开始。</p>}
           <PaginationControls page={signalPage} pageSize={signalPageSize} total={signalTotal} busy={loading} onPageChange={setSignalPage} />
         </>
@@ -302,51 +356,56 @@ export function WorkbenchWorkspace({
       {route === 'signals' && (
         <>
           <div className="workbench-section-heading"><div><span className="eyebrow">SIGNALS · IMMUTABLE FACTS</span><h2>今日信号</h2><p>展示所有策略命中的股票；人工判断不会改变原始信号。</p></div><span className="workbench-as-of">共 {signalTotal} 条</span></div>
-          <WorkbenchFilterBar query={query} onQueryChange={setQuery} filter={filter} onFilterChange={setFilter} onRefresh={() => setReloadToken((value) => value + 1)} busy={loading} />
-          {loading ? <div className="workbench-loading">正在读取信号…</div> : <WorkbenchSignalTable signals={visibleSignals} onOpen={(symbol) => void openStock(symbol)} emptyMessage="没有匹配的策略信号。" />}
+          <WorkbenchFilterBar query={query} onQueryChange={handleQueryChange} filter={filter} onFilterChange={handleFilterChange} onRefresh={() => setReloadToken((value) => value + 1)} busy={loading} />
+          {loading && loadedRoute !== route ? <div className="workbench-loading">正在读取信号…</div> : <WorkbenchSignalTable signals={visibleSignals} onOpen={(symbol) => void openStock(symbol)} emptyMessage="没有匹配的策略信号。" />}
           <PaginationControls page={signalPage} pageSize={signalPageSize} total={signalTotal} busy={loading} onPageChange={setSignalPage} />
         </>
       )}
       {route === 'watchlist' && (
         <>
           <div className="workbench-section-heading"><div><span className="eyebrow">WATCHLIST · RE-EVALUATION</span><h2>观察池</h2><p>只显示已进入观察或准备买入、且尚未确认买入的信号。</p></div><span className="workbench-as-of">共 {signalTotal} 条</span></div>
-          <WorkbenchFilterBar query={query} onQueryChange={setQuery} filter={filter} onFilterChange={setFilter} onRefresh={() => setReloadToken((value) => value + 1)} busy={loading} />
-          {loading ? <div className="workbench-loading">正在读取观察池…</div> : <><WorkbenchChangeSummary signals={signals} /><WorkbenchSignalTable signals={visibleSignals} onOpen={(symbol) => void openStock(symbol)} emptyMessage="观察池为空。" /><PaginationControls page={signalPage} pageSize={signalPageSize} total={signalTotal} busy={loading} onPageChange={setSignalPage} /></>}
+          <WorkbenchFilterBar query={query} onQueryChange={handleQueryChange} filter={filter} onFilterChange={handleFilterChange} onRefresh={() => setReloadToken((value) => value + 1)} busy={loading} />
+          {loading && loadedRoute !== route ? <div className="workbench-loading">正在读取观察池…</div> : <><WorkbenchChangeSummary signals={signals} /><WorkbenchSignalTable signals={visibleSignals} onOpen={(symbol) => void openStock(symbol)} emptyMessage="观察池为空。" /><PaginationControls page={signalPage} pageSize={signalPageSize} total={signalTotal} busy={loading} onPageChange={setSignalPage} /></>}
         </>
       )}
       {route === 'positions' && (
         <>
           <div className="workbench-section-heading"><div><span className="eyebrow">POSITIONS · CONFIRMED FACTS</span><h2>持仓</h2><p>持仓由已确认成交推导，不把策略信号或推荐当作交易。</p></div><span className="workbench-as-of">共 {positions.length} 个</span></div>
-          {loading ? <div className="workbench-loading">正在读取持仓…</div> : positions.length === 0 ? <p className="workbench-empty">暂无持仓。</p> : <div className="workbench-position-list">{positions.map((item) => <button type="button" className="workbench-position-row" key={item.position.security.symbol} onClick={() => void openStock(item.position.security.symbol)}><span className="workbench-stock-cell"><strong>{item.position.security.symbol}</strong><small>{item.position.security.name ?? '未提供名称'} · {item.source === 'signal' ? '策略来源' : item.source === 'mixed' ? '混合来源' : '手工发现'}</small></span><span><small>数量</small><strong>{item.position.quantity}</strong></span><span><small>成本</small><strong>{formatPrice(item.position.average_cost)}</strong></span><span><small>现价</small><strong>{formatPrice(item.market.close)}</strong></span><span><small>浮动收益</small><strong className={Number(item.unrealized_return ?? 0) >= 0 ? 'market-profit' : 'market-loss'}>{formatPercent(item.unrealized_return)}</strong></span><span><small>持有天数</small><strong>{item.holding_days}</strong></span></button>)}</div>}
+          {loading && loadedRoute !== route ? <div className="workbench-loading">正在读取持仓…</div> : positions.length === 0 ? <p className="workbench-empty">暂无持仓。</p> : <div className="workbench-position-list">{positions.map((item) => <button type="button" className="workbench-position-row" key={item.position.security.symbol} onClick={() => void openStock(item.position.security.symbol)}><span className="workbench-stock-cell"><strong>{item.position.security.symbol}</strong><small>{item.position.security.name ?? '未提供名称'} · {item.source === 'signal' ? '策略来源' : item.source === 'mixed' ? '混合来源' : '手工发现'}</small></span><span><small>数量</small><strong>{item.position.quantity}</strong></span><span><small>成本</small><strong>{formatPrice(item.position.average_cost)}</strong></span><span><small>现价</small><strong>{formatPrice(item.market.close)}</strong></span><span><small>浮动收益</small><strong className={Number(item.unrealized_return ?? 0) >= 0 ? 'market-profit' : 'market-loss'}>{formatPercent(item.unrealized_return)}</strong></span><span><small>持有天数</small><strong>{item.holding_days}</strong></span></button>)}</div>}
         </>
       )}
       {route === 'trades' && (
         <>
           <div className="workbench-section-heading"><div><span className="eyebrow">TRADES · MANUAL EXECUTIONS</span><h2>交易记录</h2><p>仅展示用户显式确认的订单与成交。</p></div><span className="workbench-as-of">共 {trades.length} 笔</span></div>
-          {loading ? <div className="workbench-loading">正在读取交易…</div> : trades.length === 0 ? <p className="workbench-empty">暂无已确认成交。</p> : <div className="workbench-trade-list">{trades.map((trade) => <button type="button" className="workbench-trade-row" key={trade.order.order_id} onClick={() => void openStock(trade.order.security.symbol)}><span className="workbench-stock-cell"><strong>{trade.order.security.symbol}</strong><small>{trade.order.security.name ?? '未提供名称'} · {trade.source === 'signal' ? '策略来源' : trade.source === 'mixed' ? '混合来源' : '手工发现'}</small></span><span className={`trade-side trade-side--${trade.order.side}`}>{trade.order.side === 'buy' ? '买入' : '卖出'}</span><span><small>数量</small><strong>{trade.order.quantity}</strong></span><span><small>成交</small><strong>{trade.fills.length} 笔</strong></span><span><small>最近成交</small><strong>{trade.fills.length ? formatManagementDate(trade.fills[trade.fills.length - 1].filled_at) : '—'}</strong></span></button>)}</div>}
+          {loading && loadedRoute !== route ? <div className="workbench-loading">正在读取交易…</div> : trades.length === 0 ? <p className="workbench-empty">暂无已确认成交。</p> : <div className="workbench-trade-list">{trades.map((trade) => <button type="button" className="workbench-trade-row" key={trade.order.order_id} onClick={() => void openStock(trade.order.security.symbol)}><span className="workbench-stock-cell"><strong>{trade.order.security.symbol}</strong><small>{trade.order.security.name ?? '未提供名称'} · {trade.source === 'signal' ? '策略来源' : trade.source === 'mixed' ? '混合来源' : '手工发现'}</small></span><span className={`trade-side trade-side--${trade.order.side}`}>{trade.order.side === 'buy' ? '买入' : '卖出'}</span><span><small>数量</small><strong>{trade.order.quantity}</strong></span><span><small>成交</small><strong>{trade.fills.length} 笔</strong></span><span><small>最近成交</small><strong>{trade.fills.length ? formatManagementDate(trade.fills[trade.fills.length - 1].filled_at) : '—'}</strong></span></button>)}</div>}
         </>
       )}
       {route === 'strategies' && (
         <>
           <div className="workbench-section-heading"><div><span className="eyebrow">STRATEGIES · VERSIONED EVIDENCE</span><h2>策略</h2><p>按策略版本比较全部信号、人工看好和实际买入的客观结果。</p></div><span className="workbench-as-of">共 {strategies.length} 个版本</span></div>
-          {loading ? <div className="workbench-loading">正在读取策略证据…</div> : strategies.length === 0 ? <p className="workbench-empty">暂无策略信号。</p> : <div className="workbench-strategy-grid">{strategies.map((strategy) => <article className="workbench-strategy-card" key={`${strategy.formula_id ?? 'none'}:${strategy.formula_version ?? 'none'}`}><div className="workbench-card-heading"><div><strong>{strategy.formula_name}</strong><span>{strategy.formula_version ?? '未版本化'}</span></div><b>{strategy.signal_count}<small>信号</small></b></div><div className="workbench-cohort-grid">{strategy.cohorts.map((cohort) => <div className="workbench-cohort" key={cohort.cohort}><span>{workbenchCohortLabel(cohort.cohort)}</span><strong>{cohort.sample_count}</strong><small>已解决 {cohort.resolved_count} · 排除 {cohort.excluded_count}</small>{cohort.horizons[0] && <small>T+{cohort.horizons[0].horizon_sessions} 平均 {formatPercent(cohort.horizons[0].average_return)}</small>}</div>)}</div></article>)}</div>}
+          {loading && loadedRoute !== route ? <div className="workbench-loading">正在读取策略证据…</div> : strategies.length === 0 ? <p className="workbench-empty">暂无策略信号。</p> : <div className="workbench-strategy-grid">{strategies.map((strategy) => <article className="workbench-strategy-card" key={`${strategy.formula_id ?? 'none'}:${strategy.formula_version ?? 'none'}`}><div className="workbench-card-heading"><div><strong>{strategy.formula_name}</strong><span>{strategy.formula_version ?? '未版本化'}</span></div><b>{strategy.signal_count}<small>信号</small></b></div><div className="workbench-cohort-grid">{strategy.cohorts.map((cohort) => <div className="workbench-cohort" key={cohort.cohort}><span>{workbenchCohortLabel(cohort.cohort)}</span><strong>{cohort.sample_count}</strong><small>已解决 {cohort.resolved_count} · 排除 {cohort.excluded_count}</small>{cohort.horizons[0] && <small>T+{cohort.horizons[0].horizon_sessions} 平均 {formatPercent(cohort.horizons[0].average_return)}</small>}</div>)}</div></article>)}</div>}
         </>
       )}
       {route === 'analytics' && (
         <>
           <div className="workbench-section-heading"><div><span className="eyebrow">ANALYTICS · HUMAN VS EVIDENCE</span><h2>分析</h2><p>指标只来自已解决的客观表现；缺失样本保持为空。</p></div><span className="workbench-as-of">截至 {analytics ? formatManagementDate(analytics.as_of) : '—'}</span></div>
-          {loading ? <div className="workbench-loading">正在读取分析…</div> : !analytics || analytics.cohorts.length === 0 ? <p className="workbench-empty">暂无可比较的策略证据。</p> : <div className="workbench-analytics-grid">{analytics.cohorts.map((cohort) => <article className="workbench-analytics-card" key={cohort.cohort}><div className="workbench-card-heading"><div><strong>{workbenchCohortLabel(cohort.cohort)}</strong><span>样本 {cohort.sample_count} · 已解决 {cohort.resolved_count}</span></div><span className="workbench-status workbench-status--neutral">只读</span></div><div className="workbench-analytics-horizons">{cohort.horizons.map((horizon) => <div key={horizon.horizon_sessions}><span>T+{horizon.horizon_sessions}</span><strong>{formatPercent(horizon.average_return)}</strong><small>{horizon.sample_count} 个表现样本</small></div>)}</div></article>)}</div>}
+          {loading && loadedRoute !== route ? <div className="workbench-loading">正在读取分析…</div> : !analytics || analytics.cohorts.length === 0 ? <p className="workbench-empty">暂无可比较的策略证据。</p> : <div className="workbench-analytics-grid">{analytics.cohorts.map((cohort) => <article className="workbench-analytics-card" key={cohort.cohort}><div className="workbench-card-heading"><div><strong>{workbenchCohortLabel(cohort.cohort)}</strong><span>样本 {cohort.sample_count} · 已解决 {cohort.resolved_count}</span></div><span className="workbench-status workbench-status--neutral">只读</span></div><div className="workbench-analytics-horizons">{cohort.horizons.map((horizon) => <div key={horizon.horizon_sessions}><span>T+{horizon.horizon_sessions}</span><strong>{formatPercent(horizon.average_return)}</strong><small>{horizon.sample_count} 个表现样本</small></div>)}</div></article>)}</div>}
         </>
       )}
       {(route === 'positions' || route === 'trades') && (
-        <details className="workbench-legacy-tools">
+        <details
+          className="workbench-legacy-tools"
+          onToggle={(event) => setLegacyToolsOpen(event.currentTarget.open)}
+        >
           <summary>打开现有手工台账录入</summary>
           <p>交易写入仍保留在独立的手工台账流程中；这里不会把策略信号自动转换为订单。</p>
-          <PortfolioWorkspace
-            apiBase={apiBase}
-            formatDate={formatManagementDate}
-            formatPrice={formatPrice}
-          />
+          {legacyToolsOpen && (
+            <PortfolioWorkspace
+              apiBase={apiBase}
+              formatDate={formatManagementDate}
+              formatPrice={formatPrice}
+            />
+          )}
         </details>
       )}
       {selectedSymbol && drawerLoading && <div className="stock-drawer-loading" role="status">正在读取 {selectedSymbol} 的证据…</div>}

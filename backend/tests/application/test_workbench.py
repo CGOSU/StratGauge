@@ -1,8 +1,9 @@
 import hashlib
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from stratgauge.application.workbench import (
     MarketEvidenceStatus,
@@ -10,8 +11,9 @@ from stratgauge.application.workbench import (
 )
 from stratgauge.data_pipeline.portfolio_store import ManualPortfolioStore
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
-from stratgauge.data_pipeline.store import SnapshotStore
+from stratgauge.data_pipeline.store import SnapshotManifest, SnapshotStatus, SnapshotStore
 from stratgauge.data_pipeline.tdx_import import import_tdx_export
+from stratgauge.domain.models import DailyBar
 from stratgauge.domain.selections import (
     SelectionAnnotation,
     SelectionCandidateReviewState,
@@ -69,6 +71,119 @@ class WorkbenchApplicationTests(unittest.TestCase):
                 1,
             )
             self.assertEqual(second.symbol, "600000.SH")
+
+    def test_summary_avoids_signal_and_market_hydration(self) -> None:
+        with TemporaryDirectory() as directory:
+            selection_store = SelectionImportStore(directory)
+            raw_content = b"code,name,market\n000001,Ping,SZ\n600000,PuFa,SH\n"
+            imported = import_tdx_export(
+                raw_content,
+                selection_date=date(2026, 1, 5),
+                exported_at=datetime(2026, 1, 5, 15, tzinfo=UTC),
+                imported_at=datetime(2026, 1, 5, 16, tzinfo=UTC),
+                formula_name="趋势选股",
+            )
+            selection_store.write(raw_content, imported)
+            service = WorkbenchService(
+                selection_store,
+                ManualPortfolioStore(directory),
+                SnapshotStore(f"{directory}/market"),
+            )
+
+            with (
+                patch.object(service, "_build_signal", side_effect=AssertionError),
+                patch.object(service, "_market_evidence_for_symbols", side_effect=AssertionError),
+            ):
+                summary = service.summary(as_of=datetime(2026, 1, 5, 18, tzinfo=UTC))
+
+            self.assertEqual(summary.signal_count, 2)
+            self.assertEqual(summary.unreviewed_count, 2)
+            self.assertEqual(summary.excluded_count, 0)
+
+    def test_paged_signals_hydrate_only_page_and_load_each_snapshot_once(self) -> None:
+        with TemporaryDirectory() as directory:
+            selection_store = SelectionImportStore(directory)
+            raw_content = b"code,name,market\n000001,Ping,SZ\n600000,PuFa,SH\n"
+            imported = import_tdx_export(
+                raw_content,
+                selection_date=date(2026, 1, 5),
+                exported_at=datetime(2026, 1, 5, 15, tzinfo=UTC),
+                imported_at=datetime(2026, 1, 5, 16, tzinfo=UTC),
+                formula_name="趋势选股",
+            )
+            selection_store.write(raw_content, imported)
+            market_store = SnapshotStore(f"{directory}/market")
+            service = WorkbenchService(
+                selection_store,
+                ManualPortfolioStore(directory),
+                market_store,
+            )
+            manifest = SnapshotManifest(
+                snapshot_id="snapshot-market-1",
+                provider="test",
+                adapter_version="test-1",
+                start_date=date(2026, 1, 5),
+                end_date=date(2026, 1, 5),
+                row_count=1,
+                content_sha256="a" * 64,
+                raw_path="raw/snapshot-market-1.json",
+                normalized_path="normalized/snapshot-market-1.parquet",
+                status=SnapshotStatus.APPROVED,
+                created_at=datetime(2026, 1, 5, 17, tzinfo=UTC),
+                request_kind="market_daily",
+            )
+            bar = DailyBar(
+                security_id="security-600000.SH",
+                symbol="600000.SH",
+                session_date=date(2026, 1, 5),
+                provider="test",
+                provider_symbol="600000",
+                open=Decimal("10"),
+                high=Decimal("10.5"),
+                low=Decimal("9.5"),
+                close=Decimal("10.2"),
+                previous_close=Decimal("10"),
+                volume=Decimal("100"),
+                amount=Decimal("1020"),
+                event_time=datetime(2026, 1, 5, 15, tzinfo=UTC),
+                available_at=datetime(2026, 1, 5, 17, tzinfo=UTC),
+                ingested_at=datetime(2026, 1, 5, 18, tzinfo=UTC),
+            )
+
+            with (
+                patch.object(market_store, "list_manifests", return_value=(manifest,)),
+                patch.object(market_store, "load_bars", return_value=(bar,)) as load_bars,
+                patch.object(
+                    selection_store,
+                    "list_labels_for_candidates",
+                    wraps=selection_store.list_labels_for_candidates,
+                ) as list_labels,
+                patch.object(
+                    selection_store,
+                    "list_outcomes_for_candidates",
+                    wraps=selection_store.list_outcomes_for_candidates,
+                ) as list_outcomes,
+                patch.object(
+                    selection_store,
+                    "list_performances_for_candidates",
+                    wraps=selection_store.list_performances_for_candidates,
+                ) as list_performances,
+            ):
+                items, total = service.list_daily_signals_page(
+                    page=1,
+                    page_size=1,
+                    as_of=datetime(2026, 1, 5, 18, tzinfo=UTC),
+                )
+
+            self.assertEqual(total, 2)
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0].candidate.symbol, "600000.SH")
+            self.assertEqual(items[0].market.status, MarketEvidenceStatus.AVAILABLE)
+            self.assertEqual(load_bars.call_count, 1)
+            page_candidate_ids = {items[0].candidate.candidate_id}
+            self.assertEqual(set(list_labels.call_args.args[0]), page_candidate_ids)
+            self.assertEqual(set(list_outcomes.call_args.args[0]), page_candidate_ids)
+            self.assertEqual(set(list_performances.call_args.args[0]), page_candidate_ids)
 
     def test_market_evidence_reads_only_approved_market_snapshot(self) -> None:
         with TemporaryDirectory() as directory:

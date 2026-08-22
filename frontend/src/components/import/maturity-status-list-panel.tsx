@@ -92,7 +92,8 @@ export function MaturityStatusListPanel({ apiBase }: { apiBase: string }) {
   const [status, setStatus] = useState<MaturityStatusFilter>('all')
   const [page, setPage] = useState(1)
   const [data, setData] = useState<MaturityStatusPage | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(
@@ -124,6 +125,9 @@ export function MaturityStatusListPanel({ apiBase }: { apiBase: string }) {
   )
 
   useEffect(() => {
+    if (!expanded) {
+      return
+    }
     const controller = new AbortController()
     void Promise.resolve().then(() => {
       if (!controller.signal.aborted) {
@@ -132,7 +136,7 @@ export function MaturityStatusListPanel({ apiBase }: { apiBase: string }) {
       return undefined
     })
     return () => controller.abort()
-  }, [load])
+  }, [expanded, load])
 
   function handleStatusChange(nextStatus: MaturityStatusFilter) {
     setStatus(nextStatus)
@@ -149,11 +153,21 @@ export function MaturityStatusListPanel({ apiBase }: { apiBase: string }) {
             只读展示所有历史候选；归档批次和已排除候选仍保留为证据。
           </p>
         </div>
-        <Badge variant="outline">
-          {data ? `${data.total} 条当前记录` : '读取中'}
-        </Badge>
+        {expanded ? (
+          <Badge variant="outline">
+            {data ? `${data.total} 条当前记录` : '读取中'}
+          </Badge>
+        ) : (
+          <Button type="button" size="sm" variant="outline" onClick={() => setExpanded(true)}>
+            读取成熟结果
+          </Button>
+        )}
       </div>
 
+      {!expanded ? (
+        <p className="empty-copy">成熟结果为低频历史查询，按需读取。</p>
+      ) : (
+        <>
       <div className="maturity-status-toolbar">
         <label className="maturity-status-filter" htmlFor="maturity-status-filter">
           <span>查看状态</span>
@@ -214,6 +228,8 @@ export function MaturityStatusListPanel({ apiBase }: { apiBase: string }) {
         </>
       ) : (
         <p className="empty-copy">当前状态没有成熟结果记录。</p>
+      )}
+        </>
       )}
     </Card>
   )

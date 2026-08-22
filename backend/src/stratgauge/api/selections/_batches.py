@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from stratgauge.api.selections._base import (  # noqa: F401
@@ -57,8 +58,20 @@ from stratgauge.data_pipeline.tdx_import import TdxImportError, import_tdx_expor
 from stratgauge.domain.selections import (
     SelectionBatch,
     SelectionCandidate,
+    SelectionCandidateExclusion,
     SelectionCandidateReviewState,
+    SelectionOutcome,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _MaturityStatusRow:
+    batch: SelectionBatch
+    candidate: SelectionCandidate
+    status: SelectionMaturityStatus
+    outcome: SelectionOutcome | None
+    latest_exclusion: SelectionCandidateExclusion | None
+    active: bool
 
 
 class BatchesMixin(SelectionServiceBase):
@@ -161,34 +174,29 @@ class BatchesMixin(SelectionServiceBase):
                 "batch",
                 batch_ids,
             )
-            rows: list[SelectionMaturityStatusView] = []
+            rows: list[_MaturityStatusRow] = []
             for imported in imports:
                 batch = imported.batch
                 active = is_entity_active(lifecycle_by_batch[batch.batch_id])
                 for candidate in imported.candidates:
-                    latest_exclusion = (
-                        exclusions_by_candidate[candidate.candidate_id][-1]
-                        if exclusions_by_candidate[candidate.candidate_id]
-                        else None
-                    )
+                    exclusions = exclusions_by_candidate[candidate.candidate_id]
+                    latest_exclusion = exclusions[-1] if exclusions else None
                     latest_outcomes = latest_selection_outcomes(
                         outcomes_by_candidate[candidate.candidate_id]
                     )
-                    outcomes = latest_outcomes or (None,)
-                    for outcome in outcomes:
+                    for outcome in latest_outcomes or (None,):
                         row_status = (
                             SelectionMaturityStatus.PENDING
                             if outcome is None
                             else SelectionMaturityStatus(outcome.status.value)
                         )
                         rows.append(
-                            SelectionMaturityStatusView(
+                            _MaturityStatusRow(
                                 batch=batch,
                                 candidate=candidate,
                                 status=row_status,
                                 outcome=outcome,
                                 latest_exclusion=latest_exclusion,
-                                excluded=latest_exclusion is not None,
                                 active=active,
                             )
                         )
@@ -208,7 +216,19 @@ class BatchesMixin(SelectionServiceBase):
             for item in rows:
                 status_counts[item.status.value] += 1
             filtered = tuple(item for item in rows if status is None or item.status is status)
-            page_items, total, has_next = page_slice(filtered, page, page_size)
+            page_rows, total, has_next = page_slice(filtered, page, page_size)
+            page_items = tuple(
+                SelectionMaturityStatusView(
+                    batch=item.batch,
+                    candidate=item.candidate,
+                    status=item.status,
+                    outcome=item.outcome,
+                    latest_exclusion=item.latest_exclusion,
+                    excluded=item.latest_exclusion is not None,
+                    active=item.active,
+                )
+                for item in page_rows
+            )
             return SelectionMaturityStatusPage(
                 items=page_items,
                 page=page,

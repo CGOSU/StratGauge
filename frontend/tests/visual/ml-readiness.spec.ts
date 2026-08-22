@@ -215,6 +215,7 @@ test('filters and paginates the read-only maturity status list', async ({ page }
 
   const panel = page.locator('.maturity-status-panel')
   await expect(panel).toBeVisible()
+  await panel.getByRole('button', { name: '读取成熟结果' }).click()
   await expect(panel).toContainText('成熟结果列表')
   await expect(panel).toContainText('待成熟')
   await expect(panel).toContainText('胜')
@@ -264,6 +265,8 @@ test('stacks the import workflow without horizontal overflow on narrow screens',
   expect(narrowLayout.noHorizontalOverflow).toBe(true)
   const maturityPanel = page.locator('.maturity-status-panel')
   await expect(maturityPanel).toBeVisible()
+  await maturityPanel.getByRole('button', { name: '读取成熟结果' }).click()
+  await expect(maturityPanel.locator('.maturity-status-row')).toHaveCount(8)
   const maturityLayout = await maturityPanel.locator('.maturity-status-row').first().evaluate((element) => ({
     columns: getComputedStyle(element).gridTemplateColumns.split(/\s+/).length,
     noHorizontalOverflow: document.documentElement.scrollWidth <= window.innerWidth,

@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from stratgauge.api.app import create_app
 from stratgauge.api.selections import SelectionService, create_selections_router
+from stratgauge.api.selections.views import SelectionMaturityStatusView
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.data_sources.akshare import AKShareAdapter
 from stratgauge.data_sources.base import DailyBarRequest
@@ -196,6 +197,95 @@ class SelectionApiTests(unittest.TestCase):
         self.assertEqual(managed.json()[0]["batch"]["batch_id"], batch_id)
         self.assertEqual(stats.status_code, 200)
         self.assertEqual(stats.json()["candidate_count"], 2)
+
+    def test_managed_batch_page_hydrates_only_requested_batch(self) -> None:
+        first = self.client.post(
+            "/v1/selection-batches",
+            json={
+                "content_base64": base64.b64encode(CONTENT).decode(),
+                "selection_date": "2026-01-05",
+                "exported_at": "2026-01-05T15:05:00+08:00",
+                "formula_name": "管理分页公式",
+            },
+        ).json()
+        second = self.client.post(
+            "/v1/selection-batches",
+            json={
+                "content_base64": base64.b64encode(CONTENT).decode(),
+                "selection_date": "2026-01-06",
+                "exported_at": "2026-01-06T15:05:00+08:00",
+                "formula_name": "管理分页公式",
+            },
+        ).json()
+        second_candidate_id = second["candidates"][0]["candidate"]["candidate_id"]
+
+        with (
+            patch.object(
+                self.store,
+                "list_labels_for_candidates",
+                wraps=self.store.list_labels_for_candidates,
+            ) as list_labels,
+            patch.object(
+                self.store,
+                "list_outcomes_for_candidates",
+                wraps=self.store.list_outcomes_for_candidates,
+            ) as list_outcomes,
+            patch.object(
+                self.store,
+                "list_annotations_for_candidates",
+                wraps=self.store.list_annotations_for_candidates,
+            ) as list_annotations,
+            patch.object(
+                self.store,
+                "list_exclusions_for_candidates",
+                wraps=self.store.list_exclusions_for_candidates,
+            ) as list_exclusions,
+        ):
+            page = self.client.get(
+                "/v1/data-management/batches/page",
+                params={"page": 1, "page_size": 1},
+            )
+
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.json()["total"], 2)
+        self.assertTrue(page.json()["has_next"])
+        self.assertEqual(page.json()["items"][0]["batch"]["batch_id"], second["batch"]["batch_id"])
+        for call in (list_labels, list_outcomes, list_annotations, list_exclusions):
+            self.assertEqual(set(call.call_args.args[0]), {second_candidate_id})
+        self.assertNotEqual(first["batch"]["batch_id"], second["batch"]["batch_id"])
+
+    def test_maturity_status_page_constructs_only_current_page_views(self) -> None:
+        formula = self.client.post(
+            "/v1/formulas",
+            json={"name": "成熟分页公式", "version": "v1"},
+        ).json()["formula"]
+        imported = self.client.post(
+            "/v1/selection-batches/manual",
+            json={
+                "selection_date": "2026-01-05",
+                "recorded_at": "2026-01-05T15:05:00+08:00",
+                "formula_id": formula["formula_id"],
+                "candidates": [
+                    {"local_code": "000001", "exchange": "SZ"},
+                    {"local_code": "000002", "exchange": "SZ"},
+                ],
+            },
+        )
+        self.assertEqual(imported.status_code, 201)
+
+        with patch(
+            "stratgauge.api.selections._batches.SelectionMaturityStatusView",
+            wraps=SelectionMaturityStatusView,
+        ) as status_view:
+            page = self.client.get(
+                "/v1/selection-maturity/page",
+                params={"page": 1, "page_size": 1},
+            )
+
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.json()["total"], 2)
+        self.assertTrue(page.json()["has_next"])
+        self.assertEqual(status_view.call_count, 1)
 
     def test_paged_lists_and_streaming_dataset_exports_preserve_legacy_contracts(self) -> None:
         first = self.client.post(
