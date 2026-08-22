@@ -8,6 +8,14 @@
 
 ## 已确认决策
 
+### 2026-08-22：四用途研究链保持显式人工阶段，并增加独立时间点特征观察入口
+
+- 决定：四用途每次研究运行按 `prepare → build_selection_training_feature_snapshots → join → baseline/LightGBM → calibration → register → transition → shadow → walk-forward → compare` 顺序由操作者触发。`build_selection_training_feature_snapshots.py` 只消费显式、已批准且有血缘的 market/index/factor snapshot ID，不自动发现目录、联网或启动后续阶段。
+- 决定：训练标签的 `observation_date` 继续承载在既有 `FeatureSnapshot.selection_date`；annotation/buy/sell 使用 `observation_at` 作为 `as_of`，candidate_success 缺省时只从不可变批次 `exported_at` 派生。报告保存源标签 SHA-256、映射、快照 ID 和逐样本失败，避免把事后行情或缺失样本伪造成特征。
+- 决定：shadow 输入必须是调用方准备的无标签 canonical JSONL，并显式提交完整输入字节 SHA-256；只有人工追加 lifecycle 事件进入 `shadow` 后才可评分，报告始终 `used_for_decision=false`。final-test 只保留隔离计数，校准和比较不消费其标签/指标。
+- 原因：为四类用途提供可审计的共同上游证据，同时保持旧候选成功率链、旧 registry/shadow、公开 CLI/API 和 active 生命周期兼容隔离；不以隐式编排或凭目录推断替代研究者对数据范围和阶段边界的确认。
+- 约束：真实 provider、足量 readiness 数据和真实 LightGBM 训练仍需另行授权；默认测试与离线演练只用临时目录、离线替身或 fake LightGBM，不写入 `backend/data`。
+
 ### 2026-08-22：列表读取先使用可重建投影，再对当前页做 hydration
 
 - 决定：工作台、成熟结果和数据管理列表先通过 DuckDB 读投影完成过滤、排序和分页，再只为当前页构造完整视图；索引不可用时回退事实文件扫描，不改变公开字段、排序、状态语义或旧完整列表路由。

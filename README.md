@@ -83,7 +83,7 @@ AI 应报告实际执行的命令、退出码、通过/跳过/失败接口，以
 2. 追加人工评审和观察状态；
 3. 显式创建、执行行情成熟任务；
 4. 检查客观结果、统计和数据集；
-5. 生成点时特征快照和训练切分；
+5. 生成点时特征快照和训练切分；四用途人工顺序为 `prepare → build_selection_training_feature_snapshots → join → baseline/LightGBM → calibration → register → transition → shadow → walk-forward → compare`，详见 [`docs/使用文档.md`](docs/使用文档.md)；
 6. 满足 readiness gate 后，人工按 CLI 分阶段执行训练、校准、注册、生命周期、shadow、走步和比较；内部通过 `backend/src/stratgauge/application/ml/` 显式 application service 执行，不自动触发下一阶段；
 7. 只有人工确认后才允许进入后续研究流程。
 

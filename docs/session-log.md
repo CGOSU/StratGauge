@@ -1,5 +1,11 @@
 # 会话记录
 
+### 2026-08-22 四用途 ML 离线演练与人工操作文档
+
+- 完成内容：补充 `docs/使用文档.md` 的四用途人工操作图、11 个 CLI 的阶段顺序、输入/输出血缘、时间点边界、证据目录和无标签 shadow canonical JSONL/SHA-256 要求；README 增加入口提示；系统规格补充显式时间点特征观察阶段；current-state、decisions 和 pitfalls 同步当前事实。文档明确所有阶段人工触发，保留旧新链隔离、final-test 隔离、`used_for_decision=false`、无外部编排和真实 provider/训练需授权边界。
+- 实际验证：文档变更后执行 `git diff --check`（通过，仅有 Windows 换行转换提示）；此前本任务依据的离线演练 `cd backend && PYTHONPATH=src uv run python -m unittest tests.application.test_ml_offline_rehearsal -v`（1 项通过）、后端完整测试（408 项通过、1 项跳过）、`uv run ruff check .`、`uv run ruff format --check .`（334 个文件已格式化）和 `uv run mypy`（335 个源文件通过）均已有真实结果；未执行 commit/push。
+- 遗留问题：真实 Tushare/成熟数据收集/真实 LightGBM 仍需授权和足量 readiness 数据；工作区仍包含未提交的代码与文档改动。
+
 本文件按时间追加每次工作的完成内容、实际验证和遗留问题，不记录敏感信息或未经验证的结果。
 
 ### 2026-08-22 Web 列表读取优化收口

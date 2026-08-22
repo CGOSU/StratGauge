@@ -29,6 +29,12 @@ from stratgauge.application.ml.evidence import (
     run_transition_feature_model,
     run_validate_feature_walk_forward,
 )
+from stratgauge.application.ml.feature_observations import (
+    BuildTrainingFeatureSnapshotsRequest,
+    BuiltTrainingFeatureSnapshotsResult,
+    TrainingFeatureSnapshotError,
+    run_build_training_feature_snapshots,
+)
 from stratgauge.application.ml.training import (
     FeatureBaselineResult,
     FeatureLightGBMResult,
@@ -50,6 +56,8 @@ from stratgauge.application.ml.training import (
 from stratgauge.ml.training_datasets import TrainingDatasetPurpose
 
 __all__ = [
+    "BuildTrainingFeatureSnapshotsRequest",
+    "BuiltTrainingFeatureSnapshotsResult",
     "CalibrateFeatureProbabilitiesRequest",
     "CalibratedFeatureProbabilitiesResult",
     "CompareFeatureModelsRequest",
@@ -81,6 +89,8 @@ __all__ = [
     "TrainFeatureLightGBMRequest",
     "TrainLabelBaselineRequest",
     "TrainingDatasetPurpose",
+    "TrainingFeatureSnapshotError",
+    "run_build_training_feature_snapshots",
     "run_calibrate_feature_probabilities",
     "run_compare_feature_models",
     "run_join_training_features",

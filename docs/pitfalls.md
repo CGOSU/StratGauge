@@ -14,6 +14,20 @@
 
 ## 已知问题
 
+### 2026-08-22：四用途特征快照不能按目录或批次日期猜来源
+
+- 现象：直接把训练标签的选股日期当作特征可见时间，或扫描 feature/market 目录选择“看起来匹配”的快照，会让 annotation/buy/sell 丢失 `observation_at` 边界，也可能混入事后抓取数据。
+- 根因：四用途标签的观察日、评审时点和行情 snapshot 的 `available_at` 是不同证据；candidate_success 还需要从不可变选择批次取得 `exported_at`。
+- 修复：先由 `build_selection_training_feature_snapshots.py` 显式传入已批准 snapshot ID 和 `--as-of`，使用 `observation_at`（candidate_success 缺省时使用批次 `exported_at`），再把报告映射中的 FeatureSnapshot ID 显式交给 join；不存在或不可见行情逐样本失败，不填充特征。
+- 验证：`tests.application.test_ml_feature_observations` 覆盖时间点/血缘/逐样本失败；`tests.application.test_ml_offline_rehearsal` 离线演练验证四用途映射、SHA-256 和完整文件链路均通过。
+
+### 2026-08-22：shadow 输入哈希必须覆盖实际 canonical JSONL 字节
+
+- 现象：shadow CLI 的 `--source-input-sha256` 使用了原始对象、另一份格式化 JSON 或缺少换行的文件哈希，评分会被拒绝或输入血缘无法复现。
+- 根因：shadow 报告绑定的是调用方提交的无标签 JSONL 内容，不是训练 split 或一个抽象的候选列表。
+- 修复：先固定 canonical JSON 序列化、UTF-8 编码和 LF 换行，再对最终提交给 `--input` 的完整字节计算 SHA-256；输入不得携带结果标签或监督字段，并且必须先人工 transition 到 `shadow`。
+- 验证：`tests.ml.test_training_feature_shadow` 和 `tests.application.test_ml_offline_rehearsal` 覆盖输入哈希、标签拒绝、transition 前拒绝及 `used_for_decision=false`。
+
 ### 2026-08-09：可选 provider 测试不能假定依赖缺失
 
 - 现象：安装 `live-data` 后，原本验证“未安装时抛错”的测试失败，并可能误触发真实网络请求。
