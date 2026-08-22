@@ -7,34 +7,31 @@ import json
 from datetime import date, datetime
 from pathlib import Path
 
-from stratgauge.ml.training_datasets import (
+from stratgauge.application.ml import (
+    PrepareTrainingDatasetRequest,
     TrainingDatasetPurpose,
-    audit_training_label_split,
-    prepare_training_label_dataset,
-    split_training_label_dataset,
-    write_training_label_split,
+    run_prepare_training_dataset,
 )
 
 
 def main() -> int:
     arguments = _parse_arguments()
     try:
-        prepared = prepare_training_label_dataset(
-            arguments.input.read_bytes(),
-            purpose=arguments.purpose,
-            tracking_policy_id=arguments.tracking_policy_id,
+        workflow = run_prepare_training_dataset(
+            PrepareTrainingDatasetRequest(
+                input_path=arguments.input,
+                purpose=TrainingDatasetPurpose(arguments.purpose),
+                output_dir=arguments.output_dir,
+                train_end=arguments.train_end,
+                validation_end=arguments.validation_end,
+                label_available_through=arguments.label_available_through,
+                minimum_labeled_samples=arguments.minimum_labeled_samples,
+                tracking_policy_id=arguments.tracking_policy_id,
+            )
         )
-        split = split_training_label_dataset(
-            prepared,
-            train_end=arguments.train_end,
-            validation_end=arguments.validation_end,
-            label_available_through=arguments.label_available_through,
-        )
-        report = audit_training_label_split(
-            split,
-            minimum_labeled_samples=arguments.minimum_labeled_samples,
-        )
-        manifest = write_training_label_split(arguments.output_dir, split, report)
+        prepared = workflow.prepared
+        report = workflow.report
+        manifest = workflow.manifest
     except (FileExistsError, OSError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
         return 2

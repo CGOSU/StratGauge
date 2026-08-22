@@ -7,21 +7,26 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from stratgauge.ml.training_feature_registry import (
+from stratgauge.application.ml import (
     FeatureModelRegistryError,
-    FeatureModelRegistryStore,
+    RegisterFeatureModelRequest,
+    run_register_feature_model,
 )
 
 
 def main() -> int:
     arguments = _parse_arguments()
     try:
-        registration = FeatureModelRegistryStore(arguments.root).register(
-            arguments.training_dir,
-            calibration_output_dir=arguments.calibration_dir,
-            registered_at=arguments.registered_at,
-            registered_by=arguments.registered_by,
+        workflow = run_register_feature_model(
+            RegisterFeatureModelRequest(
+                root=arguments.root,
+                training_dir=arguments.training_dir,
+                calibration_dir=arguments.calibration_dir,
+                registered_at=arguments.registered_at,
+                registered_by=arguments.registered_by,
+            )
         )
+        registration = workflow.registration
     except (FeatureModelRegistryError, FileExistsError, OSError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
         return 2

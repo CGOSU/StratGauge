@@ -8,6 +8,7 @@ from pathlib import Path
 
 from stratgauge.features.contract import FeatureSnapshot
 from stratgauge.features.store import FeatureSnapshotStore, FeatureStoreError
+from stratgauge.ml._artifacts import write_immutable_bundle
 from stratgauge.ml.training_datasets import (
     SelectionTrainingLabelRow,
     TrainingLabelDatasetSplit,
@@ -112,24 +113,11 @@ def write_training_feature_split(
         "label-readiness.json": _serialize_label_readiness(split.label_readiness),
         "manifest.json": split.manifest.model_dump_json(indent=2) + "\n",
     }
-    destination.mkdir(parents=True, exist_ok=True)
-    paths = tuple(destination / name for name in outputs)
-    if any(path.exists() for path in paths):
-        raise FileExistsError(f"training feature output already exists: {destination}")
-    temporary_paths: list[Path] = []
-    try:
-        for path, content in zip(paths, outputs.values(), strict=True):
-            temporary = path.with_suffix(f"{path.suffix}.tmp")
-            temporary.write_text(content, encoding="utf-8", newline="\n")
-            temporary_paths.append(temporary)
-        for temporary, path in zip(temporary_paths, paths, strict=True):
-            temporary.replace(path)
-    except OSError:
-        for temporary in temporary_paths:
-            temporary.unlink(missing_ok=True)
-        for path in paths:
-            path.unlink(missing_ok=True)
-        raise
+    write_immutable_bundle(
+        destination,
+        outputs,
+        already_exists_message=f"training feature output already exists: {destination}",
+    )
 
 
 def _load_snapshots(

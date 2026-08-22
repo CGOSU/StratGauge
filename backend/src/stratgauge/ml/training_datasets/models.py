@@ -6,6 +6,7 @@ import re
 from collections.abc import Iterable
 from datetime import date, datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -44,6 +45,11 @@ class TrainingLabel(StrEnum):
     NOT_SOLD = "not_sold"
 
 
+TrainingSplitName = Literal["train", "validation", "test"]
+PredictionSplit = Literal["validation", "test"]
+ValidationSplit = Literal["validation"]
+
+
 _LABEL_CONTRACT_IDS = {
     TrainingDatasetPurpose.CANDIDATE_SUCCESS: "candidate-success-label-v1",
     TrainingDatasetPurpose.ANNOTATION_DECISION: "annotation-decision-label-v1",
@@ -52,18 +58,28 @@ _LABEL_CONTRACT_IDS = {
 }
 
 
-_ALLOWED_LABELS = {
-    TrainingDatasetPurpose.CANDIDATE_SUCCESS: frozenset(
-        {TrainingLabel.SUCCESS, TrainingLabel.NOT_SUCCESS}
+_PURPOSE_LABEL_ORDER = {
+    TrainingDatasetPurpose.CANDIDATE_SUCCESS: (
+        TrainingLabel.NOT_SUCCESS,
+        TrainingLabel.SUCCESS,
     ),
-    TrainingDatasetPurpose.ANNOTATION_DECISION: frozenset(
-        {TrainingLabel.DISCARD, TrainingLabel.WATCH, TrainingLabel.PREPARE_BUY}
+    TrainingDatasetPurpose.ANNOTATION_DECISION: (
+        TrainingLabel.DISCARD,
+        TrainingLabel.WATCH,
+        TrainingLabel.PREPARE_BUY,
     ),
-    TrainingDatasetPurpose.BUY_TIMING: frozenset(
-        {TrainingLabel.PURCHASED, TrainingLabel.NOT_PURCHASED}
+    TrainingDatasetPurpose.BUY_TIMING: (
+        TrainingLabel.NOT_PURCHASED,
+        TrainingLabel.PURCHASED,
     ),
-    TrainingDatasetPurpose.SELL_TIMING: frozenset({TrainingLabel.SOLD, TrainingLabel.NOT_SOLD}),
+    TrainingDatasetPurpose.SELL_TIMING: (
+        TrainingLabel.NOT_SOLD,
+        TrainingLabel.SOLD,
+    ),
 }
+
+
+_ALLOWED_LABELS = {purpose: frozenset(labels) for purpose, labels in _PURPOSE_LABEL_ORDER.items()}
 
 
 _COMPLETED_OUTCOME_STATUSES = frozenset(
@@ -332,6 +348,12 @@ def allowed_labels_for(purpose: TrainingDatasetPurpose) -> frozenset[TrainingLab
     """Return the labels that a purpose-specific dataset may contain."""
 
     return _ALLOWED_LABELS[purpose]
+
+
+def ordered_labels_for(purpose: TrainingDatasetPurpose) -> tuple[TrainingLabel, ...]:
+    """Return the deterministic class order for a purpose-specific model."""
+
+    return _PURPOSE_LABEL_ORDER[purpose]
 
 
 def serialize_training_label_dataset(rows: Iterable[SelectionTrainingLabelRow]) -> str:

@@ -6,30 +6,25 @@ import argparse
 import json
 from pathlib import Path
 
-from stratgauge.features.store import FeatureSnapshotStore
-from stratgauge.ml.training_feature_join import (
-    join_training_features,
-    write_training_feature_split,
+from stratgauge.application.ml import (
+    JoinTrainingFeaturesRequest,
+    run_join_training_features,
 )
-from stratgauge.ml.training_label_baseline import read_training_label_split
 
 
 def main() -> int:
     arguments = _parse_arguments()
     try:
-        split_input = read_training_label_split(arguments.labels_dir)
-        snapshot_ids = tuple(
-            value.strip() for value in arguments.feature_snapshot_id if value.strip()
+        workflow = run_join_training_features(
+            JoinTrainingFeaturesRequest(
+                labels_dir=arguments.labels_dir,
+                feature_root=arguments.feature_root,
+                feature_set_version_id=arguments.feature_set_version_id,
+                feature_snapshot_ids=tuple(arguments.feature_snapshot_id),
+                output_dir=arguments.output_dir,
+            )
         )
-        result = join_training_features(
-            split_input.split,
-            feature_store=FeatureSnapshotStore(arguments.feature_root),
-            feature_snapshot_ids=snapshot_ids,
-            feature_set_version_id=arguments.feature_set_version_id,
-            label_split_manifest=split_input.manifest,
-            label_readiness=split_input.readiness,
-        )
-        write_training_feature_split(arguments.output_dir, result)
+        result = workflow.split
     except (FileExistsError, OSError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
         return 2

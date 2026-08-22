@@ -20,6 +20,7 @@ from stratgauge.ml.training_datasets import (
     TrainingDatasetPurpose,
     TrainingLabel,
     label_contract_id_for,
+    ordered_labels_for,
 )
 from stratgauge.ml.training_feature_shadow.core import (
     FeatureShadowError,
@@ -133,7 +134,7 @@ class FeatureShadowScore(DomainModel):
             raise ValueError("unsupported feature shadow score version")
         if self.label_contract_id != label_contract_id_for(self.purpose):
             raise ValueError("feature shadow score label contract does not match purpose")
-        if self.class_labels != _labels_for(self.purpose):
+        if self.class_labels != ordered_labels_for(self.purpose):
             raise ValueError("feature shadow score classes do not match purpose")
         if self.predicted_label not in self.class_labels:
             raise ValueError("feature shadow predicted label does not match purpose")
@@ -327,25 +328,6 @@ class FeatureShadowScoreStore:
 def _is_sha256(value: str) -> bool:
     normalized = value.strip().lower()
     return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
-
-
-def _labels_for(purpose: TrainingDatasetPurpose) -> tuple[TrainingLabel, ...]:
-    return {
-        TrainingDatasetPurpose.CANDIDATE_SUCCESS: (
-            TrainingLabel.NOT_SUCCESS,
-            TrainingLabel.SUCCESS,
-        ),
-        TrainingDatasetPurpose.ANNOTATION_DECISION: (
-            TrainingLabel.DISCARD,
-            TrainingLabel.WATCH,
-            TrainingLabel.PREPARE_BUY,
-        ),
-        TrainingDatasetPurpose.BUY_TIMING: (
-            TrainingLabel.NOT_PURCHASED,
-            TrainingLabel.PURCHASED,
-        ),
-        TrainingDatasetPurpose.SELL_TIMING: (TrainingLabel.NOT_SOLD, TrainingLabel.SOLD),
-    }[purpose]
 
 
 def _predicted_label(

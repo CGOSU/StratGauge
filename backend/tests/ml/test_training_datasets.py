@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import get_args
 
 from stratgauge.backtest.selection_dataset import (
     SelectionAnnotationDatasetRow,
@@ -26,17 +27,58 @@ from stratgauge.domain.selections import (
     SelectionReusableTagSnapshot,
 )
 from stratgauge.ml.training_datasets import (
+    PredictionSplit,
     TrainingDatasetPurpose,
     TrainingLabel,
+    TrainingSplitName,
+    ValidationSplit,
+    allowed_labels_for,
     audit_training_label_split,
+    ordered_labels_for,
     prepare_training_label_dataset,
     read_training_label_dataset,
     split_training_label_dataset,
     write_training_label_split,
 )
+from stratgauge.ml.training_feature_baseline import SplitName as FeatureBaselineSplitName
+from stratgauge.ml.training_feature_lightgbm import (
+    PredictionSplit as FeatureLightGBMPredictionSplit,
+)
+from stratgauge.ml.training_label_baseline import SplitName as LabelBaselineSplitName
 
 
 class TrainingDatasetTests(unittest.TestCase):
+    def test_training_contract_is_shared_by_purpose_models(self) -> None:
+        expected_labels = {
+            TrainingDatasetPurpose.CANDIDATE_SUCCESS: (
+                TrainingLabel.NOT_SUCCESS,
+                TrainingLabel.SUCCESS,
+            ),
+            TrainingDatasetPurpose.ANNOTATION_DECISION: (
+                TrainingLabel.DISCARD,
+                TrainingLabel.WATCH,
+                TrainingLabel.PREPARE_BUY,
+            ),
+            TrainingDatasetPurpose.BUY_TIMING: (
+                TrainingLabel.NOT_PURCHASED,
+                TrainingLabel.PURCHASED,
+            ),
+            TrainingDatasetPurpose.SELL_TIMING: (
+                TrainingLabel.NOT_SOLD,
+                TrainingLabel.SOLD,
+            ),
+        }
+        for purpose, labels in expected_labels.items():
+            self.assertEqual(ordered_labels_for(purpose), labels)
+            self.assertEqual(allowed_labels_for(purpose), frozenset(labels))
+
+        self.assertEqual(get_args(TrainingSplitName), ("train", "validation", "test"))
+        self.assertEqual(get_args(PredictionSplit), ("validation", "test"))
+        self.assertEqual(get_args(ValidationSplit), ("validation",))
+        self.assertEqual(LabelBaselineSplitName, TrainingSplitName)
+        self.assertEqual(FeatureBaselineSplitName, TrainingSplitName)
+        self.assertIs(FeatureLightGBMPredictionSplit.__value__, PredictionSplit)
+
     def test_candidate_success_purges_labels_unavailable_at_train_cutoff(self) -> None:
         content = serialize_selection_dataset(
             (

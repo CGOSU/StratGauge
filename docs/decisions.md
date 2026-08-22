@@ -507,3 +507,11 @@
 - 决定：将客观结果索引、收益/回撤/换手计算以及日期和 Decimal 解析提取到 `backend/src/stratgauge/ml/walk_forward_outcomes.py`；`walk_forward.py` 继续负责折叠编排、概率指标、报告构造和身份哈希。
 - 约束：保持 `validate_walk_forward` 公共 API、报告字段和版本、身份哈希输入、计算语义及异常文字不变；抽取不扩展 ML 功能或运营入口。
 - 验证：走步定向测试 7 项通过，完整后端测试 371 项通过、1 项跳过，Ruff、格式检查和 MyPy 通过。
+
+### 2026-08-22：四用途 ML 采用内部 application service 显式流水线
+
+- 决定：在 `backend/src/stratgauge/application/ml/` 提供五个训练服务和六个研究证据/生命周期服务；CLI 只负责参数解析、请求构造、调用服务、错误映射和 JSON 输出。每个阶段保持独立，仍由人工显式触发。
+- 决定：四用途训练共享统一的训练 split/标签契约，并使用窄的私有不可变 bundle 写入原语；只抽取 fixture 已证明等价的 bundle 写入语义。注册、shadow、走步和比较等不同单文件或幂等写入语义不强行合并。
+- 决定：新用途链继续与旧候选成功率运行时链隔离，不改变旧 API、公开 CLI、registry/shadow、`active` 生命周期或持久化读取契约；不引入 Redis、Celery、后台训练或外部编排框架。
+- 约束：校准只使用 validation，`final-test` 只保留隔离边界和计数，shadow 报告固定 `used_for_decision=false`；注册、生命周期、比较和交易不会被训练或研究服务自动串联。
+- 验证：定向 ML application/domain 回归 68 项通过；六个 evidence CLI `--help` 通过；后端完整测试 400 项通过、1 项跳过；Ruff check、format check 和 MyPy 通过。

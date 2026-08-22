@@ -7,37 +7,26 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from stratgauge.ml.training_feature_baseline import read_training_feature_split
-from stratgauge.ml.training_feature_registry import FeatureModelRegistryStore
-from stratgauge.ml.training_feature_walk_forward import (
-    FeatureWalkForwardFoldSpec,
-    FeatureWalkForwardReportStore,
+from stratgauge.application.ml import (
     FeatureWalkForwardUnavailableError,
-    validate_feature_walk_forward,
+    ValidateFeatureWalkForwardRequest,
+    run_validate_feature_walk_forward,
 )
 
 
 def main() -> int:
     arguments = _parse_arguments()
     try:
-        split_input = read_training_feature_split(arguments.input_dir)
-        registry = FeatureModelRegistryStore(arguments.root)
-        registration, training_output, calibration_output = registry.load_outputs(
-            arguments.registration_id
+        workflow = run_validate_feature_walk_forward(
+            ValidateFeatureWalkForwardRequest(
+                root=arguments.root,
+                input_dir=arguments.input_dir,
+                registration_id=arguments.registration_id,
+                folds_path=arguments.folds,
+                evaluated_at=arguments.evaluated_at,
+            )
         )
-        fold_payload = json.loads(arguments.folds.read_text(encoding="utf-8"))
-        if not isinstance(fold_payload, list):
-            raise ValueError("--folds must contain a JSON array")
-        folds = tuple(FeatureWalkForwardFoldSpec.model_validate(item) for item in fold_payload)
-        report = validate_feature_walk_forward(
-            split_input,
-            registration=registration,
-            training_output=training_output,
-            calibration_output=calibration_output,
-            folds=folds,
-            evaluated_at=arguments.evaluated_at,
-        )
-        stored = FeatureWalkForwardReportStore(arguments.root).write(report)
+        stored = workflow.report
     except (
         FeatureWalkForwardUnavailableError,
         OSError,

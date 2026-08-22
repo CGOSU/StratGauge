@@ -11,6 +11,7 @@ from stratgauge.ml._hashing import sha256_bytes, sha256_json
 from stratgauge.ml.isotonic import IsotonicBin, fit_isotonic_bins
 from stratgauge.ml.training_datasets import (
     TrainingLabel,
+    ordered_labels_for,
 )
 from stratgauge.ml.training_feature_lightgbm import (
     FEATURE_LIGHTGBM_EVALUATION_VERSION,
@@ -46,7 +47,6 @@ from stratgauge.ml.training_feature_lightgbm_calibration.models import (
     FeatureCalibrationResult,
     FeatureLightGBMOutput,
     _is_sha256,
-    _labels_for,
 )
 
 
@@ -184,7 +184,7 @@ def calibrate_feature_lightgbm(
     )
     validation = tuple(row for row in predictions if row.split == "validation")
     test = tuple(row for row in predictions if row.split == "test")
-    labels = _labels_for(model.purpose)
+    labels = ordered_labels_for(model.purpose)
     positive_label = labels[-1]
     bins_by_label: dict[TrainingLabel, tuple[IsotonicBin, ...]] = {
         positive_label: fit_isotonic_bins(
@@ -390,7 +390,7 @@ def _validate_calibrated_prediction_evidence(
     metrics: FeatureCalibrationEvaluationEvidence,
     predictions: Sequence[FeatureCalibratedPrediction],
 ) -> None:
-    labels = _labels_for(model.purpose)
+    labels = ordered_labels_for(model.purpose)
     expected_count = model.calibration_row_count + model.test_row_count
     if len(predictions) != expected_count:
         raise FeatureCalibrationError("feature calibrated prediction count does not match model")
@@ -466,7 +466,7 @@ def _validate_output_manifest(
             "feature LightGBM manifest feature columns do not match model"
         )
     if _manifest_sequence(manifest, "class_labels") != tuple(
-        label.value for label in _labels_for(model.purpose)
+        label.value for label in ordered_labels_for(model.purpose)
     ):
         raise FeatureCalibrationError("feature LightGBM manifest classes do not match purpose")
     if manifest.get("calibrated") is not False or manifest.get("purged_rows_excluded") is not True:

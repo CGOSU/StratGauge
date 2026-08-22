@@ -16,7 +16,9 @@ from stratgauge.ml._hashing import (
 from stratgauge.ml.training_datasets import (
     TrainingDatasetPurpose,
     TrainingLabel,
+    ValidationSplit,
     label_contract_id_for,
+    ordered_labels_for,
 )
 from stratgauge.ml.training_feature_registry import (
     FeatureModelLifecycle,
@@ -28,28 +30,7 @@ FEATURE_WALK_FORWARD_REPORT_VERSION = "selection-purpose-feature-walk-forward-v1
 FEATURE_WALK_FORWARD_MODEL_TYPE: Literal["lightgbm"] = "lightgbm"
 
 
-SplitName = Literal["validation"]
-
-
-_PURPOSE_LABEL_ORDER: dict[TrainingDatasetPurpose, tuple[TrainingLabel, ...]] = {
-    TrainingDatasetPurpose.CANDIDATE_SUCCESS: (
-        TrainingLabel.NOT_SUCCESS,
-        TrainingLabel.SUCCESS,
-    ),
-    TrainingDatasetPurpose.ANNOTATION_DECISION: (
-        TrainingLabel.DISCARD,
-        TrainingLabel.WATCH,
-        TrainingLabel.PREPARE_BUY,
-    ),
-    TrainingDatasetPurpose.BUY_TIMING: (
-        TrainingLabel.NOT_PURCHASED,
-        TrainingLabel.PURCHASED,
-    ),
-    TrainingDatasetPurpose.SELL_TIMING: (
-        TrainingLabel.NOT_SOLD,
-        TrainingLabel.SOLD,
-    ),
-}
+SplitName = ValidationSplit
 
 
 class FeatureWalkForwardFoldSpec(DomainModel):
@@ -283,7 +264,7 @@ class FeatureWalkForwardReport(DomainModel):
             raise ValueError("unsupported feature walk-forward report version")
         if self.label_contract_id != label_contract_id_for(self.purpose):
             raise ValueError("feature walk-forward label contract does not match purpose")
-        if self.class_labels != _labels_for(self.purpose):
+        if self.class_labels != ordered_labels_for(self.purpose):
             raise ValueError("feature walk-forward class labels do not match purpose")
         if not self.feature_names or tuple(sorted(set(self.feature_names))) != self.feature_names:
             raise ValueError("feature walk-forward feature names must be sorted and non-empty")
@@ -384,12 +365,9 @@ def _is_sha256(value: str) -> bool:
     return len(value) == 64 and all(char in "0123456789abcdef" for char in value)
 
 
-def _labels_for(purpose: TrainingDatasetPurpose) -> tuple[TrainingLabel, ...]:
-    return _PURPOSE_LABEL_ORDER[purpose]
-
-
 def _labels_for_target(target: TrainingLabel) -> tuple[TrainingLabel, ...]:
-    for labels in _PURPOSE_LABEL_ORDER.values():
+    for purpose in TrainingDatasetPurpose:
+        labels = ordered_labels_for(purpose)
         if target in labels:
             return labels
     raise ValueError(f"unsupported training target: {target}")

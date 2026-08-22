@@ -6,23 +6,24 @@ import argparse
 import json
 from pathlib import Path
 
-from stratgauge.ml.training_label_baseline import (
-    read_training_label_split,
-    train_constant_label_baseline,
-    write_constant_label_baseline,
+from stratgauge.application.ml import (
+    TrainLabelBaselineRequest,
+    run_train_label_baseline,
 )
 
 
 def main() -> int:
     arguments = _parse_arguments()
     try:
-        split_input = read_training_label_split(arguments.input_dir)
-        result = train_constant_label_baseline(
-            split_input,
-            random_seed=arguments.random_seed,
-            minimum_labeled_samples=arguments.minimum_labeled_samples,
+        workflow = run_train_label_baseline(
+            TrainLabelBaselineRequest(
+                input_dir=arguments.input_dir,
+                output_dir=arguments.output_dir,
+                random_seed=arguments.random_seed,
+                minimum_labeled_samples=arguments.minimum_labeled_samples,
+            )
         )
-        write_constant_label_baseline(arguments.output_dir, result)
+        result = workflow.result
     except (FileExistsError, OSError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
         return 2

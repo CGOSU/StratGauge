@@ -627,6 +627,12 @@
 - 仓库卫生：`.gitignore` 新增 `frontend/test-results/`（Playwright 输出）与 `.agents/`（本地安装的 agent skills，非项目代码）；删除根目录遗留空目录树 `nonexistent-task-test/`（仅空目录、无文件）；修复 `docs/current-state.md` 一处 `+- ` diff 残留；补齐 `AGENTS.md` 常用命令（后端测试/lint/mypy、真实数据源验证、前端 typecheck/lint/build/test:visual 及 fnm PATH 提示）。
 - 实际验证：`cd frontend && corepack pnpm lint` 通过（0 error、21 warning，全部为已声明 warn 基线）；`corepack pnpm typecheck` 通过；`corepack pnpm build` 通过（Vite 10.66s）；`git diff --check` 通过；`corepack pnpm peers check` 无问题。后端无改动，未运行后端测试；视觉回归未运行（本轮改动为删除永不渲染的代码与 lint 基线，构建与类型检查已覆盖）。未执行 git add/commit/push。
 
+### 2026-08-22 四用途 ML application workflow 迁移与文档收口
+
+- 完成内容：将校准、注册、生命周期、shadow、走步和比较六个 CLI 接入 `backend/src/stratgauge/application/ml/evidence.py`；与既有五个训练服务共同形成显式 application service 边界。保留参数、退出语义、文件路径、不可变工件、SHA-256、manifest 和审计证据；保留 validation-only 校准、`final-test` 隔离、shadow 的 `used_for_decision=false` 以及人工注册/生命周期/比较边界。新增 `tests/application/test_ml_evidence.py` 六项边界回归。更新 `docs/current-state.md`、`docs/decisions.md`、`docs/系统规格说明.md` 和 README；没有新增可复用 pitfalls。
+- 实际验证：`cd backend && PYTHONPATH=src uv run python -m unittest tests.application.test_ml_training tests.application.test_ml_evidence tests.ml.test_artifacts tests.ml.test_training_datasets tests.ml.test_training_feature_join tests.ml.test_training_label_baseline tests.ml.test_training_feature_baseline tests.ml.test_training_feature_lightgbm tests.ml.test_training_feature_lightgbm_calibration tests.ml.test_training_feature_registry tests.ml.test_training_feature_shadow tests.ml.test_training_feature_walk_forward tests.ml.test_training_feature_comparison -q`（68 项通过）；六个 evidence CLI `--help` 命令均通过；`cd backend && PYTHONPATH=src uv run python -m unittest discover -s tests -t . -q`（400 项通过、1 项跳过）；`uv run ruff check .`（通过）；`uv run ruff format --check .`（326 个文件已格式化）；`uv run mypy`（327 个源文件通过）；`git diff --check`（通过，仅 Windows 换行转换提示）。
+- 遗留问题：训练、校准、注册、shadow、走步和比较仍需真实、足量且通过 readiness 的离线证据后由人工 CLI 分阶段运行；未执行真实 provider、commit 或 push。
+
 ### 2026-08-20 只读成熟结果列表文档收口
 
 - 完成内容：在 `docs/使用文档.md` 说明导入数据页成熟结果列表的位置、只读边界、跨全部历史批次范围、归档/排除证据、六类状态、`pending`/`no_entry`/`unresolved` 与训练标签的区别，以及 `GET /v1/selection-maturity/page` 的 `status`、`page`、`page_size` 参数和分页/汇总契约。在 `docs/decisions.md` 记录列表与 ML readiness 统计口径一致、按候选与 tracking policy 保留最新结果及不恢复 Web 成熟执行入口的决策；在 `docs/current-state.md` 更新当前事实和最近一次更新。

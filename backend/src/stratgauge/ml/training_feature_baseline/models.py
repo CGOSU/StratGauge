@@ -10,11 +10,14 @@ from pydantic import Field, field_validator, model_validator
 
 from stratgauge.domain.models import DomainModel
 from stratgauge.ml.training_datasets import (
+    PredictionSplit,
     SelectionTrainingLabelRow,
     TrainingDatasetPurpose,
     TrainingLabel,
     TrainingLabelReadinessReport,
     TrainingLabelSplitManifest,
+    TrainingSplitName,
+    ordered_labels_for,
 )
 from stratgauge.ml.training_feature_join import (
     SelectionTrainingFeatureRow,
@@ -31,28 +34,7 @@ FEATURE_BASELINE_EVALUATION_VERSION = "selection-purpose-feature-baseline-evalua
 FEATURE_BASELINE_MODEL_TYPE: Literal["constant_label_distribution"] = "constant_label_distribution"
 
 
-SplitName = Literal["train", "validation", "test"]
-
-
-_PURPOSE_LABEL_ORDER: dict[TrainingDatasetPurpose, tuple[TrainingLabel, ...]] = {
-    TrainingDatasetPurpose.CANDIDATE_SUCCESS: (
-        TrainingLabel.NOT_SUCCESS,
-        TrainingLabel.SUCCESS,
-    ),
-    TrainingDatasetPurpose.ANNOTATION_DECISION: (
-        TrainingLabel.DISCARD,
-        TrainingLabel.WATCH,
-        TrainingLabel.PREPARE_BUY,
-    ),
-    TrainingDatasetPurpose.BUY_TIMING: (
-        TrainingLabel.NOT_PURCHASED,
-        TrainingLabel.PURCHASED,
-    ),
-    TrainingDatasetPurpose.SELL_TIMING: (
-        TrainingLabel.NOT_SOLD,
-        TrainingLabel.SOLD,
-    ),
-}
+SplitName = TrainingSplitName
 
 
 class TrainingFeatureSplitInput(DomainModel):
@@ -149,7 +131,7 @@ class FeatureBaselineModel(DomainModel):
 
     @model_validator(mode="after")
     def validate_distribution(self) -> FeatureBaselineModel:
-        labels = _labels_for(self.purpose)
+        labels = ordered_labels_for(self.purpose)
         if self.class_labels != labels:
             raise ValueError("feature baseline class labels do not match purpose")
         if set(self.probabilities) != {label.value for label in labels}:
@@ -184,7 +166,7 @@ class FeatureBaselineMetrics(DomainModel):
 class FeatureBaselinePrediction(DomainModel):
     """Out-of-sample prediction retaining its feature/label lineage."""
 
-    split: Literal["validation", "test"]
+    split: PredictionSplit
     sample_id: str
     target: TrainingLabel
     predicted_label: TrainingLabel
@@ -277,10 +259,6 @@ def _validate_rows(
             raise ValueError(f"{partition} feature row has a different feature set")
         if tuple(sorted(row.features)) != expected_names:
             raise ValueError(f"{partition} feature rows have different feature columns")
-
-
-def _labels_for(purpose: TrainingDatasetPurpose) -> tuple[TrainingLabel, ...]:
-    return _PURPOSE_LABEL_ORDER[purpose]
 
 
 def _sha256_text(value: str, name: str) -> str:

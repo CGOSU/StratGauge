@@ -5,15 +5,17 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from decimal import Decimal
-from typing import Literal
 
 from stratgauge.ml.training_datasets import (
+    PredictionSplit,
     TrainingLabel,
+)
+from stratgauge.ml.training_datasets import (
+    TrainingSplitName as SplitName,
 )
 from stratgauge.ml.training_feature_baseline.models import (
     FeatureBaselineMetrics,
     FeatureBaselinePrediction,
-    SplitName,
 )
 from stratgauge.ml.training_feature_join import (
     SelectionTrainingFeatureRow,
@@ -55,7 +57,7 @@ def _metrics(
 
 
 def _predictions(
-    split: Literal["validation", "test"],
+    split: PredictionSplit,
     rows: Sequence[SelectionTrainingFeatureRow],
     probabilities: dict[str, Decimal],
     labels: tuple[TrainingLabel, ...],

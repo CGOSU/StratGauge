@@ -8,12 +8,13 @@ from collections import Counter
 from collections.abc import Sequence
 from decimal import Decimal
 from pathlib import Path
-from typing import Literal, cast
+from typing import cast
 
+from stratgauge.ml._artifacts import write_immutable_bundle
 from stratgauge.ml._hashing import sha256_bytes, sha256_json
-from stratgauge.ml.selection_training import SplitName
 from stratgauge.ml.training_datasets import (
     TRAINING_LABEL_DATASET_SCHEMA_VERSION,
+    PredictionSplit,
     PreparedTrainingLabelDataset,
     SelectionTrainingLabelRow,
     TrainingLabel,
@@ -22,8 +23,12 @@ from stratgauge.ml.training_datasets import (
     TrainingLabelSplitManifest,
     audit_training_label_split,
     build_training_label_split_manifest,
+    ordered_labels_for,
     read_training_label_dataset,
     split_training_label_dataset,
+)
+from stratgauge.ml.training_datasets import (
+    TrainingSplitName as SplitName,
 )
 from stratgauge.ml.training_label_baseline.models import (
     LABEL_BASELINE_MODEL_TYPE,
@@ -34,7 +39,6 @@ from stratgauge.ml.training_label_baseline.models import (
     LabelBaselinePrediction,
     LabelBaselineTrainingResult,
     TrainingLabelSplitInput,
-    _labels_for,
 )
 
 
@@ -128,7 +132,7 @@ def train_constant_label_baseline(
     if not readiness.eligible:
         raise ValueError("training label split is not eligible: " + "; ".join(readiness.blockers))
     train_rows = split_input.split.train_rows
-    labels = _labels_for(split_input.split.prepared.purpose)
+    labels = ordered_labels_for(split_input.split.prepared.purpose)
     counts = Counter(row.target for row in train_rows)
     if len([label for label in labels if counts[label]]) < 2:
         raise ValueError("training labels must contain at least two classes")
@@ -181,7 +185,7 @@ def train_constant_label_baseline(
             ("test", split_input.split.test_rows),
         )
         for prediction in _predictions(
-            cast(Literal["validation", "test"], split_name), rows, probabilities, labels
+            cast(PredictionSplit, split_name), rows, probabilities, labels
         )
     )
     return LabelBaselineTrainingResult(
@@ -244,24 +248,11 @@ def write_constant_label_baseline(
         )
         + "\n",
     }
-    destination.mkdir(parents=True, exist_ok=True)
-    paths = tuple(destination / name for name in outputs)
-    if any(path.exists() for path in paths):
-        raise FileExistsError(f"label baseline output already exists: {destination}")
-    temporary_paths: list[Path] = []
-    try:
-        for path, content in zip(paths, outputs.values(), strict=True):
-            temporary = path.with_suffix(f"{path.suffix}.tmp")
-            temporary.write_text(content, encoding="utf-8", newline="\n")
-            temporary_paths.append(temporary)
-        for temporary, path in zip(temporary_paths, paths, strict=True):
-            temporary.replace(path)
-    except OSError:
-        for temporary in temporary_paths:
-            temporary.unlink(missing_ok=True)
-        for path in paths:
-            path.unlink(missing_ok=True)
-        raise
+    write_immutable_bundle(
+        destination,
+        outputs,
+        already_exists_message=f"label baseline output already exists: {destination}",
+    )
 
 
 def _metrics(
@@ -302,7 +293,7 @@ def _metrics(
 
 
 def _predictions(
-    split: Literal["validation", "test"],
+    split: PredictionSplit,
     rows: Sequence[SelectionTrainingLabelRow],
     probabilities: dict[str, Decimal],
     labels: tuple[TrainingLabel, ...],
@@ -337,7 +328,7 @@ def _validate_manifest_identity(manifest: TrainingLabelSplitManifest) -> None:
         value = getattr(manifest, name)
         if len(value) != 64 or any(char not in "0123456789abcdef" for char in value.lower()):
             raise ValueError(f"training label split manifest has invalid {name}")
-    expected_labels = set(_labels_for(manifest.purpose))
+    expected_labels = set(ordered_labels_for(manifest.purpose))
     if not manifest.label_contract_id.strip():
         raise ValueError("training label split manifest has no label contract")
     if set(manifest.row_counts) != {"train", "validation", "test", "purged"}:

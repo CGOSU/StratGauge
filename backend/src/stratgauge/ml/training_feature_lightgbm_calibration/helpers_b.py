@@ -8,11 +8,13 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Literal
 
+from stratgauge.ml._artifacts import write_immutable_bundle
 from stratgauge.ml.isotonic import IsotonicBin, apply_isotonic_bin
 from stratgauge.ml.training_datasets import (
+    PredictionSplit,
     TrainingLabel,
+    ordered_labels_for,
 )
 from stratgauge.ml.training_feature_lightgbm import (
     FEATURE_LIGHTGBM_MODEL_TYPE,
@@ -28,7 +30,6 @@ from stratgauge.ml.training_feature_lightgbm_calibration.models import (
     FeatureCalibratedPrediction,
     FeatureCalibrationMetrics,
     _is_sha256,
-    _labels_for,
 )
 
 
@@ -37,7 +38,7 @@ def _validate_prediction_evidence(
     metrics: FeatureLightGBMEvaluationEvidence,
     predictions: Sequence[FeatureLightGBMPrediction],
 ) -> None:
-    labels = _labels_for(model.purpose)
+    labels = ordered_labels_for(model.purpose)
     expected_probability_keys = {label.value for label in labels}
     expected_count = model.row_counts["validation"] + model.row_counts["test"]
     if len(predictions) != expected_count:
@@ -124,7 +125,7 @@ def _validate_calibration_inputs(
     keys = tuple((row.split, row.sample_id) for row in predictions)
     if len(keys) != len(set(keys)):
         raise FeatureCalibrationError("feature calibration predictions contain duplicate rows")
-    expected_labels = set(_labels_for(model.purpose))
+    expected_labels = set(ordered_labels_for(model.purpose))
     validation = tuple(row for row in predictions if row.split == "validation")
     test = tuple(row for row in predictions if row.split == "test")
     if len(validation) < minimum_validation_samples:
@@ -201,7 +202,7 @@ def _calibrate_prediction(
 
 
 def _metrics(
-    split: Literal["validation", "test"],
+    split: PredictionSplit,
     rows: Sequence[FeatureCalibratedPrediction],
     labels: Sequence[TrainingLabel],
 ) -> FeatureCalibrationMetrics:
@@ -310,21 +311,8 @@ def _bin_identity(item: IsotonicBin) -> dict[str, str | int]:
 
 
 def _write_outputs(destination: Path, outputs: Mapping[str, bytes]) -> None:
-    destination.mkdir(parents=True, exist_ok=True)
-    paths = tuple(destination / name for name in outputs)
-    if any(path.exists() for path in paths):
-        raise FileExistsError(f"feature calibration output already exists: {destination}")
-    temporary_paths: list[Path] = []
-    try:
-        for path, content in zip(paths, outputs.values(), strict=True):
-            temporary = path.with_suffix(f"{path.suffix}.tmp")
-            temporary.write_bytes(content)
-            temporary_paths.append(temporary)
-        for temporary, path in zip(temporary_paths, paths, strict=True):
-            temporary.replace(path)
-    except OSError:
-        for temporary in temporary_paths:
-            temporary.unlink(missing_ok=True)
-        for path in paths:
-            path.unlink(missing_ok=True)
-        raise
+    write_immutable_bundle(
+        destination,
+        outputs,
+        already_exists_message=f"feature calibration output already exists: {destination}",
+    )

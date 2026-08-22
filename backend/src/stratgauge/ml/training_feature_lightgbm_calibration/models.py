@@ -12,9 +12,12 @@ from pydantic import Field, field_validator, model_validator
 
 from stratgauge.domain.models import DomainModel
 from stratgauge.ml.training_datasets import (
+    PredictionSplit,
     TrainingDatasetPurpose,
     TrainingLabel,
+    ValidationSplit,
     label_contract_id_for,
+    ordered_labels_for,
 )
 from stratgauge.ml.training_feature_lightgbm import (
     FeatureLightGBMEvaluationEvidence,
@@ -60,7 +63,7 @@ class FeatureCalibratedModel(DomainModel):
     feature_names: tuple[str, ...]
     calibrated: Literal[True] = True
     calibrated_at: datetime
-    calibration_split: Literal["validation"] = "validation"
+    calibration_split: ValidationSplit = "validation"
     calibration_row_count: int = Field(gt=0)
     calibration_target_counts: dict[str, int]
     calibration_date_start: date
@@ -115,7 +118,7 @@ class FeatureCalibratedModel(DomainModel):
             raise ValueError("feature calibration dates are reversed")
         if not self.feature_names or tuple(sorted(set(self.feature_names))) != self.feature_names:
             raise ValueError("feature calibration feature names must be sorted and non-empty")
-        expected_labels = _labels_for(self.purpose)
+        expected_labels = ordered_labels_for(self.purpose)
         if set(self.calibration_target_counts) != {label.value for label in expected_labels}:
             raise ValueError("feature calibration target counts do not match purpose")
         if any(count <= 0 for count in self.calibration_target_counts.values()):
@@ -149,7 +152,7 @@ class FeatureCalibratedModel(DomainModel):
 class FeatureCalibratedPrediction(DomainModel):
     """Raw and calibrated class probabilities for validation or test."""
 
-    split: Literal["validation", "test"]
+    split: PredictionSplit
     sample_id: str
     candidate_id: str
     symbol: str
@@ -191,7 +194,7 @@ class FeatureCalibratedPrediction(DomainModel):
 class FeatureCalibrationMetrics(DomainModel):
     """Raw and calibrated multiclass-aware metrics for one split."""
 
-    split: Literal["validation", "test"]
+    split: PredictionSplit
     row_count: int = Field(ge=0)
     target_counts: dict[str, int]
     raw_log_loss: float | None = Field(default=None, ge=0)
@@ -263,22 +266,3 @@ class FeatureCalibrationOutput:
 def _is_sha256(value: str) -> bool:
     normalized = value.strip().lower()
     return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
-
-
-def _labels_for(purpose: TrainingDatasetPurpose) -> tuple[TrainingLabel, ...]:
-    return {
-        TrainingDatasetPurpose.CANDIDATE_SUCCESS: (
-            TrainingLabel.NOT_SUCCESS,
-            TrainingLabel.SUCCESS,
-        ),
-        TrainingDatasetPurpose.ANNOTATION_DECISION: (
-            TrainingLabel.DISCARD,
-            TrainingLabel.WATCH,
-            TrainingLabel.PREPARE_BUY,
-        ),
-        TrainingDatasetPurpose.BUY_TIMING: (
-            TrainingLabel.NOT_PURCHASED,
-            TrainingLabel.PURCHASED,
-        ),
-        TrainingDatasetPurpose.SELL_TIMING: (TrainingLabel.NOT_SOLD, TrainingLabel.SOLD),
-    }[purpose]

@@ -12,11 +12,15 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any, cast
 
+from stratgauge.ml._artifacts import write_immutable_bundle
 from stratgauge.ml._hashing import sha256_bytes, sha256_json
-from stratgauge.ml.calibration import PredictionSplit
-from stratgauge.ml.selection_training import SplitName
 from stratgauge.ml.training_datasets import (
+    PredictionSplit,
     TrainingLabel,
+    ordered_labels_for,
+)
+from stratgauge.ml.training_datasets import (
+    TrainingSplitName as SplitName,
 )
 from stratgauge.ml.training_feature_baseline import TrainingFeatureSplitInput
 from stratgauge.ml.training_feature_join import SelectionTrainingFeatureRow
@@ -32,7 +36,6 @@ from stratgauge.ml.training_feature_lightgbm.models import (
     FeatureLightGBMModel,
     FeatureLightGBMPrediction,
     FeatureLightGBMTrainingResult,
-    _labels_for,
 )
 
 
@@ -47,7 +50,7 @@ def train_feature_lightgbm(
     _validate_training_input(split_input, minimum_labeled_samples)
     lightgbm = _load_lightgbm()
     numpy = _load_numpy()
-    labels = _labels_for(split_input.manifest.purpose)
+    labels = ordered_labels_for(split_input.manifest.purpose)
     feature_names = split_input.manifest.feature_names
     train_rows = split_input.train_rows
     parameters = _parameters(labels, random_seed)
@@ -201,24 +204,11 @@ def _write_feature_lightgbm_outputs(
     destination: Path,
     outputs: dict[str, bytes],
 ) -> None:
-    destination.mkdir(parents=True, exist_ok=True)
-    paths = tuple(destination / name for name in outputs)
-    if any(path.exists() for path in paths):
-        raise FileExistsError(f"feature LightGBM output already exists: {destination}")
-    temporary_paths: list[Path] = []
-    try:
-        for path, content in zip(paths, outputs.values(), strict=True):
-            temporary = path.with_suffix(f"{path.suffix}.tmp")
-            temporary.write_bytes(content)
-            temporary_paths.append(temporary)
-        for temporary, path in zip(temporary_paths, paths, strict=True):
-            temporary.replace(path)
-    except OSError:
-        for temporary in temporary_paths:
-            temporary.unlink(missing_ok=True)
-        for path in paths:
-            path.unlink(missing_ok=True)
-        raise
+    write_immutable_bundle(
+        destination,
+        outputs,
+        already_exists_message=f"feature LightGBM output already exists: {destination}",
+    )
 
 
 def _validate_training_input(
@@ -251,7 +241,7 @@ def _validate_training_input(
     rows = split_input.train_rows + split_input.validation_rows + split_input.test_rows
     if len(rows) < minimum_labeled_samples:
         raise ValueError(f"feature labels {len(rows)} are below minimum {minimum_labeled_samples}")
-    labels = _labels_for(split_input.manifest.purpose)
+    labels = ordered_labels_for(split_input.manifest.purpose)
     train_targets = Counter(row.target for row in split_input.train_rows)
     if any(train_targets[label] == 0 for label in labels):
         raise ValueError("feature LightGBM training labels must contain every purpose class")

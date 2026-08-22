@@ -11,6 +11,7 @@ from typing import Any
 from stratgauge.ml._hashing import sha256_json
 from stratgauge.ml.training_datasets import (
     TrainingLabel,
+    ordered_labels_for,
 )
 from stratgauge.ml.training_feature_baseline import TrainingFeatureSplitInput
 from stratgauge.ml.training_feature_lightgbm import FeatureLightGBMModel
@@ -34,7 +35,6 @@ from stratgauge.ml.training_feature_walk_forward.models import (
     FeatureWalkForwardMetrics,
     FeatureWalkForwardPrediction,
     FeatureWalkForwardReport,
-    _labels_for,
 )
 
 
@@ -80,7 +80,7 @@ def validate_feature_walk_forward(
 
     lightgbm = _load_lightgbm()
     numpy = _load_numpy()
-    labels = _labels_for(split_input.manifest.purpose)
+    labels = ordered_labels_for(split_input.manifest.purpose)
     model = training_output.model
     fold_reports = tuple(
         _evaluate_fold(
@@ -167,7 +167,7 @@ def _validate_registration_context(
         (
             "class_labels",
             registration.class_labels,
-            _labels_for(split_input.manifest.purpose),
+            ordered_labels_for(split_input.manifest.purpose),
         ),
         (
             "feature_dataset_manifest_sha256",
@@ -190,7 +190,7 @@ def _validate_registration_context(
             raise ValueError(f"feature walk-forward registration does not match split: {name}")
     if model.feature_names != split_input.manifest.feature_names:
         raise ValueError("training model feature names do not match feature split")
-    if model.class_labels != _labels_for(split_input.manifest.purpose):
+    if model.class_labels != ordered_labels_for(split_input.manifest.purpose):
         raise ValueError("training model class labels do not match purpose")
     if model.feature_dataset_manifest_sha256 != split_input.manifest_sha256:
         raise ValueError("training model feature manifest does not match feature split")

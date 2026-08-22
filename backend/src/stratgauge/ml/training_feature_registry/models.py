@@ -15,6 +15,7 @@ from stratgauge.ml.training_datasets import (
     TrainingDatasetPurpose,
     TrainingLabel,
     label_contract_id_for,
+    ordered_labels_for,
 )
 from stratgauge.ml.training_feature_lightgbm import FEATURE_LIGHTGBM_MODEL_TYPE
 
@@ -128,7 +129,7 @@ class FeatureModelRegistration(DomainModel):
             raise ValueError(
                 "feature model registration feature names must be sorted and non-empty"
             )
-        if self.class_labels != _labels_for(self.purpose):
+        if self.class_labels != ordered_labels_for(self.purpose):
             raise ValueError("feature model registration classes do not match purpose")
         calibration_values = (
             self.calibration_id,
@@ -203,25 +204,6 @@ class FeatureModelLifecycleEvent(DomainModel):
 def _is_sha256(value: str) -> bool:
     normalized = value.strip().lower()
     return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
-
-
-def _labels_for(purpose: TrainingDatasetPurpose) -> tuple[TrainingLabel, ...]:
-    return {
-        TrainingDatasetPurpose.CANDIDATE_SUCCESS: (
-            TrainingLabel.NOT_SUCCESS,
-            TrainingLabel.SUCCESS,
-        ),
-        TrainingDatasetPurpose.ANNOTATION_DECISION: (
-            TrainingLabel.DISCARD,
-            TrainingLabel.WATCH,
-            TrainingLabel.PREPARE_BUY,
-        ),
-        TrainingDatasetPurpose.BUY_TIMING: (
-            TrainingLabel.NOT_PURCHASED,
-            TrainingLabel.PURCHASED,
-        ),
-        TrainingDatasetPurpose.SELL_TIMING: (TrainingLabel.NOT_SOLD, TrainingLabel.SOLD),
-    }[purpose]
 
 
 def _registration_id(model_version_id: str, calibration_id: str | None) -> str:

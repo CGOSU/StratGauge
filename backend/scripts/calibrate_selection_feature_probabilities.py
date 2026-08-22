@@ -7,28 +7,25 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from stratgauge.ml.training_feature_lightgbm_calibration import (
+from stratgauge.application.ml import (
+    CalibrateFeatureProbabilitiesRequest,
     FeatureCalibrationError,
-    calibrate_feature_lightgbm,
-    read_feature_lightgbm_output,
-    write_feature_calibration_result,
+    run_calibrate_feature_probabilities,
 )
 
 
 def main() -> int:
     arguments = _parse_arguments()
     try:
-        training = read_feature_lightgbm_output(arguments.input_dir)
-        result = calibrate_feature_lightgbm(
-            training.model,
-            training.predictions,
-            source_prediction_sha256=training.predictions_sha256,
-            source_model_sha256=training.model_sha256,
-            source_manifest_sha256=training.manifest_sha256,
-            calibrated_at=arguments.calibrated_at,
-            minimum_validation_samples=arguments.minimum_validation_samples,
+        workflow = run_calibrate_feature_probabilities(
+            CalibrateFeatureProbabilitiesRequest(
+                input_dir=arguments.input_dir,
+                output_dir=arguments.output_dir,
+                calibrated_at=arguments.calibrated_at,
+                minimum_validation_samples=arguments.minimum_validation_samples,
+            )
         )
-        write_feature_calibration_result(arguments.output_dir, result)
+        result = workflow.result
     except (FeatureCalibrationError, FileExistsError, OSError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
         return 2

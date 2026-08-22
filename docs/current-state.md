@@ -19,6 +19,7 @@
 
 ## 待处理
 
+- 2026-08-22 ML 四用途重构已完成代码迁移：中心训练契约、不可变 bundle 写入原语、五个训练 application service 和六个研究证据/生命周期 application service 已落地；11 个 ML CLI 仍由人工显式触发，未引入后台训练、自动注册、自动晋升或交易。旧候选成功率链与新用途链保持隔离。
 - 第一轮 clean-code 整理已完成行为保持型收敛：后端 `uv run mypy` 现在覆盖 `start.py`、`src`、`tests` 和 `scripts`；ML 规范 JSON/SHA-256 与原子文本写入已分别抽为共享私有工具；前端请求客户端、日历输入和主板行情同步面板已拆出，无消费者的 API Context/hook、`decisionDescription` 和成熟任务前端遗留 CSS 已删除。后端公开 API/CLI、数据源适配器和历史兼容路径未因“看起来旧”而删除。
 - 尚未进行大规模职责拆分：`frontend/src/App.tsx` 的工作台/数据管理/持仓页面、`backend/src/stratgauge/api/selections.py` 的综合服务以及 ML 训练大模块仍保留，后续应按领域边界继续小步提取。行情同步诊断的浏览器视觉回归、同步阶段进度轮询/取消操作和未成交/部分成交独立前端入口仍未实现。`git push` 仍因 `master` 未配置远程仓库而不可执行。
 - 已实现 Tushare `daily`、股票池、交易日历和复权因子适配，以及仅面向 `000300.SH` 的独立 `index_daily` 请求与同步 CLI；本轮只用离线替身验证接口、ingest/快照写入和 readiness 过滤，未执行真实行情请求。BaoStock + AKShare 的既有备用交易日历缓存仍可供本地测试使用；Tushare `trade_cal` 原生端点的供应商溯源请求仍受既有限额约束。
@@ -31,6 +32,8 @@
 - 研究基础已增加 Tushare 股票列表/交易日历同步、BaoStock + AKShare 备用交易日历交叉校验、交易日历增量缓存、时间点股票池快照、证券主数据快照、`/v1/universe/securities` 与 `/v1/universe/master` 搜索、内容寻址理论回测报告、策略生命周期审计，以及手工订单/成交/持仓/复盘 API；趋势交易 A1 买入规则、A2 胜负/成本规则、B1/B2 全市场增量行情及多日编排、C1 交易日历缓存、C2/C2.1 复权因子同步与历史批量补齐、显式前复权特征输入、C3 已批准行情自动成熟队列以及条件胜率和买入价分析查询已完成；分析查询严格按公式、追踪政策和批次导出时间点筛选历史证据。
 
 ## 最近一次更新
+
+- 2026-08-22 完成四用途 ML application workflow 迁移：训练、校准、注册、生命周期、shadow、走步和比较 CLI 现在通过 `backend/src/stratgauge/application/ml/` 的显式 request/result 服务执行；保留 CLI 参数、退出语义、工件路径、SHA-256、manifest、审计证据、`final-test` 隔离和 `used_for_decision=false`。新增 application 边界回归；六个 evidence CLI `--help` 通过。后端完整测试 400 项通过、1 项跳过，Ruff check、format check 和 MyPy 通过；未执行 commit/push。
 
 - 2026-08-22 完成本轮 Web 列表读取优化：后端工作台、成熟结果和数据管理分页先筛选/分页再 hydration，批量读取 DuckDB 投影并保留事实文件扫描回退；前端按导入路由加载导入数据，工作台搜索防抖并取消过期请求，统计/成熟列表按需加载，旧手工台账展开后挂载。公开路由、字段、排序筛选、全范围成熟 `status_counts` 和旧完整列表入口保持不变。未引入新基础设施，未执行 commit/push。
 

@@ -6,23 +6,24 @@ import argparse
 import json
 from pathlib import Path
 
-from stratgauge.ml.training_feature_baseline import (
-    read_training_feature_split,
-    train_constant_feature_baseline,
-    write_constant_feature_baseline,
+from stratgauge.application.ml import (
+    TrainFeatureBaselineRequest,
+    run_train_feature_baseline,
 )
 
 
 def main() -> int:
     arguments = _parse_arguments()
     try:
-        split_input = read_training_feature_split(arguments.input_dir)
-        result = train_constant_feature_baseline(
-            split_input,
-            random_seed=arguments.random_seed,
-            minimum_labeled_samples=arguments.minimum_labeled_samples,
+        workflow = run_train_feature_baseline(
+            TrainFeatureBaselineRequest(
+                input_dir=arguments.input_dir,
+                output_dir=arguments.output_dir,
+                random_seed=arguments.random_seed,
+                minimum_labeled_samples=arguments.minimum_labeled_samples,
+            )
         )
-        write_constant_feature_baseline(arguments.output_dir, result)
+        result = workflow.result
     except (FileExistsError, OSError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
         return 2

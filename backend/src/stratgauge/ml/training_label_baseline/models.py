@@ -10,11 +10,14 @@ from pydantic import Field, field_validator, model_validator
 
 from stratgauge.domain.models import DomainModel
 from stratgauge.ml.training_datasets import (
+    PredictionSplit,
     TrainingDatasetPurpose,
     TrainingLabel,
     TrainingLabelDatasetSplit,
     TrainingLabelReadinessReport,
     TrainingLabelSplitManifest,
+    TrainingSplitName,
+    ordered_labels_for,
 )
 
 LABEL_BASELINE_REPORT_VERSION = "selection-label-baseline-v1"
@@ -26,28 +29,7 @@ LABEL_BASELINE_EVALUATION_VERSION = "selection-label-baseline-evaluation-v1"
 LABEL_BASELINE_MODEL_TYPE: Literal["constant_label_distribution"] = "constant_label_distribution"
 
 
-SplitName = Literal["train", "validation", "test"]
-
-
-_PURPOSE_LABEL_ORDER: dict[TrainingDatasetPurpose, tuple[TrainingLabel, ...]] = {
-    TrainingDatasetPurpose.CANDIDATE_SUCCESS: (
-        TrainingLabel.NOT_SUCCESS,
-        TrainingLabel.SUCCESS,
-    ),
-    TrainingDatasetPurpose.ANNOTATION_DECISION: (
-        TrainingLabel.DISCARD,
-        TrainingLabel.WATCH,
-        TrainingLabel.PREPARE_BUY,
-    ),
-    TrainingDatasetPurpose.BUY_TIMING: (
-        TrainingLabel.NOT_PURCHASED,
-        TrainingLabel.PURCHASED,
-    ),
-    TrainingDatasetPurpose.SELL_TIMING: (
-        TrainingLabel.NOT_SOLD,
-        TrainingLabel.SOLD,
-    ),
-}
+SplitName = TrainingSplitName
 
 
 class TrainingLabelSplitInput(DomainModel):
@@ -112,7 +94,7 @@ class LabelBaselineModel(DomainModel):
 
     @model_validator(mode="after")
     def validate_distribution(self) -> LabelBaselineModel:
-        expected_labels = _labels_for(self.purpose)
+        expected_labels = ordered_labels_for(self.purpose)
         if self.class_labels != expected_labels:
             raise ValueError("label baseline class labels do not match purpose")
         if set(self.probabilities) != {label.value for label in expected_labels}:
@@ -159,7 +141,7 @@ class LabelBaselineMetrics(DomainModel):
 class LabelBaselinePrediction(DomainModel):
     """One validation/test prediction retained for audit and future ranking review."""
 
-    split: Literal["validation", "test"]
+    split: PredictionSplit
     sample_id: str
     candidate_id: str
     batch_id: str
@@ -203,7 +185,3 @@ class LabelBaselineTrainingResult(DomainModel):
     prepared_dataset_sha256: str
     split_manifest_sha256: str
     row_counts: dict[str, int]
-
-
-def _labels_for(purpose: TrainingDatasetPurpose) -> tuple[TrainingLabel, ...]:
-    return _PURPOSE_LABEL_ORDER[purpose]

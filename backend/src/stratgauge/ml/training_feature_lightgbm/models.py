@@ -10,9 +10,14 @@ from pydantic import Field, field_validator, model_validator
 
 from stratgauge.domain.models import DomainModel
 from stratgauge.ml.training_datasets import (
+    PredictionSplit as _PredictionSplit,
+)
+from stratgauge.ml.training_datasets import (
     TrainingDatasetPurpose,
     TrainingLabel,
+    TrainingSplitName,
     label_contract_id_for,
+    ordered_labels_for,
 )
 
 FEATURE_LIGHTGBM_REPORT_VERSION = "selection-purpose-lightgbm-v1"
@@ -27,31 +32,8 @@ FEATURE_LIGHTGBM_MODEL_TYPE: Literal["lightgbm"] = "lightgbm"
 FEATURE_LIGHTGBM_BOOST_ROUNDS = 50
 
 
-SplitName = Literal["train", "validation", "test"]
-
-
-PredictionSplit = Literal["validation", "test"]
-
-
-_PURPOSE_LABEL_ORDER: dict[TrainingDatasetPurpose, tuple[TrainingLabel, ...]] = {
-    TrainingDatasetPurpose.CANDIDATE_SUCCESS: (
-        TrainingLabel.NOT_SUCCESS,
-        TrainingLabel.SUCCESS,
-    ),
-    TrainingDatasetPurpose.ANNOTATION_DECISION: (
-        TrainingLabel.DISCARD,
-        TrainingLabel.WATCH,
-        TrainingLabel.PREPARE_BUY,
-    ),
-    TrainingDatasetPurpose.BUY_TIMING: (
-        TrainingLabel.NOT_PURCHASED,
-        TrainingLabel.PURCHASED,
-    ),
-    TrainingDatasetPurpose.SELL_TIMING: (
-        TrainingLabel.NOT_SOLD,
-        TrainingLabel.SOLD,
-    ),
-}
+SplitName = TrainingSplitName
+type PredictionSplit = _PredictionSplit
 
 
 class FeatureLightGBMModel(DomainModel):
@@ -112,7 +94,7 @@ class FeatureLightGBMModel(DomainModel):
             raise ValueError("unsupported feature LightGBM report version")
         if self.label_contract_id != label_contract_id_for(self.purpose):
             raise ValueError("feature LightGBM label contract does not match purpose")
-        labels = _labels_for(self.purpose)
+        labels = ordered_labels_for(self.purpose)
         if self.class_labels != labels:
             raise ValueError("feature LightGBM class labels do not match purpose")
         if set(self.train_target_counts) != {label.value for label in labels}:
@@ -230,7 +212,3 @@ class FeatureLightGBMTrainingResult(DomainModel):
 def _is_sha256(value: str) -> bool:
     normalized = value.strip().lower()
     return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
-
-
-def _labels_for(purpose: TrainingDatasetPurpose) -> tuple[TrainingLabel, ...]:
-    return _PURPOSE_LABEL_ORDER[purpose]

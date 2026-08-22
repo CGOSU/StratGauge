@@ -7,34 +7,30 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from stratgauge.ml.training_feature_comparison import (
+from stratgauge.application.ml import (
+    CompareFeatureModelsRequest,
     FeatureComparisonError,
-    FeatureComparisonPolicy,
-    FeatureComparisonStore,
-    compare_registered_feature_models,
+    run_compare_feature_models,
 )
-from stratgauge.ml.training_feature_registry import FeatureModelRegistryStore
-from stratgauge.ml.training_feature_walk_forward import FeatureWalkForwardReportStore
 
 
 def main() -> int:
     arguments = _parse_arguments()
     try:
-        policy = FeatureComparisonPolicy.model_validate_json(arguments.policy.read_bytes())
-        comparison_store = FeatureComparisonStore(arguments.root)
-        report = compare_registered_feature_models(
-            registry=FeatureModelRegistryStore(arguments.root),
-            walk_forward_store=FeatureWalkForwardReportStore(arguments.root),
-            comparison_store=comparison_store,
-            challenger_registration_id=arguments.challenger_registration_id,
-            challenger_report_id=arguments.challenger_report_id,
-            reference_registration_id=arguments.reference_registration_id,
-            reference_report_id=arguments.reference_report_id,
-            policy=policy,
-            compared_at=arguments.compared_at,
-            compared_by=arguments.compared_by,
+        workflow = run_compare_feature_models(
+            CompareFeatureModelsRequest(
+                root=arguments.root,
+                policy_path=arguments.policy,
+                challenger_registration_id=arguments.challenger_registration_id,
+                challenger_report_id=arguments.challenger_report_id,
+                reference_registration_id=arguments.reference_registration_id,
+                reference_report_id=arguments.reference_report_id,
+                compared_at=arguments.compared_at,
+                compared_by=arguments.compared_by,
+            )
         )
-        _, report_sha256 = comparison_store.load_with_sha256(report.report_id)
+        report = workflow.report
+        report_sha256 = workflow.report_sha256
     except (FeatureComparisonError, OSError, TypeError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
         return 2

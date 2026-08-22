@@ -6,23 +6,30 @@ import argparse
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
-from stratgauge.ml.training_feature_registry import (
+from stratgauge.application.ml import (
+    FeatureModelLifecycle,
     FeatureModelRegistryError,
-    FeatureModelRegistryStore,
+    TransitionFeatureModelRequest,
+    run_transition_feature_model,
 )
 
 
 def main() -> int:
     arguments = _parse_arguments()
     try:
-        registration = FeatureModelRegistryStore(arguments.root).transition(
-            arguments.registration_id,
-            arguments.to_lifecycle,
-            changed_at=arguments.changed_at,
-            reason=arguments.reason,
-            operator=arguments.operator,
+        workflow = run_transition_feature_model(
+            TransitionFeatureModelRequest(
+                root=arguments.root,
+                registration_id=arguments.registration_id,
+                to_lifecycle=cast(FeatureModelLifecycle, arguments.to_lifecycle),
+                changed_at=arguments.changed_at,
+                reason=arguments.reason,
+                operator=arguments.operator,
+            )
         )
+        registration = workflow.registration
     except (FeatureModelRegistryError, OSError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
         return 2

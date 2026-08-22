@@ -84,7 +84,7 @@ AI 应报告实际执行的命令、退出码、通过/跳过/失败接口，以
 3. 显式创建、执行行情成熟任务；
 4. 检查客观结果、统计和数据集；
 5. 生成点时特征快照和训练切分；
-6. 满足 readiness gate 后，人工执行训练、校准、注册和 shadow；
+6. 满足 readiness gate 后，人工按 CLI 分阶段执行训练、校准、注册、生命周期、shadow、走步和比较；内部通过 `backend/src/stratgauge/application/ml/` 显式 application service 执行，不自动触发下一阶段；
 7. 只有人工确认后才允许进入后续研究流程。
 
 重要边界：
@@ -95,7 +95,7 @@ AI 应报告实际执行的命令、退出码、通过/跳过/失败接口，以
 - 默认至少需要 100 条成熟 `win/loss/flat` 结果，并同时具备 `success/not_success`；
 - benchmark 使用独立的 `000300.SH index_daily` 证据，不使用股票复权因子代替；
 - shadow 分数不用于交易决策；
-- provider、真实行情和 Scheduler 操作必须显式执行，凭证只从环境变量读取。
+- provider、真实行情和 Scheduler 操作必须显式执行，凭证只从环境变量读取；四用途研究链与旧候选成功率运行时链保持隔离。
 
 ## 文档
 

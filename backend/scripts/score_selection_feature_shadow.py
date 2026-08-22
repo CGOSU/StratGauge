@@ -6,35 +6,34 @@ import argparse
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
-from stratgauge.ml.training_feature_registry import FeatureModelRegistryStore
-from stratgauge.ml.training_feature_shadow import (
+from stratgauge.application.ml import (
+    FeatureShadowCalibrationMode,
     FeatureShadowError,
-    FeatureShadowScoreStore,
-    feature_shadow_input_sha256,
-    read_feature_shadow_inputs,
-    score_feature_shadow_batch,
+    ScoreFeatureShadowRequest,
+    run_score_feature_shadow,
 )
 
 
 def main() -> int:
     arguments = _parse_arguments()
     try:
-        content = arguments.input.read_bytes()
-        inputs = read_feature_shadow_inputs(content)
-        if feature_shadow_input_sha256(inputs) != arguments.source_input_sha256:
-            raise FeatureShadowError(
-                "feature shadow input hash does not match --source-input-sha256"
+        workflow = run_score_feature_shadow(
+            ScoreFeatureShadowRequest(
+                root=arguments.root,
+                registration_id=arguments.registration_id,
+                input_path=arguments.input,
+                source_input_sha256=arguments.source_input_sha256,
+                scored_at=arguments.scored_at,
+                calibration_mode=cast(
+                    FeatureShadowCalibrationMode,
+                    arguments.calibration_mode,
+                ),
+                output_path=arguments.output,
             )
-        report = score_feature_shadow_batch(
-            inputs,
-            registry=FeatureModelRegistryStore(arguments.root),
-            score_store=FeatureShadowScoreStore(arguments.root),
-            registration_id=arguments.registration_id,
-            scored_at=arguments.scored_at,
-            calibration_mode=arguments.calibration_mode,
         )
-        _write_report(arguments.output, report.model_dump_json(indent=2) + "\n")
+        report = workflow.report
     except (FeatureShadowError, FileExistsError, OSError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
         return 2
@@ -69,19 +68,6 @@ def _parse_aware_datetime(value: str) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise argparse.ArgumentTypeError("datetime must include a timezone offset")
     return parsed.astimezone(UTC)
-
-
-def _write_report(path: Path, content: str) -> None:
-    if path.exists():
-        raise FileExistsError(f"feature shadow report already exists: {path}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(f"{path.suffix}.tmp")
-    try:
-        temporary.write_text(content, encoding="utf-8", newline="\n")
-        temporary.replace(path)
-    except OSError:
-        temporary.unlink(missing_ok=True)
-        raise
 
 
 if __name__ == "__main__":

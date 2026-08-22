@@ -6,24 +6,25 @@ import argparse
 import json
 from pathlib import Path
 
-from stratgauge.ml.training_feature_baseline import read_training_feature_split
-from stratgauge.ml.training_feature_lightgbm import (
+from stratgauge.application.ml import (
     FeatureLightGBMUnavailableError,
-    train_feature_lightgbm,
-    write_feature_lightgbm_result,
+    TrainFeatureLightGBMRequest,
+    run_train_feature_lightgbm,
 )
 
 
 def main() -> int:
     arguments = _parse_arguments()
     try:
-        split_input = read_training_feature_split(arguments.input_dir)
-        result = train_feature_lightgbm(
-            split_input,
-            random_seed=arguments.random_seed,
-            minimum_labeled_samples=arguments.minimum_labeled_samples,
+        workflow = run_train_feature_lightgbm(
+            TrainFeatureLightGBMRequest(
+                input_dir=arguments.input_dir,
+                output_dir=arguments.output_dir,
+                random_seed=arguments.random_seed,
+                minimum_labeled_samples=arguments.minimum_labeled_samples,
+            )
         )
-        write_feature_lightgbm_result(arguments.output_dir, result)
+        result = workflow.result
     except (FeatureLightGBMUnavailableError, FileExistsError, OSError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
         return 2

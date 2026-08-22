@@ -17,6 +17,7 @@ from stratgauge.ml.training_datasets import (
     TrainingDatasetPurpose,
     TrainingLabel,
     label_contract_id_for,
+    ordered_labels_for,
 )
 from stratgauge.ml.training_feature_comparison.core import (
     FeatureComparisonError,
@@ -102,7 +103,7 @@ class FeatureComparisonPolicy(DomainModel):
     def validate_contract(self) -> FeatureComparisonPolicy:
         if self.label_contract_id != label_contract_id_for(self.purpose):
             raise ValueError("feature comparison policy label contract does not match purpose")
-        if self.class_labels != _labels_for(self.purpose):
+        if self.class_labels != ordered_labels_for(self.purpose):
             raise ValueError("feature comparison policy classes do not match purpose")
         if not self.feature_names or tuple(sorted(set(self.feature_names))) != self.feature_names:
             raise ValueError("feature comparison policy feature names must be sorted and non-empty")
@@ -363,25 +364,6 @@ def _is_sha256(value: str | None) -> bool:
     return (
         value is not None and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
     )
-
-
-def _labels_for(purpose: TrainingDatasetPurpose) -> tuple[TrainingLabel, ...]:
-    return {
-        TrainingDatasetPurpose.CANDIDATE_SUCCESS: (
-            TrainingLabel.NOT_SUCCESS,
-            TrainingLabel.SUCCESS,
-        ),
-        TrainingDatasetPurpose.ANNOTATION_DECISION: (
-            TrainingLabel.DISCARD,
-            TrainingLabel.WATCH,
-            TrainingLabel.PREPARE_BUY,
-        ),
-        TrainingDatasetPurpose.BUY_TIMING: (
-            TrainingLabel.NOT_PURCHASED,
-            TrainingLabel.PURCHASED,
-        ),
-        TrainingDatasetPurpose.SELL_TIMING: (TrainingLabel.NOT_SOLD, TrainingLabel.SOLD),
-    }[purpose]
 
 
 def _safe_identifier(value: str) -> str:

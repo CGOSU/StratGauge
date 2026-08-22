@@ -19,6 +19,7 @@ from stratgauge.backtest.selection_ml_datasets import (
     read_sell_timing_dataset,
 )
 from stratgauge.domain.selections import SelectionOutcomeStatus
+from stratgauge.ml._artifacts import write_immutable_bundle
 from stratgauge.ml._hashing import sha256_bytes
 from stratgauge.ml.training_datasets.helpers_b import (
     _label_availability_violation_count,
@@ -282,24 +283,11 @@ def write_training_label_split(
         "manifest.json": manifest.model_dump_json(indent=2) + "\n",
         "readiness.json": report.model_dump_json(indent=2) + "\n",
     }
-    destination.mkdir(parents=True, exist_ok=True)
-    paths = tuple(destination / name for name in outputs)
-    if any(path.exists() for path in paths):
-        raise FileExistsError(f"training label split output already exists: {destination}")
-    temporary_paths: list[Path] = []
-    try:
-        for path, content in zip(paths, outputs.values(), strict=True):
-            temporary = path.with_suffix(f"{path.suffix}.tmp")
-            temporary.write_text(content, encoding="utf-8", newline="\n")
-            temporary_paths.append(temporary)
-        for temporary, path in zip(temporary_paths, paths, strict=True):
-            temporary.replace(path)
-    except OSError:
-        for temporary in temporary_paths:
-            temporary.unlink(missing_ok=True)
-        for path in paths:
-            path.unlink(missing_ok=True)
-        raise
+    write_immutable_bundle(
+        destination,
+        outputs,
+        already_exists_message=f"training label split output already exists: {destination}",
+    )
     return manifest
 
 
