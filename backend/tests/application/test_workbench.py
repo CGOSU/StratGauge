@@ -1,6 +1,6 @@
 import hashlib
 import unittest
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -13,6 +13,7 @@ from stratgauge.data_pipeline.portfolio_store import ManualPortfolioStore
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.data_pipeline.store import SnapshotManifest, SnapshotStatus, SnapshotStore
 from stratgauge.data_pipeline.tdx_import import import_tdx_export
+from stratgauge.data_sources.base import MarketAdapterResult, MarketDailyRequest
 from stratgauge.domain.models import DailyBar
 from stratgauge.domain.selections import (
     SelectionAnnotation,
@@ -71,6 +72,109 @@ class WorkbenchApplicationTests(unittest.TestCase):
                 1,
             )
             self.assertEqual(second.symbol, "600000.SH")
+
+    def test_watchlist_observation_performance_uses_current_continuous_period(self) -> None:
+        with TemporaryDirectory() as directory:
+            selection_store = SelectionImportStore(directory)
+            raw_content = b"code,name,market\n000001,Ping,SZ\n"
+            imported = import_tdx_export(
+                raw_content,
+                selection_date=date(2026, 1, 5),
+                exported_at=datetime(2026, 1, 5, 15, tzinfo=UTC),
+                imported_at=datetime(2026, 1, 5, 16, tzinfo=UTC),
+                formula_name="趋势选股",
+            )
+            selection_store.write(raw_content, imported)
+            candidate = imported.candidates[0]
+            for index, decision in enumerate(
+                ("discard", "watch", "prepare_buy", "discard", "watch")
+            ):
+                reviewed_at = datetime(2026, 1, 5 + index, 10, tzinfo=UTC)
+                selection_store.write_annotation(
+                    imported.batch.batch_id,
+                    _annotation(candidate.candidate_id, decision, reviewed_at=reviewed_at),
+                )
+            market_store = SnapshotStore(f"{directory}/market")
+            anchor_manifest = _write_approved_market_bar(
+                market_store,
+                symbol=candidate.symbol,
+                local_code=candidate.local_code,
+                session_date=date(2026, 1, 8),
+                security_id=f"security-{candidate.symbol}",
+                close=Decimal("20"),
+                available_at=datetime(2026, 1, 8, 16, tzinfo=UTC),
+            )
+            _write_approved_market_bar(
+                market_store,
+                symbol=candidate.symbol,
+                local_code=candidate.local_code,
+                session_date=date(2026, 1, 10),
+                security_id=f"security-{candidate.symbol}",
+                close=Decimal("22"),
+                available_at=datetime(2026, 1, 10, 16, tzinfo=UTC),
+            )
+            service = WorkbenchService(
+                selection_store,
+                ManualPortfolioStore(directory),
+                market_store,
+            )
+
+            signal = service.list_watchlist(
+                as_of=datetime(2026, 1, 11, 18, tzinfo=UTC),
+            )[0]
+            observation = signal.observation_performance
+            self.assertIsNotNone(observation)
+            assert observation is not None
+            self.assertEqual(observation.status, MarketEvidenceStatus.AVAILABLE)
+            self.assertEqual(observation.started_at, datetime(2026, 1, 9, 10, tzinfo=UTC))
+            self.assertEqual(observation.start_snapshot_id, anchor_manifest.snapshot_id)
+            self.assertEqual(observation.start_session_date, date(2026, 1, 8))
+            self.assertEqual(observation.start_close, Decimal("20"))
+            self.assertEqual(observation.change_percent, Decimal("0.1"))
+
+    def test_watchlist_observation_performance_does_not_fill_late_anchor_with_zero(self) -> None:
+        with TemporaryDirectory() as directory:
+            selection_store = SelectionImportStore(directory)
+            raw_content = b"code,name,market\n000001,Ping,SZ\n"
+            imported = import_tdx_export(
+                raw_content,
+                selection_date=date(2026, 1, 5),
+                exported_at=datetime(2026, 1, 5, 15, tzinfo=UTC),
+                imported_at=datetime(2026, 1, 5, 16, tzinfo=UTC),
+                formula_name="趋势选股",
+            )
+            selection_store.write(raw_content, imported)
+            candidate = imported.candidates[0]
+            reviewed_at = datetime(2026, 1, 5, 15, 10, tzinfo=UTC)
+            selection_store.write_annotation(
+                imported.batch.batch_id,
+                _annotation(candidate.candidate_id, "watch", reviewed_at=reviewed_at),
+            )
+            market_store = SnapshotStore(f"{directory}/market")
+            _write_approved_market_bar(
+                market_store,
+                symbol=candidate.symbol,
+                local_code=candidate.local_code,
+                session_date=date(2026, 1, 5),
+                security_id=f"security-{candidate.symbol}",
+                close=Decimal("10"),
+                available_at=datetime(2026, 1, 5, 17, tzinfo=UTC),
+            )
+            service = WorkbenchService(
+                selection_store,
+                ManualPortfolioStore(directory),
+                market_store,
+            )
+
+            observation = service.list_watchlist(
+                as_of=datetime(2026, 1, 5, 18, tzinfo=UTC),
+            )[0].observation_performance
+            self.assertIsNotNone(observation)
+            assert observation is not None
+            self.assertEqual(observation.status, MarketEvidenceStatus.INCOMPLETE)
+            self.assertIsNone(observation.start_close)
+            self.assertIsNone(observation.change_percent)
+            self.assertIn("尚不可用", observation.reason or "")
 
     def test_summary_avoids_signal_and_market_hydration(self) -> None:
         with TemporaryDirectory() as directory:
@@ -180,6 +284,7 @@ class WorkbenchApplicationTests(unittest.TestCase):
             self.assertEqual(items[0].candidate.symbol, "600000.SH")
             self.assertEqual(items[0].market.status, MarketEvidenceStatus.AVAILABLE)
             self.assertEqual(load_bars.call_count, 1)
+            self.assertEqual(set(load_bars.call_args.kwargs["symbols"]), {"600000.SH"})
             page_candidate_ids = {items[0].candidate.candidate_id}
             self.assertEqual(set(list_labels.call_args.args[0]), page_candidate_ids)
             self.assertEqual(set(list_outcomes.call_args.args[0]), page_candidate_ids)
@@ -290,18 +395,78 @@ class WorkbenchApplicationTests(unittest.TestCase):
             self.assertTrue(all(event.source_id for event in detail.timeline))
 
 
-def _annotation(candidate_id: str, decision: str) -> SelectionAnnotation:
+def _write_approved_market_bar(
+    store: SnapshotStore,
+    *,
+    security_id: str,
+    symbol: str,
+    local_code: str,
+    session_date: date,
+    close: Decimal,
+    available_at: datetime,
+) -> SnapshotManifest:
+    event_time = datetime(
+        session_date.year,
+        session_date.month,
+        session_date.day,
+        15,
+        tzinfo=UTC,
+    )
+    result = MarketAdapterResult(
+        provider="test",
+        adapter_version="test-v1",
+        request=MarketDailyRequest(
+            session_date=session_date,
+            universe_snapshot_id="test-universe",
+            expected_security_ids=(security_id,),
+        ),
+        fetched_at=available_at,
+        raw_records=(),
+        bars=(
+            DailyBar(
+                security_id=security_id,
+                symbol=symbol,
+                session_date=session_date,
+                provider="test",
+                provider_symbol=local_code,
+                open=close,
+                high=close,
+                low=close,
+                close=close,
+                previous_close=close - Decimal("1"),
+                volume=Decimal("100"),
+                amount=close * Decimal("100"),
+                event_time=event_time,
+                available_at=available_at,
+                ingested_at=available_at,
+                quality_state="approved",
+            ),
+        ),
+    )
+    manifest = store.write(result)
+    return store.update_status(manifest.snapshot_id, SnapshotStatus.APPROVED)
+
+
+def _annotation(
+    candidate_id: str,
+    decision: str,
+    *,
+    reviewed_at: datetime | None = None,
+) -> SelectionAnnotation:
     from stratgauge.domain.selections import (
         SelectionAnnotationDecision,
         SelectionAnnotationOutlook,
     )
 
+    actual_reviewed_at = reviewed_at or datetime(2026, 1, 5, 15, 10, tzinfo=UTC)
     return SelectionAnnotation(
         annotation_id="annotation-"
-        + hashlib.sha256(f"{candidate_id}-{decision}".encode()).hexdigest()[:20],
+        + hashlib.sha256(
+            f"{candidate_id}-{decision}-{actual_reviewed_at.isoformat()}".encode()
+        ).hexdigest()[:20],
         candidate_id=candidate_id,
-        reviewed_at=datetime(2026, 1, 5, 15, 10, tzinfo=UTC),
-        recorded_at=datetime(2026, 1, 5, 15, 11, tzinfo=UTC),
+        reviewed_at=actual_reviewed_at,
+        recorded_at=actual_reviewed_at + timedelta(minutes=1),
         overall_score=4,
         outlook=SelectionAnnotationOutlook.BULLISH,
         decision=SelectionAnnotationDecision(decision),

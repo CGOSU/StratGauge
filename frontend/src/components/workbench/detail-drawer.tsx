@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { X } from 'lucide-react'
+import { ExternalLink, X } from 'lucide-react'
 import { requestJson } from '@/api/client'
 import { manualSellReasonLabels } from '@/api/contracts'
 import type { ManualFill, ManualOrder, ManualSellReason } from '@/api/contracts'
@@ -8,6 +8,15 @@ import type { AnnotationOutlook, AnnotationDecision, BatchView, WorkbenchMarketE
 import { annotationOutlookLabels, annotationDecisionLabels, annotationTagGroups } from '@/lib/labels'
 import { toShanghaiDateTime, formatManagementDate, formatPrice, formatPercent } from '@/lib/format'
 import { workbenchReviewLabel } from '@/components/workbench/workspace'
+
+
+const XUEQIU_SYMBOL_PATTERN = /^(\d{6})\.(SH|SZ|BJ)$/
+
+
+export function xueqiuDailyChartUrl(symbol: string): string | null {
+  const match = XUEQIU_SYMBOL_PATTERN.exec(symbol.trim().toUpperCase())
+  return match ? `https://xueqiu.com/S/${match[2]}${match[1]}` : null
+}
 
 
 export function workbenchEventLabel(eventType: WorkbenchTimelineEvent['event_type']): string {
@@ -316,6 +325,7 @@ export function StockDetailDrawer({
 }) {
   const [tab, setTab] = useState<StockDrawerTab>('market')
   const signal = detail.signals[0]
+  const chartUrl = xueqiuDailyChartUrl(detail.symbol)
 
   useEffect(() => {
     setTab('market')
@@ -331,7 +341,10 @@ export function StockDetailDrawer({
             <h2>{detail.name ?? '未提供名称'}</h2>
             <span className="drawer-subtitle">截至 {formatManagementDate(detail.as_of)}</span>
           </div>
-          <button type="button" className="drawer-close-button" aria-label="关闭股票详情" onClick={onClose}><X aria-hidden="true" /></button>
+          <div className="stock-drawer-header-actions">
+            {chartUrl && <a className="stock-drawer-market-link" href={chartUrl} target="_blank" rel="noreferrer" aria-label={`${detail.symbol} 在雪球查看日线 K 线`}><ExternalLink aria-hidden="true" />查看日线 K 线</a>}
+            <button type="button" className="drawer-close-button" aria-label="关闭股票详情" onClick={onClose}><X aria-hidden="true" /></button>
+          </div>
         </header>
         <div className="stock-drawer-market-summary">
           <WorkbenchMarketEvidenceView market={detail.market} />

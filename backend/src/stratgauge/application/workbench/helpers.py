@@ -12,6 +12,7 @@ from stratgauge.application.workbench.views import (
     MarketEvidenceStatus,
     WorkbenchCohortMetrics,
     WorkbenchHorizonMetric,
+    WorkbenchObservationPerformance,
     WorkbenchPositionView,
     WorkbenchReadError,
     WorkbenchSignalView,
@@ -27,6 +28,7 @@ from stratgauge.domain.portfolio import (
 )
 from stratgauge.domain.selections import (
     SelectionAnnotation,
+    SelectionAnnotationDecision,
     SelectionAnnotationOutlook,
     SelectionCandidateReviewState,
     SelectionPerformance,
@@ -298,6 +300,84 @@ def _available_market_evidence(snapshot_id: str, bar: DailyBar) -> MarketEvidenc
         change_percent=change_percent,
         volume=bar.volume,
         amount=bar.amount,
+    )
+
+
+_WATCH_DECISIONS = frozenset(
+    {SelectionAnnotationDecision.WATCH, SelectionAnnotationDecision.PREPARE_BUY}
+)
+
+
+def _current_observation_start(
+    annotations: Iterable[SelectionAnnotation],
+) -> datetime | None:
+    """Return the first reviewed time in the latest uninterrupted watch period."""
+
+    ordered = tuple(annotations)
+    if not ordered or ordered[-1].decision not in _WATCH_DECISIONS:
+        return None
+    started_at = ordered[-1].reviewed_at
+    for annotation in reversed(ordered[:-1]):
+        if annotation.decision not in _WATCH_DECISIONS:
+            break
+        started_at = annotation.reviewed_at
+    return started_at
+
+
+def _observation_performance(
+    started_at: datetime | None,
+    *,
+    market: MarketEvidence,
+    anchor_snapshot_id: str | None = None,
+    anchor_bar: DailyBar | None = None,
+    anchor_reason: str | None = None,
+) -> WorkbenchObservationPerformance:
+    """Build a two-sided observation return without manufacturing missing evidence."""
+
+    if started_at is None:
+        return WorkbenchObservationPerformance(
+            status=MarketEvidenceStatus.UNAVAILABLE,
+            reason="没有当前连续观察周期。",
+        )
+    if anchor_bar is None:
+        status = (
+            MarketEvidenceStatus.INCOMPLETE
+            if market.status is MarketEvidenceStatus.AVAILABLE
+            else market.status
+        )
+        return WorkbenchObservationPerformance(
+            status=status,
+            started_at=started_at,
+            reason=anchor_reason or "没有在观察开始时可见的已批准 market_daily 收盘价。",
+        )
+    if market.status is not MarketEvidenceStatus.AVAILABLE or market.close is None:
+        return WorkbenchObservationPerformance(
+            status=MarketEvidenceStatus.INCOMPLETE,
+            started_at=started_at,
+            start_snapshot_id=anchor_snapshot_id,
+            start_session_date=anchor_bar.session_date,
+            start_available_at=anchor_bar.available_at,
+            start_close=anchor_bar.close,
+            reason="最新收盘价不可用于观察期计算：" + (market.reason or "没有可用的已批准收盘价。"),
+        )
+    if anchor_bar.close == 0:
+        return WorkbenchObservationPerformance(
+            status=MarketEvidenceStatus.INCOMPLETE,
+            started_at=started_at,
+            start_snapshot_id=anchor_snapshot_id,
+            start_session_date=anchor_bar.session_date,
+            start_available_at=anchor_bar.available_at,
+            start_close=anchor_bar.close,
+            reason="观察开始收盘价为 0，无法计算涨跌幅。",
+        )
+    return WorkbenchObservationPerformance(
+        status=MarketEvidenceStatus.AVAILABLE,
+        started_at=started_at,
+        start_snapshot_id=anchor_snapshot_id,
+        start_session_date=anchor_bar.session_date,
+        start_available_at=anchor_bar.available_at,
+        start_close=anchor_bar.close,
+        change_percent=(market.close - anchor_bar.close) / anchor_bar.close,
     )
 
 

@@ -361,6 +361,17 @@ export type WorkbenchMarketEvidence = {
   reason: string | null
 }
 
+export type WorkbenchObservationPerformance = {
+  status: 'available' | 'unavailable' | 'incomplete'
+  started_at: string | null
+  start_snapshot_id: string | null
+  start_session_date: string | null
+  start_available_at: string | null
+  start_close: string | null
+  change_percent: string | null
+  reason: string | null
+}
+
 export type WorkbenchSignalPage = {
   items: WorkbenchSignal[]
   page: number
@@ -382,6 +393,7 @@ export type WorkbenchSignal = {
   outcomes: Outcome[]
   performances: Performance[]
   market: WorkbenchMarketEvidence
+  observation_performance: WorkbenchObservationPerformance | null
   confirmed_buy: boolean
   confirmed_buy_fill_ids: string[]
 }

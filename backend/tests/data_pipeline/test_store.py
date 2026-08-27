@@ -143,6 +143,11 @@ class SnapshotStoreTests(unittest.TestCase):
 
             store.update_status(manifest.snapshot_id, SnapshotStatus.APPROVED)
             self.assertEqual(len(store.load_bars(manifest.snapshot_id)), 1)
+            self.assertEqual(
+                len(store.load_bars(manifest.snapshot_id, symbols=("000001.SZ",))),
+                1,
+            )
+            self.assertEqual(store.load_bars(manifest.snapshot_id, symbols=("600000.SH",)), ())
 
     def test_status_update_preserves_manifest_identity(self) -> None:
         with TemporaryDirectory() as directory:

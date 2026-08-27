@@ -199,8 +199,17 @@ class SnapshotStore:
         except Exception as exc:
             raise SnapshotStoreError(f"snapshot manifest is invalid: {snapshot_id}") from exc
 
-    def load_bars(self, snapshot_id: str) -> tuple[DailyBar, ...]:
-        """Load normalized bars only from an approved snapshot."""
+    def load_bars(
+        self,
+        snapshot_id: str,
+        *,
+        symbols: Iterable[str] | None = None,
+    ) -> tuple[DailyBar, ...]:
+        """Load normalized bars only from an approved snapshot.
+
+        When ``symbols`` is provided, predicate pushdown keeps workbench reads from
+        materializing unrelated securities from a full-market Parquet snapshot.
+        """
 
         manifest = self.load_manifest(snapshot_id)
         if manifest.status is not SnapshotStatus.APPROVED:
@@ -208,8 +217,14 @@ class SnapshotStore:
         path = self.root / manifest.normalized_path
         if not path.exists():
             raise SnapshotStoreError(f"normalized snapshot does not exist: {snapshot_id}")
+        requested_symbols = None if symbols is None else tuple(dict.fromkeys(symbols))
+        if requested_symbols == ():
+            return ()
         try:
-            rows = pl.read_parquet(path).to_dicts()
+            frame = pl.scan_parquet(path)
+            if requested_symbols is not None:
+                frame = frame.filter(pl.col("symbol").is_in(requested_symbols))
+            rows = frame.collect().to_dicts()
             return tuple(DailyBar.model_validate(row) for row in rows)
         except Exception as exc:
             raise SnapshotStoreError(f"normalized snapshot is invalid: {snapshot_id}") from exc

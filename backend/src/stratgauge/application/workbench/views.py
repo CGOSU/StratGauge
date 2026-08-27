@@ -62,6 +62,21 @@ class MarketEvidence(BaseModel):
     reason: str | None = None
 
 
+class WorkbenchObservationPerformance(BaseModel):
+    """Performance from the current continuous observation period to the latest close."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: MarketEvidenceStatus
+    started_at: datetime | None = None
+    start_snapshot_id: str | None = None
+    start_session_date: date | None = None
+    start_available_at: datetime | None = None
+    start_close: Decimal | None = None
+    change_percent: Decimal | None = None
+    reason: str | None = None
+
+
 class WorkbenchSignalView(BaseModel):
     """One immutable selection candidate projected as a strategy signal."""
 
@@ -79,6 +94,7 @@ class WorkbenchSignalView(BaseModel):
     outcomes: tuple[SelectionOutcome, ...] = ()
     performances: tuple[SelectionPerformance, ...] = ()
     market: MarketEvidence
+    observation_performance: WorkbenchObservationPerformance | None = None
     confirmed_buy: bool = False
     confirmed_buy_fill_ids: tuple[str, ...] = ()
 

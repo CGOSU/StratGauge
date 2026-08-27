@@ -91,28 +91,44 @@ export function WorkbenchChangeSummary({ signals }: { signals: WorkbenchSignal[]
     </section>
   )
 }
+function observationChangeClass(
+  observation: WorkbenchSignal['observation_performance'],
+): string {
+  if (!observation || observation.status !== 'available' || observation.change_percent === null) {
+    return 'market-pending'
+  }
+  const value = Number(observation.change_percent)
+  return Number.isFinite(value) && value >= 0 ? 'market-profit' : 'market-loss'
+}
+
 export function WorkbenchSignalTable({
   signals,
   onOpen,
   emptyMessage,
+  showObservationPerformance = false,
 }: {
   signals: WorkbenchSignal[]
   onOpen: (symbol: string) => void
   emptyMessage: string
+  showObservationPerformance?: boolean
 }) {
   return signals.length === 0 ? <p className="workbench-empty">{emptyMessage}</p> : (
-    <div className="workbench-table" role="table" aria-label="策略信号列表">
-      <div className="workbench-table-header" role="row"><span>股票</span><span>策略</span><span>信号时间</span><span>行情</span><span>人工判断</span><span>状态</span></div>
-      {signals.map((signal) => (
-        <button type="button" className="workbench-table-row" role="row" key={signal.candidate.candidate_id} onClick={() => onOpen(signal.candidate.symbol)}>
-          <span className="workbench-stock-cell"><strong>{signal.candidate.symbol}</strong><small>{signal.candidate.name ?? '未提供名称'}</small></span>
-          <span className="workbench-table-cell"><strong>{signal.batch.formula_name}</strong><small>{signal.batch.formula_version ?? '未版本化'}</small></span>
-          <span className="workbench-table-cell"><strong>{signal.batch.selection_date}</strong><small>{formatManagementDate(signal.batch.exported_at)}</small></span>
-          <span className="workbench-table-cell"><strong className="market-value">{formatPrice(signal.market.close)}</strong><small className={`market-change ${Number(signal.market.change_percent ?? 0) >= 0 ? 'market-profit' : 'market-loss'}`}>{formatPercent(signal.market.change_percent)}</small></span>
-          <span className="workbench-table-cell"><strong>{signal.latest_annotation ? `${'★'.repeat(signal.latest_annotation.overall_score)}${'☆'.repeat(5 - signal.latest_annotation.overall_score)}` : '—'}</strong><small>{signal.latest_annotation ? annotationOutlookLabels[signal.latest_annotation.outlook] : '未判断'}</small></span>
-          <span className="workbench-table-status"><span className={`workbench-status workbench-status--${signal.review_state}`}>{workbenchReviewLabel(signal.review_state)}</span>{signal.confirmed_buy && <span className="workbench-status workbench-status--bought">已买入</span>}</span>
-        </button>
-      ))}
+    <div className={`workbench-table${showObservationPerformance ? ' workbench-table--watchlist' : ''}`} role="table" aria-label={showObservationPerformance ? '观察池列表' : '策略信号列表'}>
+      <div className="workbench-table-header" role="row"><span>股票</span><span>策略</span><span>信号时间</span><span>行情</span>{showObservationPerformance && <span>观察期涨跌</span>}<span>人工判断</span><span>状态</span></div>
+      {signals.map((signal) => {
+        const observation = signal.observation_performance
+        return (
+          <button type="button" className="workbench-table-row" role="row" key={signal.candidate.candidate_id} onClick={() => onOpen(signal.candidate.symbol)}>
+            <span className="workbench-stock-cell"><strong>{signal.candidate.symbol}</strong><small>{signal.candidate.name ?? '未提供名称'}</small></span>
+            <span className="workbench-table-cell"><strong>{signal.batch.formula_name}</strong><small>{signal.batch.formula_version ?? '未版本化'}</small></span>
+            <span className="workbench-table-cell"><strong>{signal.batch.selection_date}</strong><small>{formatManagementDate(signal.batch.exported_at)}</small></span>
+            <span className="workbench-table-cell"><strong className="market-value">{formatPrice(signal.market.close)}</strong><small className={`market-change ${Number(signal.market.change_percent ?? 0) >= 0 ? 'market-profit' : 'market-loss'}`}>{formatPercent(signal.market.change_percent)}</small></span>
+            {showObservationPerformance && <span className="workbench-table-cell workbench-observation-cell"><strong className={`market-value ${observationChangeClass(observation)}`}>{observation?.status === 'available' ? formatPercent(observation.change_percent) : '—'}</strong><small>{observation?.started_at ? `起点 ${formatManagementDate(observation.started_at)}` : '观察起点不可用'}</small><small>{observation?.start_close !== null && observation?.start_close !== undefined ? `起点价 ${formatPrice(observation.start_close)}` : observation?.reason ?? '起点价不可用'}</small></span>}
+            <span className="workbench-table-cell"><strong>{signal.latest_annotation ? `${'★'.repeat(signal.latest_annotation.overall_score)}${'☆'.repeat(5 - signal.latest_annotation.overall_score)}` : '—'}</strong><small>{signal.latest_annotation ? annotationOutlookLabels[signal.latest_annotation.outlook] : '未判断'}</small></span>
+            <span className="workbench-table-status"><span className={`workbench-status workbench-status--${signal.review_state}`}>{workbenchReviewLabel(signal.review_state)}</span>{signal.confirmed_buy && <span className="workbench-status workbench-status--bought">已买入</span>}</span>
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -365,7 +381,7 @@ export function WorkbenchWorkspace({
         <>
           <div className="workbench-section-heading"><div><span className="eyebrow">WATCHLIST · RE-EVALUATION</span><h2>观察池</h2><p>只显示已进入观察或准备买入、且尚未确认买入的信号。</p></div><span className="workbench-as-of">共 {signalTotal} 条</span></div>
           <WorkbenchFilterBar query={query} onQueryChange={handleQueryChange} filter={filter} onFilterChange={handleFilterChange} onRefresh={() => setReloadToken((value) => value + 1)} busy={loading} />
-          {loading && loadedRoute !== route ? <div className="workbench-loading">正在读取观察池…</div> : <><WorkbenchChangeSummary signals={signals} /><WorkbenchSignalTable signals={visibleSignals} onOpen={(symbol) => void openStock(symbol)} emptyMessage="观察池为空。" /><PaginationControls page={signalPage} pageSize={signalPageSize} total={signalTotal} busy={loading} onPageChange={setSignalPage} /></>}
+          {loading && loadedRoute !== route ? <div className="workbench-loading">正在读取观察池…</div> : <><WorkbenchChangeSummary signals={signals} /><WorkbenchSignalTable signals={visibleSignals} onOpen={(symbol) => void openStock(symbol)} emptyMessage="观察池为空。" showObservationPerformance /><PaginationControls page={signalPage} pageSize={signalPageSize} total={signalTotal} busy={loading} onPageChange={setSignalPage} /></>}
         </>
       )}
       {route === 'positions' && (

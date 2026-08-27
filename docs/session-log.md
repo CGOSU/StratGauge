@@ -1,5 +1,11 @@
 # 会话记录
 
+### 2026-08-23 readiness 阻断盘点
+
+- 完成内容：只读盘点 `backend/data`、选股导入/结果文件和 `selection-market` manifest。当前有 12 个导入批次、33 个候选、4 个客观结果；4 个结果均为 `unresolved`，采用旧 5-session policy。`selection-market` 有 10 个已批准 `market_daily` 日期和 7 个已批准复权因子快照，但没有独立 `index_daily` 快照。
+- 实际验证：交易日历 `data/calendars/trade-cal-sse.txt` 共 631 个交易日，末尾为 2026-08-11；批准的主板行情快照最晚到 2026-08-21。`corepack pnpm exec playwright test tests/visual/main-board-market-sync.spec.ts` 未能启动 Vite，进程绑定 `127.0.0.1:5173` 返回 `EACCES`，因此没有截图通过结果；前端 `corepack pnpm typecheck`、`corepack pnpm lint`、`corepack pnpm build` 均通过（lint 20 条既有 warning、0 error）；`git diff --check` 通过；未执行真实 Tushare 请求、成熟任务或训练。
+- 遗留问题：必须先获得覆盖后续交易日的显式交易日历、独立 `000300.SH` 基准和满足冻结 10-session policy 的成熟结果；之后才能重跑 readiness 并进入四用途训练链。视觉回归需要解除本机端口绑定权限。
+
 ### 2026-08-22 四用途 ML 离线演练与人工操作文档
 
 - 完成内容：补充 `docs/使用文档.md` 的四用途人工操作图、11 个 CLI 的阶段顺序、输入/输出血缘、时间点边界、证据目录和无标签 shadow canonical JSONL/SHA-256 要求；README 增加入口提示；系统规格补充显式时间点特征观察阶段；current-state、decisions 和 pitfalls 同步当前事实。文档明确所有阶段人工触发，保留旧新链隔离、final-test 隔离、`used_for_decision=false`、无外部编排和真实 provider/训练需授权边界。
@@ -644,3 +650,10 @@
 - 完成内容：在 `docs/使用文档.md` 说明导入数据页成熟结果列表的位置、只读边界、跨全部历史批次范围、归档/排除证据、六类状态、`pending`/`no_entry`/`unresolved` 与训练标签的区别，以及 `GET /v1/selection-maturity/page` 的 `status`、`page`、`page_size` 参数和分页/汇总契约。在 `docs/decisions.md` 记录列表与 ML readiness 统计口径一致、按候选与 tracking policy 保留最新结果及不恢复 Web 成熟执行入口的决策；在 `docs/current-state.md` 更新当前事实和最近一次更新。
 - 实际验证：`git diff --check -- docs/使用文档.md docs/decisions.md docs/current-state.md docs/session-log.md` 通过（仅 Windows 换行警告）；使用 `grep` 核对新增文档包含 `GET /v1/selection-maturity/page`、六类状态、归档/排除、`pending`、`no_entry`、`unresolved` 和只读边界。
 - 遗留问题：工作区仍包含本轮及此前未提交改动；未执行 git add/commit/push。
+
+### 2026-08-27 观察池表现与雪球日线外链
+
+- 完成内容：观察池 `/v1/workbench/watchlist/page` 的前端展示新增观察起始时间、起点价和到最新批准收盘价的累计涨跌幅；缺失/晚到证据显示不可用原因，不补零。详情抽屉新增 `CODE.EXCHANGE` 到雪球 `EXCHANGE+CODE` 的只读日线 K 线外链，并补充窄屏表格内滚动和安全链接属性回归。
+- 文档：同步更新 `docs/current-state.md`、`docs/decisions.md`、`docs/使用文档.md` 和 `docs/系统规格说明.md`；保留既有 readiness 盘点及未提交文档内容。
+- 实际验证：后端完整测试 410 项通过、1 项跳过；后端 Ruff check、format check、MyPy 通过。前端 `corepack pnpm typecheck` 和 `corepack pnpm build` 通过；`corepack pnpm lint` 退出成功，0 error、20 条既有 React hooks warning；`corepack pnpm exec playwright test tests/visual/watchlist.spec.ts` 1 项通过；完整 `corepack pnpm test:visual` 7 项通过、3 个未修改主板行情同步截图基线差异；`git diff --check` 通过，仅有 Windows 换行转换警告。
+- 遗留问题：完整视觉回归中的 3 个主板行情同步截图基线差异仍待独立处理；工作区包含本轮代码/文档和既有未提交改动，未执行 commit/push。

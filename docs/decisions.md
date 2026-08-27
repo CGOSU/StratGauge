@@ -8,6 +8,15 @@
 
 ## 已确认决策
 
+### 2026-08-27：观察池表现只读使用连续观察周期和批准行情证据
+
+- 决定：观察池表现从当前连续 `watch`/`prepare_buy` 状态段的首条人工评审 `reviewed_at` 开始，到 `as_of` 内最新批准 `market_daily` 收盘价结束；遇到 `discard` 即结束上一周期并重置起点。接口返回起始时间、快照、交易日、可用时间、起始价、涨跌幅和不可用原因。
+- 决定：起点行情必须满足 `available_at <= started_at`，最新行情必须满足 `available_at <= as_of`；行情缺失、晚到或无效时返回 `unavailable`/`incomplete` 和原因，前端不补零、不伪造盈利色。
+- 决定：只对观察池分页后的当前页候选批量读取本地 approved `market_daily` 快照，通过 catalog 和按证券过滤的 Parquet 在一次清单遍历中取得起点/最新行情；不增加 provider 请求、缓存、后台任务或依赖。
+- 决定：股票详情抽屉提供只读雪球日线 K 线外链，将规范化 `CODE.EXCHANGE` 转为 `EXCHANGE+CODE`；使用原生 `<a>`、`target="_blank"`、`rel="noreferrer"`，链接不嵌套于表格行按钮。
+- 原因：为观察池提供可审计的当前周期收益上下文，同时保持批准快照、时间点可见性、分页读取边界和人工决策/交易分离；外链仅作为用户查看 K 线的导航，不把外部页面当作系统行情证据。
+- 约束：该表现不是交易收益保证，也不改变观察状态、人工评审、客观结果或交易账本；雪球链接不由应用请求行情数据。
+
 ### 2026-08-22：四用途研究链保持显式人工阶段，并增加独立时间点特征观察入口
 
 - 决定：四用途每次研究运行按 `prepare → build_selection_training_feature_snapshots → join → baseline/LightGBM → calibration → register → transition → shadow → walk-forward → compare` 顺序由操作者触发。`build_selection_training_feature_snapshots.py` 只消费显式、已批准且有血缘的 market/index/factor snapshot ID，不自动发现目录、联网或启动后续阶段。

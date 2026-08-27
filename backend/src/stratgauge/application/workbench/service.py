@@ -11,7 +11,9 @@ from stratgauge.application.workbench.helpers import (
     _build_timeline,
     _cohort_views,
     _confirmed_buy_fill_ids,
+    _current_observation_start,
     _normalize_symbol,
+    _observation_performance,
     _order_source,
     _position_view,
     _require_aware,
@@ -21,6 +23,7 @@ from stratgauge.application.workbench.views import (
     MarketEvidence,
     MarketEvidenceStatus,
     WorkbenchAnalyticsView,
+    WorkbenchObservationPerformance,
     WorkbenchPositionView,
     WorkbenchReadError,
     WorkbenchSignalView,
@@ -42,6 +45,7 @@ from stratgauge.data_pipeline.store import (
     SnapshotStore,
     SnapshotStoreError,
 )
+from stratgauge.domain.models import DailyBar
 from stratgauge.domain.portfolio import (
     ManualFill,
     ManualOrder,
@@ -65,11 +69,18 @@ class _SignalProjection:
     batch: SelectionBatch
     candidate: SelectionCandidate
     annotations: tuple[SelectionAnnotation, ...] = ()
+    observation_started_at: datetime | None = None
     latest_annotation: SelectionAnnotation | None = None
     exclusions: tuple[SelectionCandidateExclusion, ...] = ()
     latest_exclusion: SelectionCandidateExclusion | None = None
     review_state: SelectionCandidateReviewState = SelectionCandidateReviewState.UNREVIEWED
     excluded: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class _MarketEvidenceBatch:
+    latest_by_symbol: dict[str, MarketEvidence]
+    observation_by_key: dict[tuple[str, datetime], WorkbenchObservationPerformance]
 
 
 class WorkbenchService:
@@ -143,6 +154,7 @@ class WorkbenchService:
             as_of=visible_at,
             orders=orders,
             fills=fills,
+            include_observation_performance=True,
         )
 
     def list_watchlist_page(
@@ -166,6 +178,7 @@ class WorkbenchService:
                 as_of=visible_at,
                 orders=orders,
                 fills=fills,
+                include_observation_performance=True,
             ),
             len(projections),
         )
@@ -254,6 +267,7 @@ class WorkbenchService:
                     batch=batch,
                     candidate=candidate,
                     annotations=annotations,
+                    observation_started_at=_current_observation_start(annotations),
                     latest_annotation=latest_annotation,
                     exclusions=exclusions,
                     latest_exclusion=latest_exclusion,
@@ -316,6 +330,7 @@ class WorkbenchService:
         as_of: datetime,
         orders: tuple[ManualOrder, ...] | None = None,
         fills: tuple[ManualFill, ...] | None = None,
+        include_observation_performance: bool = False,
     ) -> tuple[WorkbenchSignalView, ...]:
         if not projections:
             return ()
@@ -332,10 +347,26 @@ class WorkbenchService:
             )
         except SelectionStoreError as exc:
             raise WorkbenchReadError("WORKBENCH_READ_FAILED", str(exc)) from exc
-        market_by_symbol = self._market_evidence_for_symbols(
-            (projection.candidate.symbol for projection in projections),
-            as_of,
-        )
+        symbols = tuple(projection.candidate.symbol for projection in projections)
+        observation_by_key: dict[tuple[str, datetime], WorkbenchObservationPerformance] = {}
+        if include_observation_performance:
+            starts_by_symbol: dict[str, set[datetime]] = {}
+            for projection in projections:
+                if projection.observation_started_at is not None:
+                    starts_by_symbol.setdefault(projection.candidate.symbol, set()).add(
+                        projection.observation_started_at
+                    )
+            market_by_symbol, observation_by_key = (
+                self._market_evidence_for_symbols_with_observations(
+                    symbols,
+                    observation_starts={
+                        symbol: tuple(sorted(starts)) for symbol, starts in starts_by_symbol.items()
+                    },
+                    as_of=as_of,
+                )
+            )
+        else:
+            market_by_symbol = self._market_evidence_for_symbols(symbols, as_of)
         fill_ids_by_candidate = _confirmed_buy_fill_ids(orders, fills)
         return tuple(
             self._build_signal(
@@ -344,6 +375,8 @@ class WorkbenchService:
                 outcomes_by_candidate=outcomes_by_candidate,
                 performances_by_candidate=performances_by_candidate,
                 market_by_symbol=market_by_symbol,
+                observation_by_key=observation_by_key,
+                include_observation_performance=include_observation_performance,
                 fill_ids_by_candidate=fill_ids_by_candidate,
             )
             for projection in projections
@@ -357,9 +390,26 @@ class WorkbenchService:
         outcomes_by_candidate: dict[str, tuple[SelectionOutcome, ...]],
         performances_by_candidate: dict[str, tuple[SelectionPerformance, ...]],
         market_by_symbol: dict[str, MarketEvidence],
+        observation_by_key: dict[tuple[str, datetime], WorkbenchObservationPerformance],
+        include_observation_performance: bool,
         fill_ids_by_candidate: dict[str, tuple[str, ...]],
     ) -> WorkbenchSignalView:
         candidate_id = projection.candidate.candidate_id
+        market = market_by_symbol[projection.candidate.symbol]
+        observation_performance = None
+        if include_observation_performance:
+            if projection.observation_started_at is None:
+                observation_performance = _observation_performance(None, market=market)
+            else:
+                observation_performance = observation_by_key.get(
+                    (projection.candidate.symbol, projection.observation_started_at)
+                )
+                if observation_performance is None:
+                    observation_performance = _observation_performance(
+                        projection.observation_started_at,
+                        market=market,
+                        anchor_reason="没有找到观察开始时的本地行情证据。",
+                    )
         return WorkbenchSignalView(
             batch=projection.batch,
             candidate=projection.candidate,
@@ -372,7 +422,8 @@ class WorkbenchService:
             excluded=projection.excluded,
             outcomes=outcomes_by_candidate.get(candidate_id, ()),
             performances=performances_by_candidate.get(candidate_id, ()),
-            market=market_by_symbol[projection.candidate.symbol],
+            market=market,
+            observation_performance=observation_performance,
             confirmed_buy=candidate_id in fill_ids_by_candidate,
             confirmed_buy_fill_ids=fill_ids_by_candidate.get(candidate_id, ()),
         )
@@ -534,9 +585,46 @@ class WorkbenchService:
         symbols: Iterable[str],
         as_of: datetime,
     ) -> dict[str, MarketEvidence]:
+        return self._market_evidence_batch(symbols, as_of).latest_by_symbol
+
+    def _market_evidence_for_symbols_with_observations(
+        self,
+        symbols: Iterable[str],
+        *,
+        observation_starts: dict[str, tuple[datetime, ...]],
+        as_of: datetime,
+    ) -> tuple[
+        dict[str, MarketEvidence],
+        dict[tuple[str, datetime], WorkbenchObservationPerformance],
+    ]:
+        batch = self._market_evidence_batch(
+            symbols,
+            as_of,
+            observation_starts=observation_starts,
+        )
+        return batch.latest_by_symbol, batch.observation_by_key
+
+    def _market_evidence_batch(
+        self,
+        symbols: Iterable[str],
+        as_of: datetime,
+        *,
+        observation_starts: dict[str, tuple[datetime, ...]] | None = None,
+    ) -> _MarketEvidenceBatch:
         requested = tuple(dict.fromkeys(symbols))
         if not requested:
-            return {}
+            return _MarketEvidenceBatch(latest_by_symbol={}, observation_by_key={})
+        starts = observation_starts or {}
+        observation_keys = tuple(
+            (symbol, started_at)
+            for symbol in requested
+            for started_at in dict.fromkeys(starts.get(symbol, ()))
+        )
+        keys_by_symbol: dict[str, list[tuple[str, datetime]]] = {symbol: [] for symbol in requested}
+        for key in observation_keys:
+            keys_by_symbol[key[0]].append(key)
+        future_observation_keys = {key for key in observation_keys if key[1] > as_of}
+        eligible_observation_keys = set(observation_keys) - future_observation_keys
         try:
             manifests = tuple(
                 manifest
@@ -554,24 +642,41 @@ class WorkbenchService:
         )
         market_by_symbol: dict[str, MarketEvidence] = {}
         late_symbols: set[str] = set()
+        anchor_bars: dict[tuple[str, datetime], tuple[str, DailyBar]] = {}
+        late_observation_keys: set[tuple[str, datetime]] = set()
         invalid_snapshot_ids: list[str] = []
         requested_set = set(requested)
         for manifest in manifests:
+            if requested_set.issubset(market_by_symbol) and eligible_observation_keys.issubset(
+                anchor_bars
+            ):
+                break
             try:
-                bars = self._market_store.load_bars(manifest.snapshot_id)
+                bars = self._market_store.load_bars(manifest.snapshot_id, symbols=requested)
             except SnapshotStoreError:
                 invalid_snapshot_ids.append(manifest.snapshot_id)
                 continue
             for bar in bars:
-                if bar.symbol not in requested_set or bar.symbol in market_by_symbol:
+                if bar.symbol not in requested_set:
                     continue
-                if bar.available_at > as_of:
-                    late_symbols.add(bar.symbol)
-                    continue
-                market_by_symbol[bar.symbol] = _available_market_evidence(
-                    manifest.snapshot_id,
-                    bar,
-                )
+                if bar.symbol not in market_by_symbol:
+                    if bar.session_date <= as_of.date() and bar.available_at <= as_of:
+                        market_by_symbol[bar.symbol] = _available_market_evidence(
+                            manifest.snapshot_id,
+                            bar,
+                        )
+                    else:
+                        late_symbols.add(bar.symbol)
+                for key in keys_by_symbol[bar.symbol]:
+                    if key in anchor_bars or key in future_observation_keys:
+                        continue
+                    started_at = key[1]
+                    if bar.session_date > started_at.date():
+                        continue
+                    if bar.available_at <= started_at and bar.available_at <= as_of:
+                        anchor_bars[key] = (manifest.snapshot_id, bar)
+                    else:
+                        late_observation_keys.add(key)
         result: dict[str, MarketEvidence] = {}
         for symbol in requested:
             if symbol in market_by_symbol:
@@ -591,7 +696,31 @@ class WorkbenchService:
                     status=MarketEvidenceStatus.UNAVAILABLE,
                     reason="没有可用于该证券的已批准 market_daily 快照。",
                 )
-        return result
+        observation_by_key: dict[tuple[str, datetime], WorkbenchObservationPerformance] = {}
+        for key in observation_keys:
+            symbol, started_at = key
+            anchor = anchor_bars.get(key)
+            anchor_snapshot_id = anchor[0] if anchor is not None else None
+            anchor_bar = anchor[1] if anchor is not None else None
+            if key in future_observation_keys:
+                anchor_reason = "观察开始时间晚于当前 as_of，无法计算观察期涨跌幅。"
+            elif key in late_observation_keys:
+                anchor_reason = "观察开始时已有批准行情，但在该时点尚不可用。"
+            elif anchor is None and invalid_snapshot_ids:
+                anchor_reason = "已批准行情快照无法读取：" + ", ".join(sorted(invalid_snapshot_ids))
+            else:
+                anchor_reason = None
+            observation_by_key[key] = _observation_performance(
+                started_at,
+                market=result[symbol],
+                anchor_snapshot_id=anchor_snapshot_id,
+                anchor_bar=anchor_bar,
+                anchor_reason=anchor_reason,
+            )
+        return _MarketEvidenceBatch(
+            latest_by_symbol=result,
+            observation_by_key=observation_by_key,
+        )
 
 
 def _matches_projection(projection: _SignalProjection, query: str) -> bool:

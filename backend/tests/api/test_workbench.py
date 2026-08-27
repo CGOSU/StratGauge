@@ -80,6 +80,10 @@ class WorkbenchApiTests(unittest.TestCase):
             self.assertEqual(paged_watchlist.status_code, 200)
             self.assertEqual(paged_watchlist.json()["total"], 1)
             self.assertEqual(len(paged_watchlist.json()["items"]), 1)
+            observation = paged_watchlist.json()["items"][0]["observation_performance"]
+            self.assertEqual(observation["status"], "unavailable")
+            self.assertEqual(observation["started_at"], "2026-01-05T15:10:00+08:00")
+            self.assertIsNone(observation["change_percent"])
 
             summary = client.get(
                 "/v1/workbench/summary",
