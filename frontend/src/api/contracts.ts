@@ -164,6 +164,19 @@ export const manualSellReasonLabels: Record<ManualSellReason, string> = {
   other: '其他',
 }
 
+export type ManualPositionTrackingOrigin = 'confirmed_trade' | 'historical_enrollment'
+
+export type ManualPositionTrackingCase = {
+  tracking_case_id: string
+  tracking_policy_id: 'manual-position-tracking-v1'
+  security: PortfolioSecurity
+  tracking_started_at: string
+  created_at: string
+  origin: ManualPositionTrackingOrigin
+  source_order_ids: string[]
+  source_fill_ids: string[]
+}
+
 export type ManualOrder = {
   order_id: string
   security: PortfolioSecurity
@@ -174,6 +187,7 @@ export type ManualOrder = {
   strategy_version_id?: string | null
   recommendation_id: string | null
   selection_candidate_id: string | null
+  tracking_case_id?: string | null
   sell_reason?: ManualSellReason | null
   note?: string | null
 }
@@ -181,6 +195,7 @@ export type ManualOrder = {
 export type ManualFill = {
   fill_id: string
   order_id: string
+  tracking_case_id?: string | null
   filled_at: string
   quantity: string
   price: string

@@ -39,7 +39,7 @@ class AnnotationsMixin(SelectionStoreBase):
             raise SelectionStoreError("label timestamp precedes selection export")
         freeze_deadline = datetime.combine(
             imported.batch.selection_date + timedelta(days=1),
-            time.min,
+            time(hour=2),
             tzinfo=imported.batch.exported_at.tzinfo,
         )
         if label.labeled_at >= freeze_deadline:

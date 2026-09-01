@@ -15,6 +15,7 @@ from stratgauge.domain.portfolio import (
     ManualFill,
     ManualOrder,
     ManualOrderSide,
+    ManualPositionTrackingCase,
     ManualSellReason,
     PortfolioPosition,
     PortfolioReview,
@@ -48,6 +49,7 @@ class ManualOrderRequest(BaseModel):
     strategy_version_id: str | None = None
     recommendation_id: str | None = None
     selection_candidate_id: str | None = None
+    tracking_case_id: str | None = None
     sell_reason: ManualSellReason | None = None
     note: str | None = None
 
@@ -72,6 +74,8 @@ class ManualOrderRequest(BaseModel):
             raise ValueError("sell_reason is required for sell orders")
         if self.side is ManualOrderSide.BUY and self.sell_reason is not None:
             raise ValueError("sell_reason is only valid for sell orders")
+        if self.selection_candidate_id is not None and self.tracking_case_id is not None:
+            raise ValueError("selection candidate orders cannot reference manual tracking cases")
         return self
 
 
@@ -126,6 +130,7 @@ class ConfirmedManualTradeRequest(BaseModel):
     strategy_version_id: str | None = None
     recommendation_id: str | None = None
     selection_candidate_id: str | None = None
+    tracking_case_id: str | None = None
     sell_reason: ManualSellReason | None = None
     note: str | None = None
 
@@ -152,7 +157,25 @@ class ConfirmedManualTradeRequest(BaseModel):
             raise ValueError("sell_reason is required for sell trades")
         if self.side is ManualOrderSide.BUY and self.sell_reason is not None:
             raise ValueError("sell_reason is only valid for buy trades")
+        if self.selection_candidate_id is not None and self.tracking_case_id is not None:
+            raise ValueError("selection candidate trades cannot reference manual tracking cases")
         return self
+
+
+class ManualTrackingEnrollmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tracking_case_id: str | None = Field(default=None, min_length=1)
+    local_code: str
+    exchange: Exchange
+
+    @field_validator("local_code")
+    @classmethod
+    def normalize_local_code(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if len(normalized) != 6 or not normalized.isascii() or not normalized.isdigit():
+            raise ValueError("local_code must contain exactly six digits")
+        return normalized
 
 
 class ManualFillRequest(BaseModel):
@@ -165,6 +188,7 @@ class ManualFillRequest(BaseModel):
     price: Decimal = Field(gt=0)
     commission: Decimal = Field(default=Decimal("0"), ge=0)
     stamp_duty: Decimal = Field(default=Decimal("0"), ge=0)
+    tracking_case_id: str | None = None
     note: str | None = None
 
     @field_validator("filled_at")
@@ -227,6 +251,7 @@ class PortfolioService:
             strategy_version_id=request.strategy_version_id,
             recommendation_id=request.recommendation_id,
             selection_candidate_id=request.selection_candidate_id,
+            tracking_case_id=request.tracking_case_id,
             sell_reason=request.sell_reason,
             note=request.note,
         )
@@ -255,12 +280,14 @@ class PortfolioService:
             strategy_version_id=request.strategy_version_id,
             recommendation_id=request.recommendation_id,
             selection_candidate_id=request.selection_candidate_id,
+            tracking_case_id=request.tracking_case_id,
             sell_reason=request.sell_reason,
             note=request.note,
         )
         fill = ManualFill(
             fill_id=request.fill_id,
             order_id=request.order_id,
+            tracking_case_id=request.tracking_case_id,
             filled_at=request.filled_at,
             quantity=request.quantity,
             price=request.price,
@@ -269,7 +296,12 @@ class PortfolioService:
             note=request.note,
         )
         try:
-            return self._store.record_order_and_fill(order, fill)
+            return self._store.record_order_and_fill(
+                order,
+                fill,
+                auto_track_manual_buy=request.selection_candidate_id is None,
+                auto_resolve_manual_sell=request.selection_candidate_id is None,
+            )
         except PortfolioStoreError as exc:
             raise PortfolioApiError("PORTFOLIO_TRADE_REJECTED", str(exc), 409) from exc
 
@@ -347,6 +379,25 @@ class PortfolioService:
         except PortfolioStoreError as exc:
             raise PortfolioApiError("PORTFOLIO_READ_FAILED", str(exc), 409) from exc
 
+    def enroll_position(
+        self,
+        request: ManualTrackingEnrollmentRequest,
+    ) -> ManualPositionTrackingCase:
+        symbol = canonical_symbol(request.local_code, request.exchange)
+        security = Security(
+            security_id=f"portfolio-{symbol}",
+            local_code=request.local_code,
+            symbol=symbol,
+            exchange=request.exchange,
+        )
+        try:
+            return self._store.enroll_position(
+                security,
+                tracking_case_id=request.tracking_case_id,
+            )
+        except PortfolioStoreError as exc:
+            raise PortfolioApiError("PORTFOLIO_TRACKING_REJECTED", str(exc), 409) from exc
+
 
 def create_portfolio_router(
     portfolio: PortfolioService,
@@ -374,6 +425,16 @@ def create_portfolio_router(
     @router.post("/v1/manual-orders", response_model=ManualOrder, status_code=201)
     def create_manual_order(request: ManualOrderRequest) -> ManualOrder:
         return portfolio.create_order(request)
+
+    @router.post(
+        "/v1/manual-tracking-cases/enroll",
+        response_model=ManualPositionTrackingCase,
+        status_code=201,
+    )
+    def enroll_manual_position(
+        request: ManualTrackingEnrollmentRequest,
+    ) -> ManualPositionTrackingCase:
+        return portfolio.enroll_position(request)
 
     @router.post(
         "/v1/manual-trades/confirm",

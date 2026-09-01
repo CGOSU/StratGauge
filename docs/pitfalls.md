@@ -14,6 +14,41 @@
 
 ## 已知问题
 
+### 2026-09-01：手工 tracking evidence 完整不等于训练就绪
+
+- 现象：手工跟踪案例已有订单、成交、复盘和批准行情，就把导出的 `ready=true` 当作现有四用途训练链的准入，或把历史纳入前订单/成交倒填到跟踪开始时间之前。
+- 根因：手工台账、跟踪案例和手工研究候选是不同事实；`manual-position-tracking-dataset-v1` 只证明案例关联 evidence 的覆盖，不定义监督标签、特征契约或模型发布准入。历史登记前事实只能作为审计来源，不能伪装成跟踪期观察。
+- 修复：导出时按 `tracking_started_at`、事实事件时间和 `evaluated_at` 过滤，只读取 approved 本地 `market_daily`；候选/策略/推荐关联事实和歧义复盘排除并保留原因。将手工 evidence 与 selection ML 四用途、注册、shadow、推荐和交易链隔离；未来若要训练必须另行冻结标签/特征契约，并由操作者显式启动。
+- 验证：`tests/backtest/test_manual_position_tracking_dataset.py` 和 `tests/application/test_manual_position_tracking_dataset_cli.py` 覆盖时间边界、缺失行情、资格报告、不可覆盖输出和非零退出码；本轮 434 项后端测试通过、1 项跳过，未执行真实 provider 或训练。
+
+### 2026-09-01：市场证据补齐成功不等于特征可用
+
+- 现象：`prepare_selection_ml_market_evidence.py` 已为历史 session 抓到并批准行情，便直接把这些行情交给训练特征，或把 CLI 退出码 `0` 当成模型训练就绪。
+- 根因：补齐快照的 `available_at` 是本次实际抓取时间，通常晚于历史选股/评审时间；市场证据准备只负责日历、行情、因子和独立基准，不验证每个标签观察时点的历史可见性。
+- 修复：先阅读结构化报告中的各阶段状态、质量门、缺失和时间点阻断；仅在标签成熟且 `available_at <= as_of` 等证据检查通过后，显式调用 `build_selection_training_feature_snapshots.py`。该 CLI 的 `feature_visibility_guaranteed` 不作承诺，`ready=false` 不得继续训练。
+- 验证：离线 fake-provider 测试覆盖阶段批准复用、质量拒绝、provider 失败和 universe `as_of` 阻断；本轮未执行真实 provider 或特征/训练流程。
+
+### 2026-09-01：02:00 冻结截止不是通用的未来数据截点
+
+- 现象：把标签冻结时间误认为所有行情/特征都可见的时间，或用日期而不是发布时间过滤夜间数据，可能把开盘前后信息混入历史判断。
+- 根因：02:00 只是旧版人工标签的业务锁定点；未来数据防泄漏仍必须按每条证据的 `available_at`/发布时间和实际决策时间过滤。
+- 修复：旧版标签严格接受导出时间至选股日期次日 02:00:00（不含），使用 `exported_at` 时区；特征和回测继续使用各自的时间点约束。
+- 验证：`tests/data_pipeline/test_selection_store.py` 覆盖 01:59:59 接受和 02:00:00 拒绝；`tests/api/test_selections.py` 覆盖 API 在 02:00:00 返回结构化拒绝。
+
+### 2026-08-30：同一证券多个候选时详情抽屉不能丢失候选上下文
+
+- 现象：`002673.SZ`（西部证券）同时存在两个选股批次；一个候选已评审、另一个仍未评审。工作台按证券打开详情却固定取 `signals[0]`，点击未评审行可能重复写入已评审候选，列表继续显示未判断。
+- 根因：`SelectionAnnotation` 绑定包含批次的 `candidate_id`，而前端打开详情只传证券代码，没有传递被点击的候选。
+- 修复：信号行打开详情时同时保存 `candidate_id`，详情抽屉按该 ID 选择评审/候选交易对象；持仓和交易入口没有候选上下文时仍回退第一条信号。
+- 验证：`frontend/tests/visual/workbench-annotation-target.spec.ts` 验证详情返回顺序与被点击行相反时仍显示未判断，并把 POST 写入 `candidate-unreviewed`。
+
+### 2026-08-23：批准行情快照不能替代交易日历覆盖
+
+- 现象：本地存在 2026-08-21 的批准 `market_daily` 快照，但 `trade-cal-sse.txt` 只覆盖到 2026-08-11；直接用快照目录推断后续交易日会让成熟队列或 `index_daily` 同步失去显式日期边界。
+- 根因：行情快照和交易日历是两类独立证据；`queue_selection_maturity_tasks.py` 与 `sync_tushare_index_daily.py` 读取调用方提供的交易日历，不从行情目录或自然日猜测会话。
+- 修复边界：在扩展交易日历并完成来源交叉校验前，不排队更晚成熟任务、不把更晚行情用于基准证据；扩展动作必须保留新的日历 manifest 和来源快照。
+- 验证：`backend/data/selection-market/manifests` 盘点得到 10 个已批准 `market_daily` 日期至 2026-08-21；`backend/data/calendars/trade-cal-sse.txt` 末尾为 2026-08-11；当前没有 `request_kind=index_daily` manifest。
+
 ### 2026-08-22：四用途特征快照不能按目录或批次日期猜来源
 
 - 现象：直接把训练标签的选股日期当作特征可见时间，或扫描 feature/market 目录选择“看起来匹配”的快照，会让 annotation/buy/sell 丢失 `observation_at` 边界，也可能混入事后抓取数据。

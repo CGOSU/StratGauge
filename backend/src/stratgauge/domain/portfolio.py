@@ -11,10 +11,43 @@ from pydantic import Field, field_validator, model_validator
 
 from stratgauge.domain.models import DomainModel, Security
 
+MANUAL_POSITION_TRACKING_POLICY_ID = "manual-position-tracking-v1"
+
 
 class ManualOrderSide(StrEnum):
     BUY = "buy"
     SELL = "sell"
+
+
+class ManualPositionTrackingOrigin(StrEnum):
+    CONFIRMED_TRADE = "confirmed_trade"
+    HISTORICAL_ENROLLMENT = "historical_enrollment"
+
+
+class ManualPositionTrackingPolicy(DomainModel):
+    """The built-in policy for recording manual holding evidence."""
+
+    policy_id: str = MANUAL_POSITION_TRACKING_POLICY_ID
+    version: int = 1
+    name: str = "手工持仓跟踪 v1"
+    description: str = "只记录手工持仓事实，不生成选股信号或自动交易。"
+
+    @field_validator("policy_id")
+    @classmethod
+    def validate_policy_id(cls, value: str) -> str:
+        if value != MANUAL_POSITION_TRACKING_POLICY_ID:
+            raise ValueError("only the built-in manual position tracking policy is supported")
+        return value
+
+    @field_validator("version")
+    @classmethod
+    def validate_policy_version(cls, value: int) -> int:
+        if value != 1:
+            raise ValueError("only manual position tracking policy version 1 is supported")
+        return value
+
+
+DEFAULT_MANUAL_POSITION_TRACKING_POLICY = ManualPositionTrackingPolicy()
 
 
 class ManualSellReason(StrEnum):
@@ -29,6 +62,57 @@ class ManualSellReason(StrEnum):
     OTHER = "other"
 
 
+class ManualPositionTrackingCase(DomainModel):
+    """An append-only, source-specific manual holding tracking case."""
+
+    tracking_case_id: str
+    tracking_policy_id: str = MANUAL_POSITION_TRACKING_POLICY_ID
+    security: Security
+    tracking_started_at: datetime
+    created_at: datetime
+    origin: ManualPositionTrackingOrigin
+    source_order_ids: tuple[str, ...] = ()
+    source_fill_ids: tuple[str, ...] = ()
+
+    @field_validator("tracking_case_id")
+    @classmethod
+    def validate_tracking_case_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("tracking_case_id must not be empty")
+        if any(character in normalized for character in ("/", "\\", "\0", "\r", "\n")):
+            raise ValueError("tracking_case_id contains an invalid path character")
+        return normalized
+
+    @field_validator("tracking_policy_id")
+    @classmethod
+    def validate_tracking_policy_id(cls, value: str) -> str:
+        if value != MANUAL_POSITION_TRACKING_POLICY_ID:
+            raise ValueError("only the built-in manual position tracking policy is supported")
+        return value
+
+    @field_validator("tracking_started_at", "created_at")
+    @classmethod
+    def validate_tracking_times(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("tracking timestamps must include a timezone")
+        return value
+
+    @field_validator("source_order_ids", "source_fill_ids")
+    @classmethod
+    def validate_source_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized: list[str] = []
+        for item in value:
+            item = item.strip()
+            if not item:
+                raise ValueError("tracking source identifiers must not be empty")
+            if any(character in item for character in ("/", "\\", "\0", "\r", "\n")):
+                raise ValueError("tracking source identifier contains an invalid path character")
+            if item not in normalized:
+                normalized.append(item)
+        return tuple(normalized)
+
+
 class ManualOrder(DomainModel):
     """A user's intended manual order; it is not sent to a broker."""
 
@@ -41,6 +125,7 @@ class ManualOrder(DomainModel):
     strategy_version_id: str | None = None
     recommendation_id: str | None = None
     selection_candidate_id: str | None = None
+    tracking_case_id: str | None = None
     sell_reason: ManualSellReason | None = None
     note: str | None = None
 
@@ -71,10 +156,22 @@ class ManualOrder(DomainModel):
             raise ValueError("portfolio decimal must be finite")
         return result
 
-    @field_validator("strategy_version_id", "recommendation_id", "selection_candidate_id", "note")
+    @field_validator(
+        "strategy_version_id",
+        "recommendation_id",
+        "selection_candidate_id",
+        "tracking_case_id",
+        "note",
+    )
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
         return None if value is None else value.strip() or None
+
+    @model_validator(mode="after")
+    def validate_tracking_source(self) -> ManualOrder:
+        if self.selection_candidate_id is not None and self.tracking_case_id is not None:
+            raise ValueError("selection candidate orders cannot reference manual tracking cases")
+        return self
 
 
 class ManualFill(DomainModel):
@@ -82,6 +179,7 @@ class ManualFill(DomainModel):
 
     fill_id: str
     order_id: str
+    tracking_case_id: str | None = None
     filled_at: datetime
     quantity: Decimal = Field(gt=0)
     price: Decimal = Field(gt=0)
@@ -114,9 +212,9 @@ class ManualFill(DomainModel):
             raise ValueError("fill decimal must be finite")
         return result
 
-    @field_validator("note")
+    @field_validator("tracking_case_id", "note")
     @classmethod
-    def normalize_note(cls, value: str | None) -> str | None:
+    def normalize_optional_text(cls, value: str | None) -> str | None:
         return None if value is None else value.strip() or None
 
 

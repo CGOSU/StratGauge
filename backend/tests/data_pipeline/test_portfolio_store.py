@@ -6,9 +6,12 @@ from tempfile import TemporaryDirectory
 from stratgauge.data_pipeline.portfolio_store import ManualPortfolioStore, PortfolioStoreError
 from stratgauge.domain.models import Exchange, Security
 from stratgauge.domain.portfolio import (
+    MANUAL_POSITION_TRACKING_POLICY_ID,
     ManualFill,
     ManualOrder,
     ManualOrderSide,
+    ManualPositionTrackingOrigin,
+    ManualSellReason,
     PortfolioReview,
 )
 
@@ -49,6 +52,126 @@ class PortfolioStoreTests(unittest.TestCase):
             )
             self.assertEqual(store.write_review(review), review)
             self.assertEqual(store.list_reviews(symbol="000001.SZ"), (review,))
+
+    def test_confirmed_manual_buy_creates_an_idempotent_tracking_case(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = ManualPortfolioStore(directory)
+            order = ManualOrder(
+                order_id="tracked-buy",
+                security=_security(),
+                side=ManualOrderSide.BUY,
+                ordered_at=datetime(2026, 1, 5, 15, tzinfo=UTC),
+                quantity=Decimal("100"),
+            )
+            fill = ManualFill(
+                fill_id="tracked-fill",
+                order_id=order.order_id,
+                filled_at=datetime(2026, 1, 6, 10, tzinfo=UTC),
+                quantity=Decimal("100"),
+                price=Decimal("10"),
+            )
+
+            first = store.record_order_and_fill(
+                order,
+                fill,
+                auto_track_manual_buy=True,
+            )
+            second = store.record_order_and_fill(
+                order,
+                fill,
+                auto_track_manual_buy=True,
+            )
+
+            self.assertEqual(first, second)
+            self.assertIsNotNone(first[0].tracking_case_id)
+            self.assertEqual(first[0].tracking_case_id, first[1].tracking_case_id)
+            cases = store.list_tracking_cases()
+            self.assertEqual(len(cases), 1)
+            self.assertEqual(cases[0].tracking_policy_id, MANUAL_POSITION_TRACKING_POLICY_ID)
+            self.assertEqual(cases[0].origin, ManualPositionTrackingOrigin.CONFIRMED_TRADE)
+            self.assertEqual(cases[0].source_order_ids, (order.order_id,))
+            self.assertEqual(cases[0].source_fill_ids, (fill.fill_id,))
+
+    def test_historical_enrollment_is_explicit_and_does_not_rewrite_legacy_records(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = ManualPortfolioStore(directory)
+            order = ManualOrder(
+                order_id="legacy-buy",
+                security=_security(),
+                side=ManualOrderSide.BUY,
+                ordered_at=datetime(2026, 1, 5, 15, tzinfo=UTC),
+                quantity=Decimal("100"),
+            )
+            fill = ManualFill(
+                fill_id="legacy-fill",
+                order_id=order.order_id,
+                filled_at=datetime(2026, 1, 6, 10, tzinfo=UTC),
+                quantity=Decimal("100"),
+                price=Decimal("10"),
+            )
+            store.record_order_and_fill(order, fill)
+            started_at = datetime(2026, 2, 1, 10, tzinfo=UTC)
+
+            case = store.enroll_position(
+                _security(),
+                tracking_case_id="legacy-case",
+                tracking_started_at=started_at,
+            )
+            repeated = store.enroll_position(
+                _security(),
+                tracking_case_id="legacy-case",
+                tracking_started_at=datetime(2026, 3, 1, tzinfo=UTC),
+            )
+
+            self.assertEqual(case, repeated)
+            self.assertEqual(case.tracking_started_at, started_at)
+            self.assertEqual(case.origin, ManualPositionTrackingOrigin.HISTORICAL_ENROLLMENT)
+            self.assertEqual(case.source_order_ids, (order.order_id,))
+            self.assertEqual(case.source_fill_ids, (fill.fill_id,))
+            self.assertIsNone(store.list_orders()[0].tracking_case_id)
+            self.assertIsNone(store.list_fills()[0].tracking_case_id)
+
+    def test_tracking_case_limits_sells_to_its_remaining_quantity(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = ManualPortfolioStore(directory)
+            buy_order = ManualOrder(
+                order_id="case-buy",
+                security=_security(),
+                side=ManualOrderSide.BUY,
+                ordered_at=datetime(2026, 1, 5, 15, tzinfo=UTC),
+                quantity=Decimal("100"),
+            )
+            buy_fill = ManualFill(
+                fill_id="case-buy-fill",
+                order_id=buy_order.order_id,
+                filled_at=datetime(2026, 1, 6, 10, tzinfo=UTC),
+                quantity=Decimal("100"),
+                price=Decimal("10"),
+            )
+            store.record_order_and_fill(buy_order, buy_fill, auto_track_manual_buy=True)
+            case_id = store.list_tracking_cases()[0].tracking_case_id
+            sell_order = ManualOrder(
+                order_id="case-sell",
+                security=_security(),
+                side=ManualOrderSide.SELL,
+                ordered_at=datetime(2026, 1, 7, 9, tzinfo=UTC),
+                quantity=Decimal("101"),
+                tracking_case_id=case_id,
+                sell_reason=ManualSellReason.OTHER,
+            )
+            sell_fill = ManualFill(
+                fill_id="case-sell-fill",
+                order_id=sell_order.order_id,
+                tracking_case_id=case_id,
+                filled_at=datetime(2026, 1, 7, 10, tzinfo=UTC),
+                quantity=Decimal("101"),
+                price=Decimal("11"),
+            )
+
+            with self.assertRaisesRegex(PortfolioStoreError, "tracking case position"):
+                store.record_order_and_fill(sell_order, sell_fill)
+            self.assertEqual(len(store.list_orders()), 1)
+            self.assertEqual(len(store.list_fills()), 1)
 
     def test_candidate_trade_writes_order_and_fill_atomically_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as directory:

@@ -4,7 +4,7 @@ import type { HealthState, AppRoute } from '@/types'
 
 export const appRouteLabels: Record<AppRoute, string> = {
   workbench: '工作台',
-  signals: '今日信号',
+  signals: '策略信号',
   watchlist: '观察池',
   positions: '持仓',
   trades: '交易记录',

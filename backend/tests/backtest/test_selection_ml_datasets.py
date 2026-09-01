@@ -73,6 +73,7 @@ class SelectionMLDatasetTests(unittest.TestCase):
 
             self.assertEqual(len(rows), 1)
             self.assertTrue(rows[0].purchased_within_window)
+            self.assertEqual(rows[0].source, "tongdaxin")
             self.assertEqual(rows[0].fill_id, "fill-buy")
             self.assertEqual(
                 len(read_buy_timing_dataset(serialize_buy_timing_dataset(rows).encode())),
@@ -161,6 +162,7 @@ class SelectionMLDatasetTests(unittest.TestCase):
                 [row.exposure_session for row in rows], [date(2026, 1, 6), date(2026, 1, 7)]
             )
             self.assertFalse(rows[0].sold_within_window)
+            self.assertEqual({row.source for row in rows}, {"tongdaxin"})
             self.assertTrue(rows[1].sold_within_window)
             self.assertEqual(rows[1].sell_fill_ids, ("fill-sell",))
 

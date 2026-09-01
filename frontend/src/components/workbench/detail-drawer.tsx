@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import { ExternalLink, X } from 'lucide-react'
 import { requestJson } from '@/api/client'
 import { manualSellReasonLabels } from '@/api/contracts'
-import type { ManualFill, ManualOrder, ManualSellReason } from '@/api/contracts'
+import type { Exchange, ManualFill, ManualOrder, ManualPositionTrackingCase, ManualSellReason, PortfolioReview } from '@/api/contracts'
 import type { AnnotationOutlook, AnnotationDecision, BatchView, WorkbenchMarketEvidence, WorkbenchSignal, WorkbenchTimelineEvent, WorkbenchStockDetail, StockDrawerTab } from '@/types'
 import { annotationOutlookLabels, annotationDecisionLabels, annotationTagGroups } from '@/lib/labels'
 import { toShanghaiDateTime, formatManagementDate, formatPrice, formatPercent } from '@/lib/format'
@@ -199,36 +199,226 @@ export function WorkbenchAnnotationPanel({
     </div>
   )
 }
-export function WorkbenchTradePanel({
+function trackingOriginLabel(origin: ManualPositionTrackingCase['origin']): string {
+  return origin === 'confirmed_trade' ? '确认交易自动纳入' : '历史持仓显式纳入'
+}
+
+function workbenchSourceLabel(source: WorkbenchStockDetail['source'] | undefined): string {
+  if (source === 'signal') {
+    return '策略信号来源'
+  }
+  if (source === 'mixed') {
+    return '策略与手工混合来源'
+  }
+  return '手工持仓跟踪来源'
+}
+
+export function WorkbenchTrackingPanel({
   apiBase,
-  signal,
+  detail,
   onSaved,
 }: {
   apiBase: string
-  signal: WorkbenchSignal
+  detail: WorkbenchStockDetail
   onSaved: () => void | Promise<void>
 }) {
-  const [side, setSide] = useState<'buy' | 'sell'>(signal.confirmed_buy ? 'sell' : 'buy')
+  const [busy, setBusy] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [localCode, exchange] = detail.symbol.split('.')
+  const enrolled = detail.tracking_cases.length > 0
+
+  async function enroll() {
+    if (busy || enrolled || !localCode || !exchange) {
+      return
+    }
+    setBusy(true)
+    setErrorMessage(null)
+    try {
+      await requestJson<ManualPositionTrackingCase>(`${apiBase}/v1/manual-tracking-cases/enroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ local_code: localCode, exchange: exchange as Exchange }),
+      })
+      await onSaved()
+    } catch (reason: unknown) {
+      setErrorMessage(reason instanceof Error ? reason.message : '纳入手工持仓跟踪失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="drawer-tab-panel" aria-labelledby="drawer-tracking-title">
+      <div className="drawer-section-heading">
+        <div>
+          <span className="drawer-section-kicker">MANUAL POSITION TRACKING</span>
+          <h3 id="drawer-tracking-title">手工持仓跟踪</h3>
+        </div>
+        <span>{enrolled ? '已纳入' : '未纳入'}</span>
+      </div>
+      <div className="drawer-latest-annotation">
+        <strong>{workbenchSourceLabel(detail.source)}</strong>
+        <span>内置政策：manual-position-tracking-v1 · 只记录持仓事实，不生成策略信号或自动交易。</span>
+        {detail.position ? (
+          <span>当前持仓 {detail.position.quantity} 股 · 成本 {formatPrice(detail.position.average_cost)}</span>
+        ) : (
+          <span>当前没有未平仓持仓。</span>
+        )}
+      </div>
+      {enrolled ? (
+        <div className="drawer-signal-list">
+          {detail.tracking_cases.map((trackingCase) => (
+            <article className="drawer-signal-item" key={trackingCase.tracking_case_id}>
+              <div>
+                <strong>{trackingCase.tracking_case_id}</strong>
+                <span>{trackingOriginLabel(trackingCase.origin)} · 起始 {formatManagementDate(trackingCase.tracking_started_at)}</span>
+              </div>
+              <div className="drawer-signal-status">
+                <span className="workbench-status workbench-status--review">v1</span>
+                <span>{trackingCase.source_order_ids.length} 个订单 · {trackingCase.source_fill_ids.length} 个成交来源</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <>
+          <p className="drawer-muted-copy">历史订单和成交只作为审计来源；从现在登记开始，后续事实才进入手工跟踪证据。</p>
+          <button type="button" className="drawer-primary-action" onClick={() => void enroll()} disabled={busy}>
+            {busy ? '纳入中…' : '纳入当前持仓跟踪'}
+          </button>
+        </>
+      )}
+      {errorMessage && <p className="drawer-form-error" role="alert">{errorMessage}</p>}
+    </section>
+  )
+}
+
+export function WorkbenchReviewPanel({
+  apiBase,
+  detail,
+  onSaved,
+}: {
+  apiBase: string
+  detail: WorkbenchStockDetail
+  onSaved: () => void | Promise<void>
+}) {
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const existingReviews = detail.timeline.filter((event) => event.event_type === 'review')
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const trimmedNote = note.trim()
+    if (busy || !trimmedNote) {
+      return
+    }
+    setBusy(true)
+    setErrorMessage(null)
+    try {
+      await requestJson<PortfolioReview>(`${apiBase}/v1/portfolio-reviews`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          review_id: crypto.randomUUID(),
+          symbol: detail.symbol,
+          reviewed_at: new Date().toISOString(),
+          note: trimmedNote,
+        }),
+      })
+      setNote('')
+      await onSaved()
+    } catch (reason: unknown) {
+      setErrorMessage(reason instanceof Error ? reason.message : '保存复盘失败。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="drawer-tab-panel" aria-labelledby="drawer-review-title">
+      <div className="drawer-section-heading">
+        <div>
+          <span className="drawer-section-kicker">APPEND-ONLY REVIEW</span>
+          <h3 id="drawer-review-title">手工复盘</h3>
+        </div>
+        <span>{existingReviews.length} 条记录</span>
+      </div>
+      {existingReviews.length > 0 ? (
+        <div className="drawer-latest-annotation">
+          <strong>最近一次复盘</strong>
+          <span>{formatManagementDate(existingReviews[existingReviews.length - 1].occurred_at)}</span>
+          <span>{existingReviews[existingReviews.length - 1].detail}</span>
+        </div>
+      ) : (
+        <p className="drawer-muted-copy">尚无复盘记录；复盘只追加手工事实，不产生策略判断。</p>
+      )}
+      <form className="drawer-annotation-form" onSubmit={submit}>
+        <label className="drawer-field">
+          <span>复盘内容</span>
+          <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={4} placeholder="记录持仓事实、执行过程或后续观察" required />
+        </label>
+        {errorMessage && <p className="drawer-form-error" role="alert">{errorMessage}</p>}
+        <button type="submit" className="drawer-primary-action" disabled={busy || note.trim().length === 0}>
+          {busy ? '追加中…' : '追加本次复盘'}
+        </button>
+      </form>
+    </section>
+  )
+}
+
+export function WorkbenchTradePanel({
+  apiBase,
+  signal,
+  detail,
+  onSaved,
+}: {
+  apiBase: string
+  signal: WorkbenchSignal | null
+  detail?: WorkbenchStockDetail
+  onSaved: () => void | Promise<void>
+}) {
+  const manualPositionQuantity = detail?.position?.quantity ?? null
+  const manualHasPosition = manualPositionQuantity !== null && Number(manualPositionQuantity) > 0
+  const initialTrackingCaseId = manualPositionQuantity !== null
+    && Number(manualPositionQuantity) > 0
+    && detail?.tracking_cases.length === 1
+    ? detail.tracking_cases[0].tracking_case_id
+    : null
+  const [side, setSide] = useState<'buy' | 'sell'>(
+    signal ? (signal.confirmed_buy ? 'sell' : 'buy') : manualHasPosition ? 'sell' : 'buy',
+  )
   const [orderId, setOrderId] = useState(() => crypto.randomUUID())
   const [fillId, setFillId] = useState(() => crypto.randomUUID())
   const [orderedAt, setOrderedAt] = useState(() => new Date().toISOString().slice(0, 16))
   const [filledAt, setFilledAt] = useState(() => new Date().toISOString().slice(0, 16))
   const [quantity, setQuantity] = useState('100')
-  const [price, setPrice] = useState(signal.market.close ?? '')
+  const [price, setPrice] = useState(signal?.market.close ?? '')
+  const [trackingCaseId, setTrackingCaseId] = useState<string | null>(initialTrackingCaseId)
   const [sellReason, setSellReason] = useState<ManualSellReason>('target_reached')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  useEffect(() => {
-    setSide(signal.confirmed_buy ? 'sell' : 'buy')
-    setPrice(signal.market.close ?? '')
-    setErrorMessage(null)
-  }, [signal.candidate.candidate_id, signal.confirmed_buy, signal.market.close])
+  if (!signal && !detail) {
+    return null
+  }
+
+  const localCode = signal?.candidate.local_code ?? detail?.symbol.split('.')[0] ?? ''
+  const exchange = signal?.candidate.exchange ?? detail?.symbol.split('.')[1] as Exchange | undefined
+  const name = signal?.candidate.name ?? detail?.name ?? null
+  const isManual = signal === null
+  const needsManualCase = isManual && (
+    side === 'sell' || (detail?.tracking_cases.length ?? 0) > 1
+  )
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) {
+      return
+    }
+    if (isManual && needsManualCase && trackingCaseId === null) {
+      setErrorMessage(side === 'sell' ? '卖出必须选择跟踪案例。' : '多个跟踪案例时，买入必须选择跟踪案例。')
       return
     }
     setBusy(true)
@@ -236,18 +426,19 @@ export function WorkbenchTradePanel({
     const commonBody = {
       order_id: orderId,
       fill_id: fillId,
-      local_code: signal.candidate.local_code,
-      exchange: signal.candidate.exchange,
-      name: signal.candidate.name,
+      local_code: localCode,
+      exchange,
+      name,
       ordered_at: toShanghaiDateTime(orderedAt),
       filled_at: toShanghaiDateTime(filledAt),
       quantity,
       price,
-      selection_candidate_id: signal.candidate.candidate_id,
       note: note.trim() || null,
+      ...(signal ? { selection_candidate_id: signal.candidate.candidate_id } : {}),
+      ...(!signal && trackingCaseId ? { tracking_case_id: trackingCaseId } : {}),
     }
     try {
-      if (side === 'buy') {
+      if (signal && side === 'buy') {
         await requestJson<[ManualOrder, ManualFill]>(`${apiBase}/v1/selection-candidate-trades`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -257,7 +448,11 @@ export function WorkbenchTradePanel({
         await requestJson<[ManualOrder, ManualFill]>(`${apiBase}/v1/manual-trades/confirm`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...commonBody, side, sell_reason: sellReason }),
+          body: JSON.stringify({
+            ...commonBody,
+            side,
+            ...(side === 'sell' ? { sell_reason: sellReason } : {}),
+          }),
         })
       }
       setOrderId(crypto.randomUUID())
@@ -285,9 +480,18 @@ export function WorkbenchTradePanel({
         <fieldset disabled={busy}>
           <legend>方向</legend>
           <div className="drawer-choice-row drawer-choice-row--wide">
-            <button type="button" className={`drawer-choice drawer-choice--buy${side === 'buy' ? ' is-selected' : ''}`} disabled={signal.confirmed_buy} onClick={() => setSide('buy')}>确认买入</button>
-            <button type="button" className={`drawer-choice drawer-choice--sell${side === 'sell' ? ' is-selected' : ''}`} onClick={() => setSide('sell')}>确认卖出</button>
+            <button type="button" className={`drawer-choice drawer-choice--buy${side === 'buy' ? ' is-selected' : ''}`} disabled={Boolean(signal?.confirmed_buy)} onClick={() => setSide('buy')}>确认买入</button>
+            <button type="button" className={`drawer-choice drawer-choice--sell${side === 'sell' ? ' is-selected' : ''}`} disabled={isManual && !manualHasPosition} onClick={() => setSide('sell')}>确认卖出</button>
           </div>
+          {isManual && (
+            <label className="drawer-field">
+              <span>跟踪案例{side === 'sell' ? '（卖出必选）' : '（买入可选）'}</span>
+              <select value={trackingCaseId ?? ''} onChange={(event) => setTrackingCaseId(event.target.value || null)} disabled={(detail?.tracking_cases.length ?? 0) === 0}>
+                <option value="">{(detail?.tracking_cases.length ?? 0) === 0 ? '暂无跟踪案例' : '选择跟踪案例'}</option>
+                {(detail?.tracking_cases ?? []).map((trackingCase) => <option value={trackingCase.tracking_case_id} key={trackingCase.tracking_case_id}>{trackingCase.tracking_case_id} · {trackingOriginLabel(trackingCase.origin)}</option>)}
+              </select>
+            </label>
+          )}
           {side === 'sell' && (
             <label className="drawer-field">
               <span>卖出原因（必填）</span>
@@ -297,15 +501,16 @@ export function WorkbenchTradePanel({
             </label>
           )}
           <div className="drawer-trade-grid">
-            <label className="drawer-field"><span>数量</span><input type="number" min="1" step="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} required /></label>
+            <label className="drawer-field"><span>数量{isManual && manualPositionQuantity ? `（当前 ${manualPositionQuantity}）` : ''}</span><input type="number" min="1" max={isManual && side === 'sell' ? manualPositionQuantity ?? undefined : undefined} step="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} required /></label>
             <label className="drawer-field"><span>成交价</span><input type="number" min="0.0001" step="0.0001" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="必须人工填写" required /></label>
             <label className="drawer-field"><span>下单时间</span><input type="datetime-local" value={orderedAt} onChange={(event) => setOrderedAt(event.target.value)} required /></label>
             <label className="drawer-field"><span>成交时间</span><input type="datetime-local" value={filledAt} onChange={(event) => setFilledAt(event.target.value)} required /></label>
           </div>
           <label className="drawer-field"><span>交易备注（可选）</span><textarea value={note} onChange={(event) => setNote(event.target.value)} rows={2} placeholder="记录交易事实或复盘线索" /></label>
         </fieldset>
+        {isManual && (detail?.tracking_cases.length ?? 0) === 0 && <p className="drawer-muted-copy">当前没有跟踪案例；买入会自动建立默认案例，卖出前请先纳入跟踪。</p>}
         {errorMessage && <p className="drawer-form-error" role="alert">{errorMessage}</p>}
-        <button type="submit" className="drawer-primary-action drawer-primary-action--trade" disabled={busy || (side === 'buy' && signal.confirmed_buy)}>{busy ? '保存中…' : side === 'buy' ? '确认并记录买入' : '确认并记录卖出'}</button>
+        <button type="submit" className="drawer-primary-action drawer-primary-action--trade" disabled={busy || Boolean(signal?.confirmed_buy && side === 'buy') || (isManual && (!manualHasPosition && side === 'sell' || needsManualCase && trackingCaseId === null))}>{busy ? '保存中…' : side === 'buy' ? '确认并记录买入' : '确认并记录卖出'}</button>
       </form>
     </div>
   )
@@ -313,23 +518,35 @@ export function WorkbenchTradePanel({
 export function StockDetailDrawer({
   apiBase,
   detail,
+  selectedCandidateId,
   onClose,
   onAnnotationSaved,
   onTradeSaved,
 }: {
   apiBase: string
   detail: WorkbenchStockDetail
+  selectedCandidateId: string | null
   onClose: () => void
   onAnnotationSaved: () => void | Promise<void>
   onTradeSaved: () => void | Promise<void>
 }) {
   const [tab, setTab] = useState<StockDrawerTab>('market')
-  const signal = detail.signals[0]
+  const trackingCases = detail.tracking_cases ?? []
+  const hasStrategySignals = detail.signals.length > 0
+  const hasManualSource = detail.source === 'manual_discovery'
+    || detail.source === 'mixed'
+    || trackingCases.length > 0
+    || !hasStrategySignals
+  const candidateSignal = selectedCandidateId
+    ? detail.signals.find((item) => item.candidate.candidate_id === selectedCandidateId) ?? detail.signals[0]
+    : detail.signals[0]
+  const signal = detail.source === 'mixed' && selectedCandidateId === null ? null : candidateSignal ?? null
+  const source = detail.source ?? (hasStrategySignals ? 'signal' : 'manual_discovery')
   const chartUrl = xueqiuDailyChartUrl(detail.symbol)
 
   useEffect(() => {
     setTab('market')
-  }, [detail.symbol])
+  }, [detail.source, detail.symbol, selectedCandidateId])
 
   return (
     <div className="stock-drawer-layer" role="presentation">
@@ -340,6 +557,7 @@ export function StockDetailDrawer({
             <span className="drawer-symbol">{detail.symbol}</span>
             <h2>{detail.name ?? '未提供名称'}</h2>
             <span className="drawer-subtitle">截至 {formatManagementDate(detail.as_of)}</span>
+            <span className="workbench-status workbench-status--review">{workbenchSourceLabel(source)}</span>
           </div>
           <div className="stock-drawer-header-actions">
             {chartUrl && <a className="stock-drawer-market-link" href={chartUrl} target="_blank" rel="noreferrer" aria-label={`${detail.symbol} 在雪球查看日线 K 线`}><ExternalLink aria-hidden="true" />查看日线 K 线</a>}
@@ -352,10 +570,14 @@ export function StockDetailDrawer({
         <nav className="stock-drawer-tabs" aria-label="股票详情标签">
           {([
             ['market', '行情'],
-            ['judgment', '判断'],
-            ['signal', '信号'],
+            ...(hasManualSource ? [['tracking', '跟踪'] as [StockDrawerTab, string]] : []),
+            ...(hasStrategySignals ? [
+              ['judgment', '判断'] as [StockDrawerTab, string],
+              ['signal', '信号'] as [StockDrawerTab, string],
+            ] : []),
             ['trade', '交易'],
-            ['analysis', '分析'],
+            ...(hasManualSource ? [['review', '复盘'] as [StockDrawerTab, string]] : []),
+            ...(hasStrategySignals ? [['analysis', '分析'] as [StockDrawerTab, string]] : []),
           ] as Array<[StockDrawerTab, string]>).map(([value, label]) => (
             <button type="button" className={tab === value ? 'is-active' : ''} key={value} onClick={() => setTab(value)}>{label}</button>
           ))}
@@ -369,9 +591,12 @@ export function StockDetailDrawer({
               <p className="drawer-muted-copy">行情仅读取已批准的 market_daily 快照；缺失时不伪造价格、K 线或指标。</p>
             </section>
           )}
-          {tab === 'judgment' && (
+          {tab === 'tracking' && hasManualSource && (
+            <WorkbenchTrackingPanel apiBase={apiBase} detail={detail} onSaved={onTradeSaved} />
+          )}
+          {tab === 'judgment' && candidateSignal && (
             <section className="drawer-tab-panel h-full" aria-labelledby="drawer-judgment-title">
-              <WorkbenchAnnotationPanel apiBase={apiBase} signal={signal} onSaved={onAnnotationSaved} />
+              <WorkbenchAnnotationPanel apiBase={apiBase} signal={candidateSignal} onSaved={onAnnotationSaved} />
             </section>
           )}
           {tab === 'signal' && (
@@ -389,8 +614,8 @@ export function StockDetailDrawer({
           )}
           {tab === 'trade' && (
             <section className="drawer-tab-panel" aria-labelledby="drawer-trade-title">
-              <div className="drawer-section-heading"><h3 id="drawer-trade-title">交易与生命周期</h3><span>{signal.confirmed_buy ? '存在买入证据' : '尚无关联买入'}</span></div>
-              <WorkbenchTradePanel apiBase={apiBase} signal={signal} onSaved={onTradeSaved} />
+              <div className="drawer-section-heading"><h3 id="drawer-trade-title">交易与生命周期</h3><span>{signal ? signal.confirmed_buy ? '存在买入证据' : '尚无关联买入' : detail.position ? '手工持仓跟踪' : '手工交易事实'}</span></div>
+              <WorkbenchTradePanel apiBase={apiBase} signal={signal} detail={signal ? undefined : detail} onSaved={onTradeSaved} />
               <div className="drawer-timeline">
                 {detail.timeline.filter((event) => ['order', 'fill', 'review'].includes(event.event_type)).length === 0 ? <p className="drawer-muted-copy">暂无真实交易或复盘证据。</p> : detail.timeline.filter((event) => ['order', 'fill', 'review'].includes(event.event_type)).map((event) => (
                   <article className="drawer-timeline-item" key={event.event_id}><span className="drawer-timeline-marker" /><div><span>{formatManagementDate(event.occurred_at)} · {workbenchEventLabel(event.event_type)}</span><strong>{event.title}</strong><p>{event.detail}</p></div></article>
@@ -398,7 +623,10 @@ export function StockDetailDrawer({
               </div>
             </section>
           )}
-          {tab === 'analysis' && (
+          {tab === 'review' && hasManualSource && (
+            <WorkbenchReviewPanel apiBase={apiBase} detail={detail} onSaved={onTradeSaved} />
+          )}
+          {tab === 'analysis' && hasStrategySignals && (
             <section className="drawer-tab-panel" aria-labelledby="drawer-analysis-title">
               <div className="drawer-section-heading"><h3 id="drawer-analysis-title">客观结果</h3><span>只读证据</span></div>
               {detail.signals.map((item) => (

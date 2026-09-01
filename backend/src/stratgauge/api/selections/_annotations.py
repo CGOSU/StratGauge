@@ -67,7 +67,7 @@ class AnnotationsMixin(SelectionServiceBase):
             if "label timestamp" in message:
                 raise SelectionApiError(
                     "SELECTION_LABEL_NOT_ALLOWED",
-                    "旧版人工标签必须在导出后、下一自然日开始前完成。",
+                    "旧版人工标签必须在导出后、下一自然日 02:00 前完成。",
                     422,
                 ) from exc
             if "does not exist" in message or "does not belong" in message:

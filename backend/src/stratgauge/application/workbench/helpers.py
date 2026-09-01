@@ -23,6 +23,7 @@ from stratgauge.domain.portfolio import (
     ManualFill,
     ManualOrder,
     ManualOrderSide,
+    ManualPositionTrackingCase,
     PortfolioPosition,
     PortfolioReview,
 )
@@ -109,6 +110,27 @@ def _sources_for_orders(
 
 def _order_source(order: ManualOrder) -> Literal["signal", "manual_discovery", "mixed"]:
     return "signal" if order.selection_candidate_id is not None else "manual_discovery"
+
+
+def _stock_source(
+    signals: Iterable[WorkbenchSignalView],
+    orders: Iterable[ManualOrder],
+    fills: Iterable[ManualFill],
+    reviews: Iterable[PortfolioReview],
+    tracking_cases: Iterable[ManualPositionTrackingCase],
+) -> Literal["signal", "manual_discovery", "mixed"]:
+    has_signal = any(True for _ in signals)
+    has_manual_evidence = (
+        any(True for _ in orders)
+        or any(True for _ in fills)
+        or any(True for _ in reviews)
+        or any(True for _ in tracking_cases)
+    )
+    if has_signal and has_manual_evidence:
+        return "mixed"
+    if has_signal:
+        return "signal"
+    return "manual_discovery"
 
 
 def _open_position_start(
@@ -447,12 +469,33 @@ def _build_timeline(
     orders: Iterable[ManualOrder],
     fills: Iterable[ManualFill],
     reviews: Iterable[PortfolioReview],
+    *,
+    symbol: str | None = None,
+    tracking_case_ids: Iterable[str] = (),
 ) -> tuple[WorkbenchTimelineEvent, ...]:
     events: list[WorkbenchTimelineEvent] = []
-    order_by_id = {order.order_id: order for order in orders}
-    candidate_ids = {signal.candidate.candidate_id for signal in signals}
-    signal_by_candidate = {signal.candidate.candidate_id: signal for signal in signals}
-    for signal in signals:
+    signal_list = tuple(signals)
+    order_list = tuple(orders)
+    fill_list = tuple(fills)
+    review_list = tuple(reviews)
+    order_by_id = {order.order_id: order for order in order_list}
+    candidate_ids = {signal.candidate.candidate_id for signal in signal_list}
+    target_symbol = symbol or next(
+        (
+            evidence_symbol
+            for evidence_symbol in (
+                *(signal.candidate.symbol for signal in signal_list),
+                *(order.security.symbol for order in order_list),
+                *(review.symbol for review in review_list),
+            )
+            if evidence_symbol
+        ),
+        None,
+    )
+    if target_symbol is None:
+        return ()
+    tracking_case_id_set = set(tracking_case_ids)
+    for signal in signal_list:
         events.append(
             WorkbenchTimelineEvent(
                 event_id=f"signal:{signal.batch.batch_id}:{signal.candidate.candidate_id}",
@@ -520,10 +563,16 @@ def _build_timeline(
             )
     related_orders = tuple(
         order
-        for order in orders
-        if order.security.symbol == next(iter(signal_by_candidate.values())).candidate.symbol
-        and (order.selection_candidate_id in candidate_ids or order.selection_candidate_id is None)
+        for order in order_list
+        if order.security.symbol == target_symbol
+        and (
+            not candidate_ids
+            or order.selection_candidate_id in candidate_ids
+            or order.selection_candidate_id is None
+            or order.tracking_case_id in tracking_case_id_set
+        )
     )
+    related_order_ids = {order.order_id for order in related_orders}
     for order in related_orders:
         events.append(
             WorkbenchTimelineEvent(
@@ -535,13 +584,9 @@ def _build_timeline(
                 detail=order.note or "用户记录的手工订单意图",
             )
         )
-    for fill in fills:
+    for fill in fill_list:
         fill_order = order_by_id.get(fill.order_id)
-        if (
-            fill_order is None
-            or fill_order.security.symbol
-            != next(iter(signal_by_candidate.values())).candidate.symbol
-        ):
+        if fill_order is None or fill.order_id not in related_order_ids:
             continue
         events.append(
             WorkbenchTimelineEvent(
@@ -553,7 +598,7 @@ def _build_timeline(
                 detail=f"数量 {fill.quantity} · 价格 {fill.price}",
             )
         )
-    for review in reviews:
+    for review in review_list:
         events.append(
             WorkbenchTimelineEvent(
                 event_id=review.review_id,

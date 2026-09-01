@@ -299,6 +299,110 @@ class PortfolioApiTests(unittest.TestCase):
             self.assertEqual(positions.json()[0]["market"]["status"], "unavailable")
             self.assertTrue(positions.json()[0]["unrealized_reason"])
 
+    def test_confirmed_manual_buy_uses_the_builtin_tracking_policy(self) -> None:
+        with TemporaryDirectory() as directory:
+            portfolio_store = ManualPortfolioStore(directory)
+            client = TestClient(
+                create_app(
+                    data_root=directory,
+                    portfolio_store=portfolio_store,
+                    market_root=f"{directory}/market",
+                    portfolio_root=directory,
+                )
+            )
+            payload = {
+                "order_id": "tracked-buy",
+                "fill_id": "tracked-fill",
+                "local_code": "000001",
+                "exchange": "SZ",
+                "side": "buy",
+                "ordered_at": "2026-01-05T15:00:00+00:00",
+                "filled_at": "2026-01-06T10:00:00+00:00",
+                "quantity": "100",
+                "price": "10",
+            }
+            first = client.post("/v1/manual-trades/confirm", json=payload)
+            repeated = client.post("/v1/manual-trades/confirm", json=payload)
+
+            self.assertEqual(first.status_code, 201)
+            self.assertEqual(repeated.status_code, 201)
+            self.assertEqual(
+                first.json()[0]["tracking_case_id"], repeated.json()[0]["tracking_case_id"]
+            )
+            cases = portfolio_store.list_tracking_cases()
+            self.assertEqual(len(cases), 1)
+            self.assertEqual(cases[0].tracking_policy_id, "manual-position-tracking-v1")
+            self.assertEqual(cases[0].origin.value, "confirmed_trade")
+            self.assertEqual(
+                first.json()[0]["tracking_case_id"],
+                first.json()[1]["tracking_case_id"],
+            )
+            self.assertEqual(
+                client.get("/v1/manual-orders").json()[0]["tracking_case_id"],
+                first.json()[0]["tracking_case_id"],
+            )
+
+    def test_historical_position_can_be_explicitly_enrolled_without_rewriting_trade_records(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            client = TestClient(
+                create_app(
+                    data_root=directory,
+                    portfolio_store=ManualPortfolioStore(directory),
+                    market_root=f"{directory}/market",
+                    portfolio_root=directory,
+                )
+            )
+            order = client.post(
+                "/v1/manual-orders",
+                json={
+                    "order_id": "legacy-buy",
+                    "local_code": "000001",
+                    "exchange": "SZ",
+                    "side": "buy",
+                    "ordered_at": "2026-01-05T15:00:00+00:00",
+                    "quantity": "100",
+                },
+            )
+            self.assertEqual(order.status_code, 201)
+            fill = client.post(
+                "/v1/manual-fills",
+                json={
+                    "fill_id": "legacy-fill",
+                    "order_id": "legacy-buy",
+                    "filled_at": "2026-01-06T10:00:00+00:00",
+                    "quantity": "100",
+                    "price": "10",
+                },
+            )
+            self.assertEqual(fill.status_code, 201)
+
+            enrolled = client.post(
+                "/v1/manual-tracking-cases/enroll",
+                json={
+                    "tracking_case_id": "legacy-case",
+                    "local_code": "000001",
+                    "exchange": "SZ",
+                },
+            )
+            self.assertEqual(enrolled.status_code, 201)
+            self.assertGreater(enrolled.json()["tracking_started_at"], "2026-01-06T10:00:00+00:00")
+            self.assertEqual(enrolled.json()["origin"], "historical_enrollment")
+            self.assertIsNone(client.get("/v1/manual-orders").json()[0]["tracking_case_id"])
+            self.assertIsNone(client.get("/v1/manual-fills").json()[0]["tracking_case_id"])
+
+            repeated = client.post(
+                "/v1/manual-tracking-cases/enroll",
+                json={
+                    "tracking_case_id": "legacy-case",
+                    "local_code": "000001",
+                    "exchange": "SZ",
+                },
+            )
+            self.assertEqual(repeated.status_code, 201)
+            self.assertEqual(repeated.json(), enrolled.json())
+
     def test_fill_rejection_is_structured(self) -> None:
         with TemporaryDirectory() as directory:
             client = TestClient(create_app(portfolio_store=ManualPortfolioStore(directory)))

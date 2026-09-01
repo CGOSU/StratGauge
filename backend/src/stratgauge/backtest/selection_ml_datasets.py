@@ -7,9 +7,11 @@ from collections.abc import Iterable, Sequence
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from stratgauge.backtest.selection_dataset import order_selection_batch_ids
 from stratgauge.data_pipeline.portfolio_store import ManualPortfolioStore, PortfolioStoreError
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.domain.portfolio import ManualFill, ManualOrder, ManualOrderSide
@@ -48,6 +50,7 @@ class SelectionBuyTimingRow(BaseModel):
     fill_price: Decimal | None = None
     fill_quantity: Decimal | None = None
     source_order_ids: tuple[str, ...] = ()
+    source: Literal["tongdaxin", "manual"] | None = None
 
     @field_validator("annotation_reviewed_at", "annotation_recorded_at", "evaluated_at")
     @classmethod
@@ -95,6 +98,7 @@ class SelectionSellTimingRow(BaseModel):
     buy_fill_ids: tuple[str, ...]
     sell_order_ids: tuple[str, ...] = ()
     sell_fill_ids: tuple[str, ...] = ()
+    source: Literal["tongdaxin", "manual"] | None = None
 
     @field_validator("evaluated_at")
     @classmethod
@@ -170,6 +174,7 @@ def build_buy_timing_dataset(
                     candidate_id=candidate.candidate_id,
                     batch_id=batch_id,
                     symbol=candidate.symbol,
+                    source=imported.batch.source,
                     selection_date=imported.batch.selection_date,
                     annotation_reviewed_at=annotation.reviewed_at,
                     annotation_recorded_at=annotation.recorded_at,
@@ -284,6 +289,7 @@ def build_sell_timing_dataset(
                     batch_id=batch_id,
                     symbol=candidate.symbol,
                     selection_date=imported.batch.selection_date,
+                    source=imported.batch.source,
                     exposure_session=exposure_session,
                     evaluated_at=evaluated_at,
                     sell_window_end=window_end,
@@ -300,6 +306,58 @@ def build_sell_timing_dataset(
                 )
             )
     return tuple(sorted(rows, key=lambda row: (row.exposure_session, row.candidate_id)))
+
+
+def build_buy_timing_dataset_for_batches(
+    selection_store: SelectionImportStore,
+    portfolio_store: ManualPortfolioStore,
+    batch_ids: Iterable[str],
+    *,
+    trading_sessions: Sequence[date],
+    evaluated_at: datetime,
+    window_sessions: int = 3,
+) -> tuple[SelectionBuyTimingRow, ...]:
+    """Build buy-timing rows in stable selection-batch order."""
+
+    ordered_batch_ids = order_selection_batch_ids(selection_store, batch_ids)
+    return tuple(
+        row
+        for batch_id in ordered_batch_ids
+        for row in build_buy_timing_dataset(
+            selection_store,
+            portfolio_store,
+            batch_id,
+            trading_sessions=trading_sessions,
+            evaluated_at=evaluated_at,
+            window_sessions=window_sessions,
+        )
+    )
+
+
+def build_sell_timing_dataset_for_batches(
+    selection_store: SelectionImportStore,
+    portfolio_store: ManualPortfolioStore,
+    batch_ids: Iterable[str],
+    *,
+    trading_sessions: Sequence[date],
+    evaluated_at: datetime,
+    window_sessions: int = 1,
+) -> tuple[SelectionSellTimingRow, ...]:
+    """Build sell-timing rows in stable selection-batch order."""
+
+    ordered_batch_ids = order_selection_batch_ids(selection_store, batch_ids)
+    return tuple(
+        row
+        for batch_id in ordered_batch_ids
+        for row in build_sell_timing_dataset(
+            selection_store,
+            portfolio_store,
+            batch_id,
+            trading_sessions=trading_sessions,
+            evaluated_at=evaluated_at,
+            window_sessions=window_sessions,
+        )
+    )
 
 
 def read_buy_timing_dataset(content: bytes) -> tuple[SelectionBuyTimingRow, ...]:

@@ -282,7 +282,7 @@ class SelectionImportStoreTests(unittest.TestCase):
             with self.assertRaisesRegex(SelectionStoreError, "does not belong"):
                 store.write_label(parsed.batch.batch_id, label)
 
-    def test_labels_after_freeze_deadline_are_rejected(self) -> None:
+    def test_labels_before_two_am_freeze_deadline_are_accepted(self) -> None:
         with TemporaryDirectory() as directory:
             store = SelectionImportStore(directory)
             parsed = parsed_import()
@@ -290,7 +290,20 @@ class SelectionImportStoreTests(unittest.TestCase):
             label = ManualSelectionLabel(
                 candidate_id=parsed.candidates[0].candidate_id,
                 decision=ManualSelectionDecision.WATCH,
-                labeled_at=datetime(2026, 1, 6, 9, tzinfo=UTC),
+                labeled_at=datetime(2026, 1, 6, 1, 59, 59, tzinfo=UTC),
+            )
+
+            self.assertEqual(store.write_label(parsed.batch.batch_id, label), label)
+
+    def test_labels_at_two_am_freeze_deadline_are_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SelectionImportStore(directory)
+            parsed = parsed_import()
+            store.write(CONTENT, parsed)
+            label = ManualSelectionLabel(
+                candidate_id=parsed.candidates[0].candidate_id,
+                decision=ManualSelectionDecision.WATCH,
+                labeled_at=datetime(2026, 1, 6, 2, tzinfo=UTC),
             )
 
             with self.assertRaisesRegex(SelectionStoreError, "freeze deadline"):

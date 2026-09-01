@@ -100,6 +100,111 @@ class WorkbenchApiTests(unittest.TestCase):
             self.assertEqual(detail.json()["timeline"][0]["event_type"], "signal")
             self.assertEqual(detail.json()["timeline"][1]["event_type"], "annotation")
 
+    def test_manual_position_detail_returns_tracking_and_approved_market_evidence(self) -> None:
+        with TemporaryDirectory() as directory:
+            client = TestClient(
+                create_app(
+                    data_root=directory,
+                    selection_store=SelectionImportStore(directory),
+                    market_root=f"{directory}/market",
+                    portfolio_root=f"{directory}/portfolio",
+                    market_adapter_factory=_unexpected_provider_call,
+                )
+            )
+            confirmed = client.post(
+                "/v1/manual-trades/confirm",
+                json={
+                    "order_id": "manual-buy",
+                    "fill_id": "manual-fill",
+                    "local_code": "000001",
+                    "exchange": "SZ",
+                    "side": "buy",
+                    "ordered_at": "2026-01-05T15:00:00+00:00",
+                    "filled_at": "2026-01-06T10:00:00+00:00",
+                    "quantity": "100",
+                    "price": "10",
+                },
+            )
+            self.assertEqual(confirmed.status_code, 201)
+
+            detail = client.get(
+                "/v1/workbench/stocks/000001.SZ",
+                params={"as_of": "2026-01-07T18:00:00+00:00"},
+            )
+
+            self.assertEqual(detail.status_code, 200)
+            body = detail.json()
+            self.assertEqual(body["source"], "manual_discovery")
+            self.assertEqual(body["signals"], [])
+            self.assertEqual(body["position"]["quantity"], "100")
+            self.assertEqual(len(body["tracking_cases"]), 1)
+            self.assertEqual(
+                body["tracking_cases"][0]["tracking_policy_id"],
+                "manual-position-tracking-v1",
+            )
+            self.assertEqual(
+                {event["event_type"] for event in body["timeline"]},
+                {"order", "fill"},
+            )
+            self.assertEqual(body["market"]["status"], "unavailable")
+
+    def test_historically_recorded_position_detail_opens_after_explicit_enrollment(self) -> None:
+        with TemporaryDirectory() as directory:
+            client = TestClient(
+                create_app(
+                    data_root=directory,
+                    selection_store=SelectionImportStore(directory),
+                    market_root=f"{directory}/market",
+                    portfolio_root=f"{directory}/portfolio",
+                    market_adapter_factory=_unexpected_provider_call,
+                )
+            )
+            self.assertEqual(
+                client.post(
+                    "/v1/manual-orders",
+                    json={
+                        "order_id": "historical-buy",
+                        "local_code": "600000",
+                        "exchange": "SH",
+                        "side": "buy",
+                        "ordered_at": "2026-01-05T15:00:00+00:00",
+                        "quantity": "50",
+                    },
+                ).status_code,
+                201,
+            )
+            self.assertEqual(
+                client.post(
+                    "/v1/manual-fills",
+                    json={
+                        "fill_id": "historical-fill",
+                        "order_id": "historical-buy",
+                        "filled_at": "2026-01-06T10:00:00+00:00",
+                        "quantity": "50",
+                        "price": "20",
+                    },
+                ).status_code,
+                201,
+            )
+            enrolled = client.post(
+                "/v1/manual-tracking-cases/enroll",
+                json={
+                    "tracking_case_id": "historical-case",
+                    "local_code": "600000",
+                    "exchange": "SH",
+                },
+            )
+            self.assertEqual(enrolled.status_code, 201)
+
+            detail = client.get("/v1/workbench/stocks/600000.SH")
+
+            self.assertEqual(detail.status_code, 200)
+            body = detail.json()
+            self.assertEqual(body["source"], "manual_discovery")
+            self.assertEqual(body["signals"], [])
+            self.assertEqual(body["tracking_cases"][0]["tracking_case_id"], "historical-case")
+            self.assertEqual(body["position"]["quantity"], "50")
+
     def test_invalid_symbol_and_missing_stock_are_structured_errors(self) -> None:
         with TemporaryDirectory() as directory:
             client = TestClient(

@@ -14,7 +14,8 @@ from stratgauge.data_pipeline.selection_store import SelectionImportStore
 from stratgauge.data_pipeline.store import SnapshotManifest, SnapshotStatus, SnapshotStore
 from stratgauge.data_pipeline.tdx_import import import_tdx_export
 from stratgauge.data_sources.base import MarketAdapterResult, MarketDailyRequest
-from stratgauge.domain.models import DailyBar
+from stratgauge.domain.models import DailyBar, Exchange, Security
+from stratgauge.domain.portfolio import ManualFill, ManualOrder, ManualOrderSide
 from stratgauge.domain.selections import (
     SelectionAnnotation,
     SelectionCandidateReviewState,
@@ -360,6 +361,58 @@ class WorkbenchApplicationTests(unittest.TestCase):
             analytics = service.analytics(as_of=datetime(2026, 1, 21, tzinfo=UTC))
             self.assertEqual(analytics.cohorts[2].sample_count, 0)
             self.assertIsNone(analytics.cohorts[2].horizons[0].average_return)
+
+    def test_stock_detail_opens_for_manual_tracking_without_strategy_signal(self) -> None:
+        with TemporaryDirectory() as directory:
+            selection_store = SelectionImportStore(directory)
+            portfolio_store = ManualPortfolioStore(directory)
+            security = Security(
+                security_id="security-000001.SZ",
+                local_code="000001",
+                symbol="000001.SZ",
+                exchange=Exchange.SZ,
+            )
+            order = ManualOrder(
+                order_id="manual-buy",
+                security=security,
+                side=ManualOrderSide.BUY,
+                ordered_at=datetime(2026, 1, 5, 15, tzinfo=UTC),
+                quantity=Decimal("100"),
+            )
+            fill = ManualFill(
+                fill_id="manual-fill",
+                order_id=order.order_id,
+                filled_at=datetime(2026, 1, 6, 10, tzinfo=UTC),
+                quantity=Decimal("100"),
+                price=Decimal("10"),
+            )
+            portfolio_store.record_order_and_fill(order, fill, auto_track_manual_buy=True)
+            service = WorkbenchService(
+                selection_store,
+                portfolio_store,
+                SnapshotStore(f"{directory}/market"),
+            )
+
+            detail = service.stock_detail(
+                security.symbol,
+                as_of=datetime(2026, 1, 7, 18, tzinfo=UTC),
+            )
+
+            self.assertEqual(detail.source, "manual_discovery")
+            self.assertEqual(detail.signals, ())
+            self.assertIsNotNone(detail.position)
+            assert detail.position is not None
+            self.assertEqual(detail.position.quantity, Decimal("100"))
+            self.assertEqual(len(detail.tracking_cases), 1)
+            self.assertEqual(
+                detail.tracking_cases[0].tracking_policy_id,
+                "manual-position-tracking-v1",
+            )
+            self.assertEqual(
+                {event.event_type for event in detail.timeline},
+                {"order", "fill"},
+            )
+            self.assertEqual(detail.market.status, MarketEvidenceStatus.UNAVAILABLE)
 
     def test_stock_detail_contains_source_preserving_timeline(self) -> None:
         with TemporaryDirectory() as directory:

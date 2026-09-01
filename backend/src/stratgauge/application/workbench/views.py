@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from stratgauge.domain.portfolio import (
     ManualFill,
     ManualOrder,
+    ManualPositionTrackingCase,
     PortfolioPosition,
 )
 from stratgauge.domain.selections import (
@@ -144,9 +145,12 @@ class WorkbenchStockDetail(BaseModel):
     symbol: str
     name: str | None = None
     as_of: datetime
+    source: Literal["signal", "manual_discovery", "mixed"]
     market: MarketEvidence
-    signals: tuple[WorkbenchSignalView, ...]
-    timeline: tuple[WorkbenchTimelineEvent, ...]
+    position: PortfolioPosition | None = None
+    tracking_cases: tuple[ManualPositionTrackingCase, ...] = ()
+    signals: tuple[WorkbenchSignalView, ...] = ()
+    timeline: tuple[WorkbenchTimelineEvent, ...] = ()
 
 
 class WorkbenchPositionView(BaseModel):

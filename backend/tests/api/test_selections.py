@@ -1408,7 +1408,7 @@ class SelectionApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["error"]["code"], "SELECTION_BATCH_NOT_FOUND")
 
-    def test_label_after_freeze_deadline_returns_structured_error(self) -> None:
+    def test_label_at_freeze_deadline_returns_structured_error(self) -> None:
         imported = self.client.post(
             "/v1/selection-batches",
             json={
@@ -1423,7 +1423,7 @@ class SelectionApiTests(unittest.TestCase):
             json={
                 "candidate_id": imported["candidates"][0]["candidate"]["candidate_id"],
                 "decision": "watch",
-                "labeled_at": "2026-01-06T09:00:00+08:00",
+                "labeled_at": "2026-01-06T02:00:00+08:00",
             },
         )
 

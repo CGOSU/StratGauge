@@ -1,5 +1,37 @@
 # 会话记录
 
+### 2026-09-01 手工持仓 tracking ML evidence 与来源隔离
+
+- 完成内容：新增独立 `manual-position-tracking-dataset-v1` JSONL 和 `manual-position-tracking-report-v1` 报告；只收集 tracking case 关联且在 `tracking_started_at` 之后的手工订单/成交/复盘，以及 evaluated_at 前已批准的本地 market_daily。历史登记前事实、候选/策略/推荐关联、未来事实和歧义复盘均保留排除/资格原因；源事实保存 SHA-256；dataset/report 目标不可覆盖。报告 `ready` 仅表示 evidence 覆盖完整，不表示训练或模型发布准入。现有 selection ML 四用途导出行保留 `SelectionBatch.source` 的 `tongdaxin`/`manual` 来源。未接入既有训练、注册、shadow、推荐或交易，也未创建 provider、访问外部行情或写入业务数据。
+- 使用文档和系统规格补充三类事实边界、CLI 参数/输出、时间点过滤、退出码和人工训练边界；current-state、decisions 和 pitfalls 同步本轮新事实。
+- 实际验证：`cd backend; uv run ruff check .` 通过；`cd backend; uv run ruff format --check .` 通过（343 个文件已格式化）；`cd backend; uv run mypy` 通过（344 个源文件无问题）；`cd backend; $env:PYTHONPATH='src'; uv run python -m unittest tests.backtest.test_manual_position_tracking_dataset tests.application.test_manual_position_tracking_dataset_cli tests.backtest.test_selection_dataset tests.backtest.test_selection_ml_datasets -q`（14 项通过）；`cd backend; $env:PYTHONPATH='src'; uv run python -m unittest discover -s tests -t . -q`（434 项通过、1 项跳过）；`cd backend; uv run python scripts/export_manual_position_tracking_dataset.py --help` 成功返回；`git diff --check` 通过，仅有 Windows 换行转换提示。
+- 遗留问题：未执行真实 provider、未写入 `backend/data`、未执行 commit/push；手工 evidence 仍没有独立标签/特征/模型训练链，需未来另行设计并由操作者显式授权。
+
+### 2026-09-01 ML 市场证据补齐编排
+
+- 完成内容：新增 `backend/src/stratgauge/application/ml_market_evidence.py` 和 `backend/scripts/prepare_selection_ml_market_evidence.py`。命令按显式批次、归档批次或选股日期范围推导历史/成熟交易日窗口，扩展交易日历并依次补齐全市场 `market_daily`、同 provider 复权因子和独立 `000300.SH` `index_daily`；输出阶段状态、快照、缺失、失败、质量和时间点阻断报告，支持批准快照复用和不可覆盖报告写入。未接入成熟、特征、训练、注册、shadow、推荐或交易。
+- 文档：补充使用命令、参数、输出阶段、provider/凭据边界、`available_at` 限制和后续人工特征/训练步骤；在设计决策中记录显式编排与时间点阻断。
+- 实际验证：`cd backend; uv run python -m unittest tests.application.test_ml_market_evidence tests.application.test_ml_market_evidence_cli tests.backtest.test_selection_dataset tests.backtest.test_selection_ml_datasets -q`（14 项通过）；完整后端 `unittest discover`（420 项通过、1 项跳过）；`uv run ruff check .`、`uv run ruff format --check .` 和 `uv run mypy` 均通过；CLI `--help` 成功返回。`git diff --check` 仅有 Windows 换行转换提示。未执行真实 provider、未写入 `backend/data`、未执行 commit/push。
+- 遗留问题：当前本地仍缺足量 `win/loss/flat` 成熟标签、可用特征快照和独立基准证据；补齐后仍需操作者按显式特征、join、训练和模型生命周期命令逐阶段运行。
+
+### 2026-09-01 将旧版人工标签冻结截止调整为次日 02:00
+
+- 完成内容：旧版 `ManualSelectionLabel` 现在严格接受导出时间至选股日期次日 02:00:00（不含）的标签，截止时间沿用 `exported_at` 时区；同步更新 API 错误提示、边界测试、系统规格、使用文档、当前状态、设计决策和踩坑说明。新的 `SelectionAnnotation` 评审时间语义未改变。
+- 实际验证：`cd backend && PYTHONPATH=src uv run python -m unittest tests.data_pipeline.test_selection_store tests.api.test_selections -q`（49 项通过）；`cd backend && PYTHONPATH=src uv run python -m unittest discover -s tests -t . -q`（411 项通过、1 项跳过）；`cd backend && uv run ruff check .`、`uv run ruff format --check .`、`uv run mypy` 均通过；`git diff --check` 通过（仅有 Windows 换行转换提示）。
+- 遗留问题：未执行 commit/push。
+
+### 2026-08-31 更正策略信号页面语义
+
+- 完成内容：将导航、信号页、摘要卡和导入页说明中的“今日信号”改为“策略信号”；保留后端历史/当前可用批次查询，页面增加最新行情收盘日提示，信号行增加实际行情 `session_date`，缺失时显示不可用。运行中本地服务核对为 87 条信号，最新选股日/行情日为 2026-08-28，2026-08-31 为 0 条。
+- 实际验证：`cd frontend && corepack pnpm typecheck` 通过；`corepack pnpm lint` 通过（0 error、20 条既有 warning）；`corepack pnpm build` 通过；`corepack pnpm exec playwright test tests/visual/workbench-annotation-target.spec.ts` 通过（1 项）；`git diff --check` 通过。未执行 commit/push。
+- 遗留问题：后端接口仍保留 `daily-signals` 兼容路径名称；本次未改变其筛选和分页语义。
+
+### 2026-08-30 修复重复证券人工评审目标错位
+
+- 完成内容：确认 `002673.SZ`（西部证券）同时存在两个选股批次，其中一个候选已有 `SelectionAnnotation`、另一个没有；修复工作台信号行打开详情时丢失 `candidate_id` 的问题，详情抽屉现在按被点击的批次候选执行人工评审和候选关联操作。新增重复证券回归用例，验证未判断行显示未判断且 POST 使用该行候选 ID。
+- 实际验证：`cd frontend && corepack pnpm typecheck` 通过；`corepack pnpm lint` 通过（0 error、20 条既有 warning）；`corepack pnpm build` 通过；`corepack pnpm exec playwright test tests/visual/workbench-annotation-target.spec.ts` 通过（1 项）。`git diff --check` 通过。
+- 遗留问题：同一证券在不同批次仍按独立候选保存，已评判一个批次不会自动替另一个批次完成评判；未执行 commit/push。
+
 ### 2026-08-23 readiness 阻断盘点
 
 - 完成内容：只读盘点 `backend/data`、选股导入/结果文件和 `selection-market` manifest。当前有 12 个导入批次、33 个候选、4 个客观结果；4 个结果均为 `unresolved`，采用旧 5-session policy。`selection-market` 有 10 个已批准 `market_daily` 日期和 7 个已批准复权因子快照，但没有独立 `index_daily` 快照。

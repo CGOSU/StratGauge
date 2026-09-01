@@ -56,9 +56,35 @@ class SelectionDatasetTests(unittest.TestCase):
 
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0].schema_version, "selection-dataset-v2")
+            self.assertEqual(rows[0].source, "tongdaxin")
             self.assertEqual(rows[0].manual_decision, ManualSelectionDecision.WATCH)
             self.assertIsNone(rows[0].outcome_status)
             self.assertEqual(rows[0].source_snapshot_ids, ())
+
+    def test_manual_batch_source_is_preserved_separately_from_tongdaxin(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SelectionImportStore(directory)
+            imported = import_tdx_export(
+                CONTENT,
+                selection_date=EXPORTED_AT.date(),
+                exported_at=EXPORTED_AT,
+                imported_at=IMPORTED_AT,
+                formula_name="手工候选",
+            )
+            manual_batch = imported.batch.model_copy(
+                update={"batch_id": "manual-batch", "source": "manual"}
+            )
+            manual_candidate = imported.candidates[0].model_copy(
+                update={"batch_id": "manual-batch", "candidate_id": "manual-candidate"}
+            )
+            manual_import = imported.model_copy(
+                update={"batch": manual_batch, "candidates": (manual_candidate,)}
+            )
+            store.write(CONTENT, manual_import)
+
+            rows = build_selection_dataset(store, "manual-batch")
+
+            self.assertEqual(rows[0].source, "manual")
 
     def test_matured_outcome_is_joined_without_dropping_lineage(self) -> None:
         with TemporaryDirectory() as directory:
@@ -155,6 +181,7 @@ class SelectionDatasetTests(unittest.TestCase):
             rows = build_annotation_dataset(store, imported.batch.batch_id)
 
             self.assertEqual(len(rows), 2)
+            self.assertEqual({row.source for row in rows}, {"tongdaxin"})
             self.assertEqual(rows[0].annotation_id, "annotation-before-outcome")
             self.assertEqual(rows[0].outcome_status, SelectionOutcomeStatus.WIN)
             self.assertEqual(rows[1].annotation_id, "annotation-after-outcome")

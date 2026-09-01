@@ -18,9 +18,14 @@
 - 歪枣网适配器支持按证券代码获取不复权日线，使用 `WAIZAO_TOKEN` 环境变量；`code=all` 当前 Token 无权限。成交量已从手转换为股，原始响应仍保留供应商字段。成交量和成交额交叉比较允许 0.001% 相对容差以覆盖供应商取整。
 - 工作台观察池现返回并展示当前连续 `watch`/`prepare_buy` 周期首条 `reviewed_at` 到最新批准收盘价的累计涨跌幅；仅消费 approved `market_daily` 快照，起点和最新行情均受 `available_at <= as_of` 约束。缺少或时间不可见的证据显示 `unavailable`/`incomplete` 原因，不补零。
 - 股票详情抽屉现提供规范化 `CODE.EXCHANGE` 到雪球 `EXCHANGE+CODE` 的日线 K 线外链；例如 `000788.SZ` 映射为 `https://xueqiu.com/S/SZ000788`。该链接只读、在新标签页打开，不发起应用内行情请求。
+- 工作台从信号行打开股票详情时会保留被点击的 `candidate_id`；同一证券出现在多个批次时，人工评审和交易写入对应的批次候选，不再固定操作详情中的第一条信号。
+- 手工台账、手工持仓跟踪和手工研究候选保持三条边界：新手工确认买入自动进入 `manual-position-tracking-v1` 跟踪案例，历史持仓必须显式登记且不倒填；手工跟踪 evidence 通过独立 `manual-position-tracking-dataset-v1` 导出，手工研究候选仍按 `SelectionBatch.source` 保留 `manual` 来源。
+- 手工 tracking evidence 导出只读取跟踪开始后的案例关联订单/成交/复盘和 evaluated_at 前已批准的本地行情，报告记录排除、覆盖和资格缺口；它不进入既有四用途训练、注册、shadow、推荐或交易链。报告 `ready` 仅表示证据覆盖完整，不表示已获训练或模型发布授权。
 
 ## 待处理
 
+- 2026-09-01 已新增显式 `prepare_selection_ml_market_evidence.py`：按批次/选股日期范围扩展交易日历，分阶段补齐全市场 `market_daily`、同源复权因子和独立 `000300.SH` `index_daily`，输出结构化报告；仅离线 fake-provider 验证，未执行真实 provider 或写入 `backend/data`。
+- 该补齐服务会拒绝 universe snapshot `as_of` 晚于任一目标交易日，质量拒绝和 provider 失败保留在阶段报告中；补抓行情的 `available_at` 不代表历史可见性，特征快照、join、训练、注册和 shadow 仍需后续人工显式执行。
 - 2026-08-22 ML 四用途重构已完成代码迁移：中心训练契约、不可变 bundle 写入原语、训练前特征观察 application service、五个训练 application service 和六个研究证据/生命周期 application service 已落地；11 个 ML CLI 仍由人工显式触发，未引入后台训练、自动注册、自动晋升或交易。旧候选成功率链与新用途链保持隔离。
 - 2026-08-22 已补齐四用途训练标签到时间点特征快照的显式 CLI，并用临时目录、真实文件和 fake LightGBM 完成四用途离线全链路演练；演练覆盖 prepare、特征快照、join、baseline/LightGBM、validation-only calibration、注册、人工 shadow transition、shadow、walk-forward 和 compare。真实 provider、真实训练和当前生产数据 readiness 仍未执行或达标。
 - 第一轮 clean-code 整理已完成行为保持型收敛：后端 `uv run mypy` 现在覆盖 `start.py`、`src`、`tests` 和 `scripts`；ML 规范 JSON/SHA-256 与原子文本写入已分别抽为共享私有工具；前端请求客户端、日历输入和主板行情同步面板已拆出，无消费者的 API Context/hook、`decisionDescription` 和成熟任务前端遗留 CSS 已删除。后端公开 API/CLI、数据源适配器和历史兼容路径未因“看起来旧”而删除。
@@ -36,6 +41,14 @@
 - 研究基础已增加 Tushare 股票列表/交易日历同步、BaoStock + AKShare 备用交易日历交叉校验、交易日历增量缓存、时间点股票池快照、证券主数据快照、`/v1/universe/securities` 与 `/v1/universe/master` 搜索、内容寻址理论回测报告、策略生命周期审计，以及手工订单/成交/持仓/复盘 API；趋势交易 A1 买入规则、A2 胜负/成本规则、B1/B2 全市场增量行情及多日编排、C1 交易日历缓存、C2/C2.1 复权因子同步与历史批量补齐、显式前复权特征输入、C3 已批准行情自动成熟队列以及条件胜率和买入价分析查询已完成；分析查询严格按公式、追踪政策和批次导出时间点筛选历史证据。
 
 ## 最近一次更新
+
+- 2026-09-01 完成手工持仓 tracking ML evidence：新增独立、不可覆盖的 `manual-position-tracking-dataset-v1` JSONL 导出和 `manual-position-tracking-report-v1` 覆盖/资格报告；保留手工/通达信候选来源，排除跟踪开始前事实及候选/策略/推荐关联事实。后端完整测试 434 项通过、1 项跳过；Ruff check、format check 和 MyPy 通过；CLI `--help` 通过；未访问真实 provider、未写入 `backend/data`、未执行 commit/push。下一步仍需由操作者按既有四用途链人工启动训练，手工 evidence 不会自动进入该链。
+
+- 2026-09-01 新增 ML 市场证据补齐编排：`prepare_selection_ml_market_evidence.py` 支持显式批次范围、交易日历扩展、全市场日线/复权因子/独立 `000300.SH` `index_daily` 同步及结构化安全阻断。离线 fake-provider 测试覆盖批准复用、质量/供应商失败、股票池时间点阻断和不触发后续研究；真实 provider、特征快照、训练和模型链未执行。
+
+- 2026-09-01 将旧版 `ManualSelectionLabel` 的冻结截止从选股日期次日 00:00 调整为次日 02:00（严格早于），截止时间沿用 `exported_at` 时区；API、测试和相关文档已同步。
+
+- 2026-08-31 将前端“今日信号”更正为“策略信号”：保留 `/v1/workbench/daily-signals` 的历史/当前可用批次查询语义，在页面显示当前加载范围内的最新行情收盘日，并在每行显示实际 `market.session_date`；运行中本地数据核对为 87 条信号、最新选股日和行情日均为 2026-08-28，2026-08-31 没有选股信号。
 
 - 2026-08-27 完成观察池表现和雪球日线入口：后端按当前页候选批量读取 approved `market_daily` 证据并计算连续观察周期表现；前端展示起始时间/价格/涨跌幅、缺失原因和窄屏表格内滚动，详情抽屉新增安全雪球外链。后端 410 项测试通过、1 项跳过；Ruff check、format check、MyPy 通过；前端 typecheck/build 通过，lint 0 error 但保留 20 条既有 warning；观察池 Playwright 1 项通过。完整前端视觉回归另有 3 个未修改主板行情同步截图基线差异。未执行 commit/push。
 

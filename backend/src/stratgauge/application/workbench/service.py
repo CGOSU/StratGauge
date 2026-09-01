@@ -18,6 +18,7 @@ from stratgauge.application.workbench.helpers import (
     _position_view,
     _require_aware,
     _review_state,
+    _stock_source,
 )
 from stratgauge.application.workbench.views import (
     MarketEvidence,
@@ -533,32 +534,83 @@ class WorkbenchService:
             orders = self._portfolio_store.list_orders()
             fills = self._portfolio_store.list_fills()
             reviews = self._portfolio_store.list_reviews(symbol=normalized_symbol)
+            tracking_cases = tuple(
+                case
+                for case in self._portfolio_store.list_tracking_cases(symbol=normalized_symbol)
+                if case.tracking_started_at <= visible_at
+            )
+            symbol_orders = tuple(
+                order for order in orders if order.security.symbol == normalized_symbol
+            )
+            symbol_order_ids = {order.order_id for order in symbol_orders}
+            symbol_fills = tuple(fill for fill in fills if fill.order_id in symbol_order_ids)
             projections = self._list_signal_projections(
                 as_of=visible_at,
                 include_archived=True,
                 candidate_symbol=normalized_symbol,
             )
-            if not projections:
+            if not projections and not (symbol_orders or symbol_fills or reviews or tracking_cases):
                 raise WorkbenchReadError(
                     "WORKBENCH_STOCK_NOT_FOUND",
-                    "没有找到该证券的策略信号。",
+                    "没有找到该证券的策略信号或手工台账证据。",
                     404,
                 )
-            signals = self._hydrate_signals(
-                projections,
-                as_of=visible_at,
-                orders=orders,
-                fills=fills,
+            signals = (
+                self._hydrate_signals(
+                    projections,
+                    as_of=visible_at,
+                    orders=orders,
+                    fills=fills,
+                )
+                if projections
+                else ()
             )
-            timeline = _build_timeline(signals, orders, fills, reviews)
+            current_positions = tuple(
+                position
+                for position in self._portfolio_store.positions()
+                if position.security.symbol == normalized_symbol and position.quantity > 0
+            )
+            market = (
+                signals[0].market
+                if signals
+                else self._market_evidence(
+                    normalized_symbol,
+                    visible_at,
+                )
+            )
+            timeline = _build_timeline(
+                signals,
+                orders,
+                fills,
+                reviews,
+                symbol=normalized_symbol,
+                tracking_case_ids=(case.tracking_case_id for case in tracking_cases),
+            )
             return WorkbenchStockDetail(
                 symbol=normalized_symbol,
                 name=next(
-                    (signal.candidate.name for signal in signals if signal.candidate.name),
+                    (
+                        name
+                        for name in (
+                            *(signal.candidate.name for signal in signals),
+                            *(order.security.name for order in symbol_orders),
+                            *(case.security.name for case in tracking_cases),
+                        )
+                        if name
+                    ),
                     None,
                 ),
                 as_of=visible_at,
-                market=signals[0].market,
+                source=_stock_source(
+                    signals,
+                    symbol_orders,
+                    symbol_fills,
+                    reviews,
+                    tracking_cases,
+                ),
+                market=market,
+                position=current_positions[0] if current_positions else None,
+                tracking_cases=tracking_cases,
                 signals=tuple(
                     sorted(
                         signals,

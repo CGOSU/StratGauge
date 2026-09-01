@@ -2,6 +2,7 @@ import type {
   Exchange,
   ManualFill,
   ManualOrder,
+  ManualPositionTrackingCase,
   MaturityStatus,
   MaturityStatusCounts,
   PortfolioPosition,
@@ -422,7 +423,10 @@ export type WorkbenchStockDetail = {
   symbol: string
   name: string | null
   as_of: string
+  source: 'signal' | 'manual_discovery' | 'mixed'
   market: WorkbenchMarketEvidence
+  position: PortfolioPosition | null
+  tracking_cases: ManualPositionTrackingCase[]
   signals: WorkbenchSignal[]
   timeline: WorkbenchTimelineEvent[]
 }
@@ -478,4 +482,4 @@ export type WorkbenchAnalyticsView = {
 
 export type WorkbenchRoute = Extract<AppRoute, 'workbench' | 'signals' | 'watchlist' | 'positions' | 'trades' | 'strategies' | 'analytics'>
 export type WorkbenchReviewFilter = 'all' | 'unreviewed' | 'bullish' | 'watching' | 'preparing' | 'discarded' | 'bought'
-export type StockDrawerTab = 'market' | 'judgment' | 'signal' | 'trade' | 'analysis'
+export type StockDrawerTab = 'market' | 'tracking' | 'judgment' | 'signal' | 'trade' | 'review' | 'analysis'

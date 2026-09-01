@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable
+from datetime import date, datetime
 from pathlib import Path
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from stratgauge.backtest.selection_outcomes import latest_selection_outcomes
 from stratgauge.data_pipeline.selection_store import SelectionImportStore
@@ -25,6 +27,99 @@ from stratgauge.domain.selections import (
 
 DATASET_SCHEMA_VERSION = "selection-dataset-v2"
 ANNOTATION_DATASET_SCHEMA_VERSION = "selection-annotation-dataset-v1"
+SELECTION_ML_DATASET_MANIFEST_SCHEMA_VERSION = "selection-ml-datasets-manifest-v1"
+_SELECTION_ML_DATASET_NAMES = ("selection", "annotation", "buy_timing", "sell_timing")
+
+
+class SelectionMLDatasetFile(BaseModel):
+    """One immutable JSONL output referenced by an ML dataset bundle."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    dataset: Literal["selection", "annotation", "buy_timing", "sell_timing"]
+    path: str
+    row_count: int = Field(ge=0)
+    sha256: str
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("dataset file path must not be empty")
+        return normalized
+
+    @field_validator("sha256")
+    @classmethod
+    def validate_sha256(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if len(normalized) != 64 or any(
+            character not in "0123456789abcdef" for character in normalized
+        ):
+            raise ValueError("dataset file sha256 must be a lowercase SHA-256 digest")
+        return normalized
+
+
+class SelectionMLDatasetManifest(BaseModel):
+    """Immutable provenance for one single- or multi-batch dataset export."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: str = SELECTION_ML_DATASET_MANIFEST_SCHEMA_VERSION
+    selection_mode: Literal["single_batch", "batch_ids", "all_batches", "date_range"]
+    batch_ids: tuple[str, ...]
+    selection_date_from: date
+    selection_date_to: date
+    requested_selection_date_from: date | None = None
+    requested_selection_date_to: date | None = None
+    include_archived_batches: bool = True
+    evaluated_at: datetime
+    buy_window_sessions: int = Field(gt=0)
+    sell_window_sessions: int = Field(gt=0)
+    files: tuple[SelectionMLDatasetFile, ...]
+
+    @field_validator("batch_ids")
+    @classmethod
+    def validate_batch_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized = tuple(item.strip() for item in value)
+        if not normalized or any(not item for item in normalized):
+            raise ValueError("dataset manifest requires batch IDs")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("dataset manifest batch IDs must be unique")
+        return normalized
+
+    @field_validator("evaluated_at")
+    @classmethod
+    def validate_evaluated_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("dataset manifest evaluated_at must include a timezone")
+        return value
+
+    @model_validator(mode="after")
+    def validate_manifest(self) -> SelectionMLDatasetManifest:
+        if self.selection_date_to < self.selection_date_from:
+            raise ValueError("dataset manifest selection date range is invalid")
+        requested_dates = (
+            self.requested_selection_date_from,
+            self.requested_selection_date_to,
+        )
+        if (requested_dates[0] is None) != (requested_dates[1] is None):
+            raise ValueError("dataset manifest requested date range must be complete")
+        if (
+            requested_dates[0] is not None
+            and requested_dates[1] is not None
+            and requested_dates[1] < requested_dates[0]
+        ):
+            raise ValueError("dataset manifest requested date range is invalid")
+        if self.selection_mode == "date_range" and requested_dates[0] is None:
+            raise ValueError("date-range dataset manifest requires requested dates")
+        if self.selection_mode != "date_range" and requested_dates[0] is not None:
+            raise ValueError("only date-range dataset manifests may have requested dates")
+        if tuple(item.dataset for item in self.files) != _SELECTION_ML_DATASET_NAMES:
+            raise ValueError("dataset manifest must list all four datasets in order")
+        if len({item.path for item in self.files}) != len(self.files):
+            raise ValueError("dataset manifest file paths must be unique")
+        return self
 
 
 class SelectionAnnotationDatasetRow(BaseModel):
@@ -36,6 +131,7 @@ class SelectionAnnotationDatasetRow(BaseModel):
     annotation_id: str
     candidate_id: str
     batch_id: str
+    source: Literal["tongdaxin", "manual"] | None = None
     symbol: str
     selection_date: str
     source_filename: str | None
@@ -72,6 +168,7 @@ class SelectionDatasetRow(BaseModel):
     schema_version: str = DATASET_SCHEMA_VERSION
     candidate_id: str
     batch_id: str
+    source: Literal["tongdaxin", "manual"] | None = None
     symbol: str
     selection_date: str
     source_filename: str | None
@@ -109,6 +206,7 @@ def build_selection_dataset(
                 SelectionDatasetRow(
                     candidate_id=candidate.candidate_id,
                     batch_id=batch_id,
+                    source=imported.batch.source,
                     symbol=candidate.symbol,
                     selection_date=imported.batch.selection_date.isoformat(),
                     source_filename=imported.batch.source_filename,
@@ -141,6 +239,27 @@ def build_selection_dataset(
     return tuple(rows)
 
 
+def order_selection_batch_ids(
+    store: SelectionImportStore,
+    batch_ids: Iterable[str],
+) -> tuple[str, ...]:
+    """Validate and deterministically order batch IDs by selection date then ID."""
+
+    normalized = tuple(item.strip() for item in batch_ids)
+    if not normalized or any(not item for item in normalized):
+        raise ValueError("batch IDs must not be empty")
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("batch IDs must be unique")
+    loaded = tuple((batch_id, store.load_import(batch_id)) for batch_id in normalized)
+    return tuple(
+        batch_id
+        for batch_id, imported in sorted(
+            loaded,
+            key=lambda item: (item[1].batch.selection_date, item[0]),
+        )
+    )
+
+
 def build_annotation_dataset(
     store: SelectionImportStore,
     batch_id: str,
@@ -158,6 +277,7 @@ def build_annotation_dataset(
                     annotation_id=annotation.annotation_id,
                     candidate_id=candidate.candidate_id,
                     batch_id=batch_id,
+                    source=imported.batch.source,
                     symbol=candidate.symbol,
                     selection_date=imported.batch.selection_date.isoformat(),
                     source_filename=imported.batch.source_filename,
@@ -195,6 +315,30 @@ def build_annotation_dataset(
                 )
             )
     return tuple(sorted(rows, key=lambda row: (row.annotation_recorded_at, row.annotation_id)))
+
+
+def build_selection_dataset_for_batches(
+    store: SelectionImportStore,
+    batch_ids: Iterable[str],
+) -> tuple[SelectionDatasetRow, ...]:
+    """Build the candidate dataset in stable selection-batch order."""
+
+    ordered_batch_ids = order_selection_batch_ids(store, batch_ids)
+    return tuple(
+        row for batch_id in ordered_batch_ids for row in build_selection_dataset(store, batch_id)
+    )
+
+
+def build_annotation_dataset_for_batches(
+    store: SelectionImportStore,
+    batch_ids: Iterable[str],
+) -> tuple[SelectionAnnotationDatasetRow, ...]:
+    """Build the annotation dataset in stable selection-batch order."""
+
+    ordered_batch_ids = order_selection_batch_ids(store, batch_ids)
+    return tuple(
+        row for batch_id in ordered_batch_ids for row in build_annotation_dataset(store, batch_id)
+    )
 
 
 def read_selection_dataset(content: bytes) -> tuple[SelectionDatasetRow, ...]:
@@ -236,6 +380,30 @@ def serialize_annotation_dataset(rows: Iterable[SelectionAnnotationDatasetRow]) 
     """Serialize annotation rows as newline-delimited JSON."""
 
     return "".join(f"{row.model_dump_json()}\n" for row in rows)
+
+
+def read_selection_ml_dataset_manifest(content: bytes) -> SelectionMLDatasetManifest:
+    """Parse and validate a dataset bundle manifest."""
+
+    try:
+        return SelectionMLDatasetManifest.model_validate_json(content)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ValueError(f"invalid selection ML dataset manifest: {exc}") from exc
+
+
+def serialize_selection_ml_dataset_manifest(manifest: SelectionMLDatasetManifest) -> str:
+    """Serialize a dataset bundle manifest deterministically."""
+
+    return manifest.model_dump_json(indent=2) + "\n"
+
+
+def write_selection_ml_dataset_manifest(
+    path: str | Path,
+    manifest: SelectionMLDatasetManifest,
+) -> None:
+    """Write a dataset bundle manifest without overwriting existing evidence."""
+
+    _write_dataset(path, serialize_selection_ml_dataset_manifest(manifest))
 
 
 def write_annotation_dataset(
