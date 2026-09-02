@@ -350,6 +350,9 @@ test.describe('主板行情同步面板', () => {
     await expect(panel.getByRole('button', { name: '取消排队' })).toBeVisible()
     await expect(panel.getByRole('button', { name: '立即执行一次' })).toBeVisible()
     await expect(panel.getByText('POST /v1/market-sync/main-board')).toBeVisible()
+    const taskActions = panel.locator('.market-sync-task-actions')
+    await expect(taskActions).toHaveCSS('row-gap', '8px')
+    await expect(taskActions).toHaveCSS('column-gap', '12px')
     await expect(panel).toHaveScreenshot('main-board-market-sync-queued-desktop.png')
 
     await panel.getByRole('button', { name: '立即执行一次' }).click()

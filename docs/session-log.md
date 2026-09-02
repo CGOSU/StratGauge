@@ -1,5 +1,12 @@
 # 会话记录
 
+### 2026-09-01 前端操作区间距与窄屏布局
+
+- 完成内容：仅调整前端呈现。为主板行情同步任务操作区、数据管理标签编辑区和分页控件补齐容器级 `gap`、换行、收窄和长文本断行规则；将通用 `DialogFooter` 从桌面断点的 `space-x-2` 改为跨方向统一 `gap`。未改变 API、数据、任务调度、交易语义、Tab/筛选器/分段控件、键盘访问、焦点可见性或按钮可用性。
+- 回归覆盖：增加同步任务操作区和分页控件的 gap 断言，增加 390px 对话框 Footer 间距及无横向溢出断言；仅更新受本次操作区间距影响的排队状态截图，未更新 completed/partial 等无关截图。
+- 实际验证：`cd frontend; corepack pnpm typecheck` 通过；`corepack pnpm lint` 通过（0 error、19 条既有 React Hooks warning）；`corepack pnpm build` 通过；`corepack pnpm exec playwright test tests/visual/main-board-market-sync.spec.ts -g "固定排队状态展示并保留 queued-only 操作"`（1 项通过）；`corepack pnpm exec playwright test tests/visual/ml-readiness.spec.ts`（4 项通过）；首次组合运行两份定向 spec 为 5 项通过、3 项失败，其中排队截图已按本次 gap 更新后通过，仍有 2 个既有 completed/partial 结果截图差异未处理；`git diff --check` 通过，仅有 Windows LF/CRLF 转换提示；未执行 commit/push。
+- 遗留问题：完整前端视觉回归仍需后续单独核对并处理主板行情同步 completed/partial 的既有截图基线差异；本轮未修改无关基线，也未执行真实 provider、业务数据写入或外部状态操作。
+
 ### 2026-09-01 手工持仓 tracking ML evidence 与来源隔离
 
 - 完成内容：新增独立 `manual-position-tracking-dataset-v1` JSONL 和 `manual-position-tracking-report-v1` 报告；只收集 tracking case 关联且在 `tracking_started_at` 之后的手工订单/成交/复盘，以及 evaluated_at 前已批准的本地 market_daily。历史登记前事实、候选/策略/推荐关联、未来事实和歧义复盘均保留排除/资格原因；源事实保存 SHA-256；dataset/report 目标不可覆盖。报告 `ready` 仅表示 evidence 覆盖完整，不表示训练或模型发布准入。现有 selection ML 四用途导出行保留 `SelectionBatch.source` 的 `tongdaxin`/`manual` 来源。未接入既有训练、注册、shadow、推荐或交易，也未创建 provider、访问外部行情或写入业务数据。

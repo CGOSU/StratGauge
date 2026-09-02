@@ -9,6 +9,7 @@
 
 - 阶段 0 的实现检查点 1—6 已完成，代码退出验收通过；Tushare `daily` 主源验证和与 BaoStock 的固定区间交叉校验已通过；股票池现限定为沪深主板，已生成 3193 条主板 `stock_basic` 快照；交易日历已由 BaoStock + AKShare 交叉校验并缓存，阶段 0 运行验收不再阻塞。Tushare `trade_cal` 原生端点仅剩供应商溯源补验。
 - 新增无额外数据平台费用的半手动闭环：通达信导出选股结果，系统人工标注，随后用日线跟踪并自动生成结果、统计和机器学习样本。
+- 已确认前端视觉优化需求：恢复相邻操作按钮之间的可见间距，并审查相似操作区在桌面/窄屏下的换行、对齐和横向溢出体验；本轮仅调整前端呈现，不改变 API、数据、任务调度、交易语义、键盘访问或按钮可用性。
 
 ## 已知状态
 
@@ -29,7 +30,7 @@
 - 2026-08-22 ML 四用途重构已完成代码迁移：中心训练契约、不可变 bundle 写入原语、训练前特征观察 application service、五个训练 application service 和六个研究证据/生命周期 application service 已落地；11 个 ML CLI 仍由人工显式触发，未引入后台训练、自动注册、自动晋升或交易。旧候选成功率链与新用途链保持隔离。
 - 2026-08-22 已补齐四用途训练标签到时间点特征快照的显式 CLI，并用临时目录、真实文件和 fake LightGBM 完成四用途离线全链路演练；演练覆盖 prepare、特征快照、join、baseline/LightGBM、validation-only calibration、注册、人工 shadow transition、shadow、walk-forward 和 compare。真实 provider、真实训练和当前生产数据 readiness 仍未执行或达标。
 - 第一轮 clean-code 整理已完成行为保持型收敛：后端 `uv run mypy` 现在覆盖 `start.py`、`src`、`tests` 和 `scripts`；ML 规范 JSON/SHA-256 与原子文本写入已分别抽为共享私有工具；前端请求客户端、日历输入和主板行情同步面板已拆出，无消费者的 API Context/hook、`decisionDescription` 和成熟任务前端遗留 CSS 已删除。后端公开 API/CLI、数据源适配器和历史兼容路径未因“看起来旧”而删除。
-- 尚未进行大规模职责拆分：`frontend/src/App.tsx` 的工作台/数据管理/持仓页面、`backend/src/stratgauge/api/selections.py` 的综合服务以及 ML 训练大模块仍保留，后续应按领域边界继续小步提取。主板行情同步视觉回归用例已经存在（4 个场景），但当前环境运行时无法绑定 `127.0.0.1:5173`（`EACCES`），因此尚未确认截图回归通过；同步阶段进度轮询/取消操作和未成交/部分成交独立前端入口仍未实现。`git push` 仍因 `master` 未配置远程仓库而不可执行。
+- 尚未进行大规模职责拆分：`frontend/src/App.tsx` 的工作台/数据管理/持仓页面、`backend/src/stratgauge/api/selections.py` 的综合服务以及 ML 训练大模块仍保留，后续应按领域边界继续小步提取。主板行情同步视觉回归用例已经存在（4 个场景）；本轮已确认排队状态操作区的间距回归通过，但完整套件仍有 2 个既有 completed/partial 结果截图差异未处理；同步阶段进度轮询/取消操作和未成交/部分成交独立前端入口仍未实现。`git push` 仍因 `master` 未配置远程仓库而不可执行。
 - 已实现 Tushare `daily`、股票池、交易日历和复权因子适配，以及仅面向 `000300.SH` 的独立 `index_daily` 请求与同步 CLI；本轮只用离线替身验证接口、ingest/快照写入和 readiness 过滤，未执行真实行情请求。现有本地交易日历只覆盖至 2026-08-11；Tushare `trade_cal` 原生端点的供应商溯源请求仍受既有限额约束，BaoStock + AKShare 的备用交易日历缓存需要在使用更晚行情前显式扩展。
 - 已用真实脱敏 `0810.EBK` 和 `081020260810.txt` 样例确认格式：`.EBK` 为 CRLF 七位市场前缀代码；`.txt` 为 GBK 制表符行情表，包含 30 列和 `#数据来源:通达信` 尾行；两份样例的 4 个代码均可解析为 `002167.SZ`、`600593.SH`、`603183.SH`、`603980.SH`，样例文件已加入忽略规则，不进入提交。
 - 当前已有 CLI `mature_tdx_selection.py` 和 Web 一次性成熟操作，新增本地成熟任务账本、事件审计、幂等执行、可恢复超时、有限重试和 `run_selection_maturity_tasks.py` 显式调度入口；JSONL 数据集带 schema 版本，并可由 `split_tdx_dataset.py` 按选股日期生成不可覆盖的 train/validation/test 清单和源文件哈希 manifest；第一版研究参数已冻结为 10 个交易日固定退出、无止盈损、扣费后净收益胜负、100 股整手和默认 10000 元名义金额，后续用户偏好必须创建新政策版本。主板行情同步另有 `LocalJobStore` 耐久任务 API/显式 runner，只有 queued 可取消，FastAPI 不启动后台线程；任务级 Tushare transport 在任务结束后关闭。

@@ -235,6 +235,9 @@ test('filters and paginates the read-only maturity status list', async ({ page }
 
   await filter.selectOption('all')
   await expect(panel.getByRole('button', { name: '下一页' })).toBeEnabled()
+  const pagination = panel.locator('.pagination-controls')
+  await expect(pagination).toHaveCSS('row-gap', '8px')
+  await expect(pagination).toHaveCSS('column-gap', '12px')
   await panel.getByRole('button', { name: '下一页' }).click()
   await expect(panel.locator('.maturity-status-row')).toHaveCount(1)
   await expect(panel).toContainText('000009.SZ')
@@ -243,6 +246,24 @@ test('filters and paginates the read-only maturity status list', async ({ page }
   await expect(panel.locator('.maturity-status-row')).toHaveCount(1)
   await expect(panel).toContainText('尚未生成客观结果')
   expect(mocks.unexpectedRequests).toEqual([])
+})
+
+test('keeps dialog action buttons separated on narrow screens', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await installMocks(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: '导入数据' }).click()
+  await page.getByRole('button', { name: '手动添加候选', exact: true }).click()
+
+  const footer = page.locator('.dialog-footer')
+  await expect(footer).toBeVisible()
+  await expect(footer).toHaveCSS('row-gap', '8px')
+  const footerLayout = await footer.evaluate((element) => ({
+    noHorizontalOverflow: element.scrollWidth <= element.clientWidth,
+    childCount: element.children.length,
+  }))
+  expect(footerLayout.childCount).toBe(2)
+  expect(footerLayout.noHorizontalOverflow).toBe(true)
 })
 
 test('stacks the import workflow without horizontal overflow on narrow screens', async ({ page }) => {
