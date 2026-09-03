@@ -20,6 +20,11 @@ from stratgauge.application.workbench.helpers import (
     _review_state,
     _stock_source,
 )
+from stratgauge.application.workbench.stock_performance import (
+    SHANGHAI,
+    StockPerformanceError,
+    build_stock_performance,
+)
 from stratgauge.application.workbench.views import (
     MarketEvidence,
     MarketEvidenceStatus,
@@ -29,6 +34,7 @@ from stratgauge.application.workbench.views import (
     WorkbenchReadError,
     WorkbenchSignalView,
     WorkbenchStockDetail,
+    WorkbenchStockPerformance,
     WorkbenchStrategyView,
     WorkbenchSummary,
     WorkbenchTradeView,
@@ -456,6 +462,83 @@ class WorkbenchService:
                 for position in positions
             )
         except (PortfolioStoreError, SnapshotStoreError) as exc:
+            raise WorkbenchReadError("WORKBENCH_READ_FAILED", str(exc)) from exc
+
+    def stock_performance(
+        self,
+        symbol: str,
+        *,
+        as_of: datetime | None = None,
+    ) -> WorkbenchStockPerformance:
+        visible_at = _require_aware(as_of)
+        normalized_symbol = _normalize_symbol(symbol)
+        try:
+            orders = self._portfolio_store.list_orders()
+            fills = self._portfolio_store.list_fills()
+            orders_by_id = {order.order_id: order for order in orders}
+            symbol_fills = tuple(
+                fill
+                for fill in fills
+                if fill.filled_at <= visible_at
+                and orders_by_id.get(fill.order_id) is not None
+                and orders_by_id[fill.order_id].security.symbol == normalized_symbol
+            )
+            first_fill_date = (
+                min(fill.filled_at.astimezone(SHANGHAI).date() for fill in symbol_fills)
+                if symbol_fills
+                else None
+            )
+            market_bars: dict[tuple[str, date], tuple[str, DailyBar]] = {}
+            market_session_dates: set[date] = set()
+            invalid_snapshot_ids: list[str] = []
+            if first_fill_date is not None:
+                visible_date = visible_at.astimezone(SHANGHAI).date()
+                manifests = tuple(
+                    sorted(
+                        (
+                            manifest
+                            for manifest in self._market_store.list_manifests(
+                                SnapshotStatus.APPROVED
+                            )
+                            if manifest.request_kind == "market_daily"
+                            and manifest.end_date >= first_fill_date
+                            and manifest.start_date <= visible_date
+                        ),
+                        key=lambda item: (
+                            item.end_date,
+                            item.created_at,
+                            item.snapshot_id,
+                        ),
+                        reverse=True,
+                    )
+                )
+                for manifest in manifests:
+                    if manifest.start_date == manifest.end_date:
+                        market_session_dates.add(manifest.start_date)
+                    try:
+                        bars = self._market_store.load_bars(
+                            manifest.snapshot_id,
+                            symbols=(normalized_symbol,),
+                        )
+                    except SnapshotStoreError:
+                        invalid_snapshot_ids.append(manifest.snapshot_id)
+                        continue
+                    for bar in bars:
+                        market_bars.setdefault(
+                            (bar.symbol, bar.session_date),
+                            (manifest.snapshot_id, bar),
+                        )
+                        market_session_dates.add(bar.session_date)
+            return build_stock_performance(
+                normalized_symbol,
+                orders,
+                fills,
+                market_bars,
+                as_of=visible_at,
+                market_session_dates=market_session_dates,
+                invalid_snapshot_ids=invalid_snapshot_ids,
+            )
+        except (PortfolioStoreError, SnapshotStoreError, StockPerformanceError) as exc:
             raise WorkbenchReadError("WORKBENCH_READ_FAILED", str(exc)) from exc
 
     def list_trades(self) -> tuple[WorkbenchTradeView, ...]:

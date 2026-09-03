@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from stratgauge.application.workbench.service import WorkbenchService
+from stratgauge.application.workbench.stock_performance import (
+    StockPerformanceError,
+    build_stock_performance,
+)
 from stratgauge.application.workbench.views import (
     MarketEvidence,
     MarketEvidenceStatus,
@@ -14,6 +18,8 @@ from stratgauge.application.workbench.views import (
     WorkbenchReadError,
     WorkbenchSignalView,
     WorkbenchStockDetail,
+    WorkbenchStockPerformance,
+    WorkbenchStockPerformancePoint,
     WorkbenchStrategyView,
     WorkbenchSummary,
     WorkbenchTimelineEvent,
@@ -30,7 +36,11 @@ __all__ = [
     "WorkbenchTimelineEvent",
     "WorkbenchStockDetail",
     "WorkbenchPositionView",
+    "WorkbenchStockPerformancePoint",
+    "WorkbenchStockPerformance",
     "WorkbenchTradeView",
+    "StockPerformanceError",
+    "build_stock_performance",
     "WorkbenchHorizonMetric",
     "WorkbenchCohortMetrics",
     "WorkbenchStrategyView",

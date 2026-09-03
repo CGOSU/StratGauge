@@ -13,6 +13,7 @@ from stratgauge.application.workbench import (
     WorkbenchService,
     WorkbenchSignalView,
     WorkbenchStockDetail,
+    WorkbenchStockPerformance,
     WorkbenchStrategyView,
     WorkbenchSummary,
     WorkbenchTradeView,
@@ -111,6 +112,16 @@ def create_workbench_router(service: WorkbenchService) -> APIRouter:
     @router.get("/positions", response_model=tuple[WorkbenchPositionView, ...])
     def list_positions(as_of: datetime | None = None) -> tuple[WorkbenchPositionView, ...]:
         return service.list_positions(as_of=as_of)
+
+    @router.get(
+        "/stocks/{symbol}/performance",
+        response_model=WorkbenchStockPerformance,
+    )
+    def get_stock_performance(
+        symbol: str,
+        as_of: datetime | None = None,
+    ) -> WorkbenchStockPerformance:
+        return service.stock_performance(symbol, as_of=as_of)
 
     @router.get("/trades", response_model=tuple[WorkbenchTradeView, ...])
     def list_trades() -> tuple[WorkbenchTradeView, ...]:

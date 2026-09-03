@@ -150,6 +150,9 @@
       },
       "expected_status": 200
     },
+    "/v1/workbench/stocks/{symbol}/performance": {
+      "skip_reason": "需要有效证券和当前活动持仓；隔离测试数据根不创建手工成交。"
+    },
     "/v1/workbench/stocks/{symbol}": {
       "skip_reason": "需要有效证券信号；隔离测试数据根不创建候选。"
     },

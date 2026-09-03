@@ -47,7 +47,7 @@ class BenchmarkGetCasesTests(unittest.TestCase):
             _validate_cases(openapi, cases)
             discovered = _discover_get_routes(openapi)
             self.assertEqual(set(cases), set(discovered))
-            self.assertEqual(len(discovered), 43)
+            self.assertEqual(len(discovered), 44)
 
             dynamic_routes = [route for route in cases if "{" in route]
             self.assertTrue(dynamic_routes)

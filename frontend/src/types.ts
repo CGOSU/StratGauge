@@ -443,6 +443,33 @@ export type WorkbenchPositionView = {
   unrealized_reason: string | null
 }
 
+export type WorkbenchStockPerformancePoint = {
+  session_date: string
+  valuation_at: string
+  status: WorkbenchMarketEvidence['status']
+  market_snapshot_ids: string[]
+  daily_return: string | null
+  cumulative_return: string | null
+  reason: string | null
+}
+
+export type WorkbenchStockPerformance = {
+  symbol: string
+  as_of: string
+  status: WorkbenchMarketEvidence['status']
+  start_session_date: string | null
+  end_session_date: string | null
+  latest_session_date: string | null
+  latest_daily_return: string | null
+  latest_cumulative_return: string | null
+  highest_return: string | null
+  highest_return_date: string | null
+  maximum_loss_return: string | null
+  maximum_loss_date: string | null
+  points: WorkbenchStockPerformancePoint[]
+  reason: string | null
+}
+
 export type WorkbenchTradeView = {
   order: ManualOrder
   fills: ManualFill[]
@@ -482,4 +509,4 @@ export type WorkbenchAnalyticsView = {
 
 export type WorkbenchRoute = Extract<AppRoute, 'workbench' | 'signals' | 'watchlist' | 'positions' | 'trades' | 'strategies' | 'analytics'>
 export type WorkbenchReviewFilter = 'all' | 'unreviewed' | 'bullish' | 'watching' | 'preparing' | 'discarded' | 'bought'
-export type StockDrawerTab = 'market' | 'tracking' | 'judgment' | 'signal' | 'trade' | 'review' | 'analysis'
+export type StockDrawerTab = 'market' | 'performance' | 'tracking' | 'judgment' | 'signal' | 'trade' | 'review' | 'analysis'

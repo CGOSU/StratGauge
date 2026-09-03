@@ -1,5 +1,23 @@
 # 会话记录
 
+### 2026-09-03 观察池重复证券稳定连续分组
+
+- 完成内容：观察池在既有整体排序和筛选结果之后，按证券首次出现顺序进行稳定分组，使相同证券连续显示；组内保留原记录顺序。既有重复证券颜色左边框标记逻辑保持不变，未改变分页、点击、交易语义或证券代码排序规则。
+- 实际验证：`cd frontend; corepack pnpm exec playwright test tests/visual/workbench-manual-position.spec.ts --project=chromium`（4 项通过，包含交错重复证券被调整为连续分组及颜色标记保持）；`corepack pnpm typecheck` 通过；`corepack pnpm lint` 通过（0 error、19 条既有 React Hooks warning）；`corepack pnpm build` 通过；`git diff --check` 通过，仅有 Windows LF/CRLF 转换提示。未执行 commit/push。
+- 遗留问题：完整前端视觉回归仍有既有主板行情同步 completed/partial 截图基线差异。
+
+### 2026-09-03 观察池重复证券颜色标记
+
+- 完成内容：观察池表格按当前页的标准化证券代码统计重复项；重复证券行增加相同颜色的 4px 左侧边框，唯一证券不增加标记。颜色标记仅作用于观察池，不改变行点击、筛选、排序或交易语义。
+- 实际验证：`cd frontend; corepack pnpm exec playwright test tests/visual/workbench-manual-position.spec.ts`（3 项通过，含重复证券颜色、宽度和唯一行断言）；`corepack pnpm typecheck` 通过；`corepack pnpm lint` 通过（0 error、19 条既有 React Hooks warning）；`corepack pnpm build` 通过；`git diff --check` 通过，仅有 Windows LF/CRLF 转换提示。未执行 commit/push。
+- 遗留问题：无本次变更新增的已知问题；完整前端视觉回归仍有既有主板行情同步 completed/partial 截图基线差异。
+
+### 2026-09-03 单证券持仓历史净收益率表现与文档收口
+
+- 完成内容：移除组合级金额表现 API/UI/文档描述，改为只读 `GET /v1/workbench/stocks/{symbol}/performance`；用户点击当前持仓后，在既有 `StockDetailDrawer` 的“表现”标签按需查看单证券历史净收益率走势、百分比摘要、估值日明细和 approved 行情证据。严格按 `as_of` 过滤成交与 `available_at`，费用计入收益率基准；无活动持仓、已平仓或缺行情时显示明确状态/原因并保持百分比为空，不补零、旧价或猜测值。
+- 文档收口：更新系统规格、使用文档、当前状态和设计决策，补充单证券 API、百分比字段、抽屉入口、费用、时间点可见性和缺失证据边界。
+- 实际验证：`cd frontend; corepack pnpm typecheck` 通过；`corepack pnpm lint` 通过（0 error、19 条既有 React Hooks warning）；`corepack pnpm build` 通过；`corepack pnpm exec playwright test tests/visual/workbench-manual-position.spec.ts --project=chromium`（4 项通过）；后端完整测试 438 项通过、1 项跳过；后端 Ruff check、format check、MyPy 通过；`git diff --check` 通过，仅有 Windows LF/CRLF 转换提示。未访问真实 provider、未写入 `backend/data`、未执行 commit/push。
+- 遗留问题：完整前端视觉回归仍有主板行情同步 completed/partial 的既有截图基线差异；真实行情/模型链仍按现有状态待人工授权和执行。
 ### 2026-09-01 前端操作区间距与窄屏布局
 
 - 完成内容：仅调整前端呈现。为主板行情同步任务操作区、数据管理标签编辑区和分页控件补齐容器级 `gap`、换行、收窄和长文本断行规则；将通用 `DialogFooter` 从桌面断点的 `space-x-2` 改为跨方向统一 `gap`。未改变 API、数据、任务调度、交易语义、Tab/筛选器/分段控件、键盘访问、焦点可见性或按钮可用性。

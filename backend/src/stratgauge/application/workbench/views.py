@@ -169,6 +169,41 @@ class WorkbenchPositionView(BaseModel):
     unrealized_reason: str | None = None
 
 
+class WorkbenchStockPerformancePoint(BaseModel):
+    """One approved-session net-return point for a manual stock position."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    session_date: date
+    valuation_at: datetime
+    status: MarketEvidenceStatus
+    market_snapshot_ids: tuple[str, ...] = ()
+    daily_return: Decimal | None = None
+    cumulative_return: Decimal | None = None
+    reason: str | None = None
+
+
+class WorkbenchStockPerformance(BaseModel):
+    """Read-only historical net return for one active manual stock position."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    symbol: str
+    as_of: datetime
+    status: MarketEvidenceStatus
+    start_session_date: date | None = None
+    end_session_date: date | None = None
+    latest_session_date: date | None = None
+    latest_daily_return: Decimal | None = None
+    latest_cumulative_return: Decimal | None = None
+    highest_return: Decimal | None = None
+    highest_return_date: date | None = None
+    maximum_loss_return: Decimal | None = None
+    maximum_loss_date: date | None = None
+    points: tuple[WorkbenchStockPerformancePoint, ...] = ()
+    reason: str | None = None
+
+
 class WorkbenchTradeView(BaseModel):
     """Confirmed order/fill evidence; signals and outcomes are not trades."""
 

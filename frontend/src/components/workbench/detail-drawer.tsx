@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ExternalLink, X } from 'lucide-react'
 import { requestJson } from '@/api/client'
+import { StockPerformancePanel } from '@/components/workbench/stock-performance'
 import { manualSellReasonLabels } from '@/api/contracts'
 import type { Exchange, ManualFill, ManualOrder, ManualPositionTrackingCase, ManualSellReason, PortfolioReview } from '@/api/contracts'
 import type { AnnotationOutlook, AnnotationDecision, BatchView, WorkbenchMarketEvidence, WorkbenchSignal, WorkbenchTimelineEvent, WorkbenchStockDetail, StockDrawerTab } from '@/types'
@@ -533,6 +534,7 @@ export function StockDetailDrawer({
   const [tab, setTab] = useState<StockDrawerTab>('market')
   const trackingCases = detail.tracking_cases ?? []
   const hasStrategySignals = detail.signals.length > 0
+  const hasActivePosition = detail.position !== null && Number(detail.position.quantity) > 0
   const hasManualSource = detail.source === 'manual_discovery'
     || detail.source === 'mixed'
     || trackingCases.length > 0
@@ -570,6 +572,7 @@ export function StockDetailDrawer({
         <nav className="stock-drawer-tabs" aria-label="股票详情标签">
           {([
             ['market', '行情'],
+            ...(hasActivePosition ? [['performance', '表现'] as [StockDrawerTab, string]] : []),
             ...(hasManualSource ? [['tracking', '跟踪'] as [StockDrawerTab, string]] : []),
             ...(hasStrategySignals ? [
               ['judgment', '判断'] as [StockDrawerTab, string],
@@ -590,6 +593,9 @@ export function StockDetailDrawer({
               <WorkbenchMarketEvidenceView market={detail.market} />
               <p className="drawer-muted-copy">行情仅读取已批准的 market_daily 快照；缺失时不伪造价格、K 线或指标。</p>
             </section>
+          )}
+          {tab === 'performance' && hasActivePosition && (
+            <StockPerformancePanel key={detail.symbol} apiBase={apiBase} symbol={detail.symbol} />
           )}
           {tab === 'tracking' && hasManualSource && (
             <WorkbenchTrackingPanel apiBase={apiBase} detail={detail} onSaved={onTradeSaved} />

@@ -15,7 +15,12 @@ from stratgauge.data_pipeline.store import SnapshotManifest, SnapshotStatus, Sna
 from stratgauge.data_pipeline.tdx_import import import_tdx_export
 from stratgauge.data_sources.base import MarketAdapterResult, MarketDailyRequest
 from stratgauge.domain.models import DailyBar, Exchange, Security
-from stratgauge.domain.portfolio import ManualFill, ManualOrder, ManualOrderSide
+from stratgauge.domain.portfolio import (
+    ManualFill,
+    ManualOrder,
+    ManualOrderSide,
+    ManualSellReason,
+)
 from stratgauge.domain.selections import (
     SelectionAnnotation,
     SelectionCandidateReviewState,
@@ -446,6 +451,249 @@ class WorkbenchApplicationTests(unittest.TestCase):
                 {"signal", "annotation"},
             )
             self.assertTrue(all(event.source_id for event in detail.timeline))
+
+    def test_stock_performance_replays_fees_and_excludes_future_fills(self) -> None:
+        with TemporaryDirectory() as directory:
+            portfolio_store = ManualPortfolioStore(directory)
+            security = Security(
+                security_id="security-000001.SZ",
+                local_code="000001",
+                symbol="000001.SZ",
+                exchange=Exchange.SZ,
+                name="平安银行",
+            )
+            _record_portfolio_trade(
+                portfolio_store,
+                security=security,
+                order_id="buy-1",
+                fill_id="fill-buy-1",
+                side=ManualOrderSide.BUY,
+                filled_at=datetime(2026, 1, 1, 2, tzinfo=UTC),
+                quantity=Decimal("100"),
+                price=Decimal("10"),
+                commission=Decimal("1"),
+            )
+            _record_portfolio_trade(
+                portfolio_store,
+                security=security,
+                order_id="sell-1",
+                fill_id="fill-sell-1",
+                side=ManualOrderSide.SELL,
+                filled_at=datetime(2026, 1, 3, 2, tzinfo=UTC),
+                quantity=Decimal("50"),
+                price=Decimal("11"),
+                commission=Decimal("1"),
+                stamp_duty=Decimal("0.5"),
+            )
+            _record_portfolio_trade(
+                portfolio_store,
+                security=security,
+                order_id="future-buy",
+                fill_id="future-fill",
+                side=ManualOrderSide.BUY,
+                filled_at=datetime(2026, 1, 4, 2, tzinfo=UTC),
+                quantity=Decimal("100"),
+                price=Decimal("8"),
+            )
+            market_store = SnapshotStore(f"{directory}/market")
+            for session_date, close in (
+                (date(2026, 1, 1), Decimal("9.5")),
+                (date(2026, 1, 2), Decimal("12")),
+                (date(2026, 1, 3), Decimal("11")),
+            ):
+                _write_approved_market_bar(
+                    market_store,
+                    symbol=security.symbol,
+                    local_code=security.local_code,
+                    session_date=session_date,
+                    security_id=security.security_id,
+                    close=close,
+                    available_at=datetime(
+                        session_date.year,
+                        session_date.month,
+                        session_date.day,
+                        17,
+                        tzinfo=UTC,
+                    ),
+                )
+            service = WorkbenchService(
+                SelectionImportStore(directory),
+                portfolio_store,
+                market_store,
+            )
+
+            performance = service.stock_performance(
+                security.symbol,
+                as_of=datetime(2026, 1, 3, 18, tzinfo=UTC),
+            )
+
+            denominator = Decimal("1001")
+            self.assertEqual(performance.symbol, security.symbol)
+            self.assertEqual(performance.status, MarketEvidenceStatus.AVAILABLE)
+            self.assertEqual(performance.start_session_date, date(2026, 1, 1))
+            self.assertEqual(performance.end_session_date, date(2026, 1, 3))
+            self.assertEqual(performance.highest_return, Decimal("199") / denominator)
+            self.assertEqual(performance.highest_return_date, date(2026, 1, 2))
+            self.assertEqual(performance.maximum_loss_return, Decimal("-51") / denominator)
+            self.assertEqual(performance.maximum_loss_date, date(2026, 1, 1))
+            self.assertEqual(
+                [point.cumulative_return for point in performance.points],
+                [
+                    Decimal("-51") / denominator,
+                    Decimal("199") / denominator,
+                    Decimal("97.5") / denominator,
+                ],
+            )
+            self.assertEqual(
+                [point.daily_return for point in performance.points],
+                [None, Decimal("250") / denominator, Decimal("-101.5") / denominator],
+            )
+            self.assertEqual(performance.latest_cumulative_return, Decimal("97.5") / denominator)
+            self.assertNotIn("profit", performance.model_dump_json())
+
+    def test_stock_performance_marks_missing_active_security_incomplete(self) -> None:
+        with TemporaryDirectory() as directory:
+            portfolio_store = ManualPortfolioStore(directory)
+            security = Security(
+                security_id="security-000001.SZ",
+                local_code="000001",
+                symbol="000001.SZ",
+                exchange=Exchange.SZ,
+            )
+            other = Security(
+                security_id="security-600000.SH",
+                local_code="600000",
+                symbol="600000.SH",
+                exchange=Exchange.SH,
+            )
+            _record_portfolio_trade(
+                portfolio_store,
+                security=security,
+                order_id="buy-first",
+                fill_id="fill-first",
+                side=ManualOrderSide.BUY,
+                filled_at=datetime(2026, 1, 1, 2, tzinfo=UTC),
+                quantity=Decimal("100"),
+                price=Decimal("10"),
+            )
+            market_store = SnapshotStore(f"{directory}/market")
+            _write_approved_market_bar(
+                market_store,
+                symbol=security.symbol,
+                local_code=security.local_code,
+                session_date=date(2026, 1, 1),
+                security_id=security.security_id,
+                close=Decimal("10"),
+                available_at=datetime(2026, 1, 1, 17, tzinfo=UTC),
+            )
+            _write_approved_market_bar(
+                market_store,
+                symbol=other.symbol,
+                local_code=other.local_code,
+                session_date=date(2026, 1, 2),
+                security_id=other.security_id,
+                close=Decimal("11"),
+                available_at=datetime(2026, 1, 2, 17, tzinfo=UTC),
+            )
+            service = WorkbenchService(
+                SelectionImportStore(directory),
+                portfolio_store,
+                market_store,
+            )
+
+            performance = service.stock_performance(
+                security.symbol,
+                as_of=datetime(2026, 1, 2, 18, tzinfo=UTC),
+            )
+
+            self.assertEqual(performance.status, MarketEvidenceStatus.INCOMPLETE)
+            self.assertEqual(len(performance.points), 2)
+            self.assertEqual(performance.points[0].status, MarketEvidenceStatus.AVAILABLE)
+            self.assertEqual(performance.points[1].status, MarketEvidenceStatus.INCOMPLETE)
+            self.assertIsNone(performance.points[1].daily_return)
+            self.assertIsNone(performance.points[1].cumulative_return)
+            self.assertIn(security.symbol, performance.points[1].reason or "")
+            self.assertEqual(performance.latest_session_date, date(2026, 1, 2))
+            self.assertIsNone(performance.latest_cumulative_return)
+
+    def test_stock_performance_returns_empty_percentages_for_closed_position(self) -> None:
+        with TemporaryDirectory() as directory:
+            portfolio_store = ManualPortfolioStore(directory)
+            security = Security(
+                security_id="security-000001.SZ",
+                local_code="000001",
+                symbol="000001.SZ",
+                exchange=Exchange.SZ,
+            )
+            _record_portfolio_trade(
+                portfolio_store,
+                security=security,
+                order_id="buy-1",
+                fill_id="fill-buy-1",
+                side=ManualOrderSide.BUY,
+                filled_at=datetime(2026, 1, 1, 2, tzinfo=UTC),
+                quantity=Decimal("100"),
+                price=Decimal("10"),
+            )
+            _record_portfolio_trade(
+                portfolio_store,
+                security=security,
+                order_id="sell-1",
+                fill_id="fill-sell-1",
+                side=ManualOrderSide.SELL,
+                filled_at=datetime(2026, 1, 2, 2, tzinfo=UTC),
+                quantity=Decimal("100"),
+                price=Decimal("11"),
+            )
+            performance = WorkbenchService(
+                SelectionImportStore(directory),
+                portfolio_store,
+                SnapshotStore(f"{directory}/market"),
+            ).stock_performance(
+                security.symbol,
+                as_of=datetime(2026, 1, 2, 18, tzinfo=UTC),
+            )
+
+            self.assertEqual(performance.status, MarketEvidenceStatus.UNAVAILABLE)
+            self.assertEqual(performance.points, ())
+            self.assertIsNone(performance.latest_cumulative_return)
+            self.assertIsNone(performance.highest_return)
+            self.assertIn("已平仓", performance.reason or "")
+
+
+def _record_portfolio_trade(
+    store: ManualPortfolioStore,
+    *,
+    security: Security,
+    order_id: str,
+    fill_id: str,
+    side: ManualOrderSide,
+    filled_at: datetime,
+    quantity: Decimal,
+    price: Decimal,
+    commission: Decimal = Decimal("0"),
+    stamp_duty: Decimal = Decimal("0"),
+) -> None:
+    order = ManualOrder(
+        order_id=order_id,
+        security=security,
+        side=side,
+        ordered_at=filled_at - timedelta(minutes=1),
+        quantity=quantity,
+        sell_reason=ManualSellReason.TARGET_REACHED if side is ManualOrderSide.SELL else None,
+    )
+    store.record_order_and_fill(
+        order,
+        ManualFill(
+            fill_id=fill_id,
+            order_id=order_id,
+            filled_at=filled_at,
+            quantity=quantity,
+            price=price,
+            commission=commission,
+            stamp_duty=stamp_duty,
+        ),
+    )
 
 
 def _write_approved_market_bar(

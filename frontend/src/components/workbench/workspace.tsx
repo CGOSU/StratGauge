@@ -11,6 +11,12 @@ import { StockDetailDrawer } from '@/components/workbench/detail-drawer'
 
 
 const WORKBENCH_QUERY_DEBOUNCE_MS = 250
+const DUPLICATE_ROW_MARKER_CLASSES = [
+  'workbench-table-row--duplicate-1',
+  'workbench-table-row--duplicate-2',
+  'workbench-table-row--duplicate-3',
+  'workbench-table-row--duplicate-4',
+] as const
 
 
 export function workbenchReviewLabel(state: ReviewState): string {
@@ -108,6 +114,20 @@ function observationChangeClass(
   return Number.isFinite(value) && value >= 0 ? 'market-profit' : 'market-loss'
 }
 
+function stableGroupSignals(signals: WorkbenchSignal[]): WorkbenchSignal[] {
+  const groups = new Map<string, WorkbenchSignal[]>()
+  for (const signal of signals) {
+    const symbol = signal.candidate.symbol
+    const group = groups.get(symbol)
+    if (group) {
+      group.push(signal)
+    } else {
+      groups.set(symbol, [signal])
+    }
+  }
+  return [...groups.values()].flat()
+}
+
 export function WorkbenchSignalTable({
   signals,
   onOpen,
@@ -119,13 +139,28 @@ export function WorkbenchSignalTable({
   emptyMessage: string
   showObservationPerformance?: boolean
 }) {
-  return signals.length === 0 ? <p className="workbench-empty">{emptyMessage}</p> : (
+  const duplicateSymbolCounts = signals.reduce((counts, signal) => {
+    const symbol = signal.candidate.symbol
+    counts.set(symbol, (counts.get(symbol) ?? 0) + 1)
+    return counts
+  }, new Map<string, number>())
+  const duplicateSymbolMarkers = new Map<string, (typeof DUPLICATE_ROW_MARKER_CLASSES)[number]>()
+  if (showObservationPerformance) {
+    for (const signal of signals) {
+      const symbol = signal.candidate.symbol
+      if ((duplicateSymbolCounts.get(symbol) ?? 0) < 2 || duplicateSymbolMarkers.has(symbol)) continue
+      duplicateSymbolMarkers.set(symbol, DUPLICATE_ROW_MARKER_CLASSES[duplicateSymbolMarkers.size % DUPLICATE_ROW_MARKER_CLASSES.length])
+    }
+  }
+  const displaySignals = showObservationPerformance ? stableGroupSignals(signals) : signals
+  return displaySignals.length === 0 ? <p className="workbench-empty">{emptyMessage}</p> : (
     <div className={`workbench-table${showObservationPerformance ? ' workbench-table--watchlist' : ''}`} role="table" aria-label={showObservationPerformance ? '观察池列表' : '策略信号列表'}>
       <div className="workbench-table-header" role="row"><span>股票</span><span>策略</span><span>信号时间</span><span>行情</span>{showObservationPerformance && <span>观察期涨跌</span>}<span>人工判断</span><span>状态</span></div>
-      {signals.map((signal) => {
+      {displaySignals.map((signal) => {
         const observation = signal.observation_performance
+        const duplicateMarker = duplicateSymbolMarkers.get(signal.candidate.symbol)
         return (
-          <button type="button" className="workbench-table-row" role="row" key={signal.candidate.candidate_id} onClick={() => onOpen(signal.candidate.symbol, signal.candidate.candidate_id)}>
+          <button type="button" className={`workbench-table-row${duplicateMarker ? ` workbench-table-row--duplicate ${duplicateMarker}` : ''}`} role="row" key={signal.candidate.candidate_id} onClick={() => onOpen(signal.candidate.symbol, signal.candidate.candidate_id)}>
             <span className="workbench-stock-cell"><strong>{signal.candidate.symbol}</strong><small>{signal.candidate.name ?? '未提供名称'}</small></span>
             <span className="workbench-table-cell"><strong>{signal.batch.formula_name}</strong><small>{signal.batch.formula_version ?? '未版本化'}</small></span>
             <span className="workbench-table-cell"><strong>{signal.batch.selection_date}</strong><small>{formatManagementDate(signal.batch.exported_at)}</small></span>
@@ -254,7 +289,11 @@ export function WorkbenchWorkspace({
             setSignalTotal(nextSignals.total)
             setSummary(null)
           } else if (route === 'positions') {
-            setPositions(await requestJson<WorkbenchPositionView[]>(`${apiBase}/v1/workbench/positions`, signal))
+            const nextPositions = await requestJson<WorkbenchPositionView[]>(
+              `${apiBase}/v1/workbench/positions`,
+              signal,
+            )
+            setPositions(nextPositions)
           } else if (route === 'trades') {
             setTrades(await requestJson<WorkbenchTradeView[]>(`${apiBase}/v1/workbench/trades`, signal))
           } else if (route === 'strategies') {
