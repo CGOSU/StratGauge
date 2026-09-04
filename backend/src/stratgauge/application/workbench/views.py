@@ -78,6 +78,42 @@ class WorkbenchObservationPerformance(BaseModel):
     reason: str | None = None
 
 
+class WorkbenchObservationPerformancePoint(BaseModel):
+    """One approved-session percentage point in an observation cycle."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    session_date: date
+    status: MarketEvidenceStatus
+    market_snapshot_id: str | None = None
+    available_at: datetime | None = None
+    close: Decimal | None = None
+    daily_return: Decimal | None = None
+    cumulative_return: Decimal | None = None
+    reason: str | None = None
+
+
+class WorkbenchObservationPerformanceHistory(BaseModel):
+    """Read-only daily percentage performance for one candidate observation cycle."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    candidate_id: str
+    symbol: str
+    as_of: datetime
+    status: MarketEvidenceStatus
+    started_at: datetime | None = None
+    anchor_snapshot_id: str | None = None
+    anchor_session_date: date | None = None
+    anchor_available_at: datetime | None = None
+    anchor_close: Decimal | None = None
+    latest_session_date: date | None = None
+    latest_daily_return: Decimal | None = None
+    latest_cumulative_return: Decimal | None = None
+    points: tuple[WorkbenchObservationPerformancePoint, ...] = ()
+    reason: str | None = None
+
+
 class WorkbenchSignalView(BaseModel):
     """One immutable selection candidate projected as a strategy signal."""
 

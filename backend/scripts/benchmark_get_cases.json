@@ -150,6 +150,9 @@
       },
       "expected_status": 200
     },
+    "/v1/workbench/candidates/{candidate_id}/observation-performance": {
+      "skip_reason": "需要有效候选和当前连续观察周期；隔离测试数据根不创建候选。"
+    },
     "/v1/workbench/stocks/{symbol}/performance": {
       "skip_reason": "需要有效证券和当前活动持仓；隔离测试数据根不创建手工成交。"
     },

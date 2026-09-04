@@ -1,5 +1,13 @@
 # 会话记录
 
+### 2026-09-04 观察池候选逐交易日百分比表现与文档收口
+
+- 完成内容：新增候选级 `GET /v1/workbench/candidates/{candidate_id}/observation-performance` 只读投影和前端详情抽屉“观察表现”页签；分页观察池只保留摘要。实现按 candidate ID 与当前连续 `watch`/`prepare_buy` 周期隔离，`discard` 重置；仅读取本地 approved `market_daily` 和追加式人工事实，按 `as_of` 及上海时区证券日期过滤，缺失证据返回 `unavailable`/`incomplete`，不补零、不展示金额。为新增公开 GET 路由补充基准样例清单和路由数量回归，并修正跨上海日期边界的测试夹具。
+- 文档收口：更新 `docs/使用文档.md` 的 API、列表摘要、详情抽屉和逐日计算说明；更新 `docs/current-state.md`、`docs/decisions.md` 和本记录。新增的上海时区日期边界复发问题记录在 `docs/pitfalls.md`；`docs/系统规格说明.md` 的 6.4.3 已与实现一致，无需重复改写。
+- 实际验证：`cd backend; uv run ruff format --check .`（345 个文件已格式化）；`cd backend; uv run ruff check .`（通过）；`cd backend; PYTHONPATH=src uv run python -m unittest discover -s tests -t . -q`（439 项通过、1 项跳过）；`cd backend; uv run mypy`（346 个源文件无问题）；`cd frontend; corepack pnpm lint`（退出码 0、0 error、19 条既有 warning）；`cd frontend; corepack pnpm typecheck`（通过）；`cd frontend; corepack pnpm build`（通过）；`cd frontend; corepack pnpm exec playwright test tests/visual/workbench-manual-position.spec.ts --project=chromium --config=playwright.temp-4173.config.ts`（5 项通过，临时配置已删除）。默认 5173 端口因本机返回 `EACCES` 未能启动，4173 可监听后完成同等测试；`git diff --check` 通过，仅有 Windows LF/CRLF 转换提示。
+- 遗留问题：完整前端视觉回归仍有既有主板行情同步 completed/partial 截图基线差异；真实 provider、训练和模型链仍需既有人工授权与数据准备。未写入 `backend/data`，未执行 commit/push。
+
+
 ### 2026-09-03 观察池重复证券稳定连续分组
 
 - 完成内容：观察池在既有整体排序和筛选结果之后，按证券首次出现顺序进行稳定分组，使相同证券连续显示；组内保留原记录顺序。既有重复证券颜色左边框标记逻辑保持不变，未改变分页、点击、交易语义或证券代码排序规则。

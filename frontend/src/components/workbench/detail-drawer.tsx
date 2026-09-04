@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ExternalLink, X } from 'lucide-react'
 import { requestJson } from '@/api/client'
+import { ObservationPerformancePanel } from '@/components/workbench/observation-performance'
 import { StockPerformancePanel } from '@/components/workbench/stock-performance'
 import { manualSellReasonLabels } from '@/api/contracts'
 import type { Exchange, ManualFill, ManualOrder, ManualPositionTrackingCase, ManualSellReason, PortfolioReview } from '@/api/contracts'
@@ -545,6 +546,9 @@ export function StockDetailDrawer({
   const signal = detail.source === 'mixed' && selectedCandidateId === null ? null : candidateSignal ?? null
   const source = detail.source ?? (hasStrategySignals ? 'signal' : 'manual_discovery')
   const chartUrl = xueqiuDailyChartUrl(detail.symbol)
+  const hasCurrentObservation = selectedCandidateId !== null
+    && candidateSignal !== undefined
+    && (candidateSignal.review_state === 'watching' || candidateSignal.review_state === 'preparing')
 
   useEffect(() => {
     setTab('market')
@@ -573,6 +577,7 @@ export function StockDetailDrawer({
           {([
             ['market', '行情'],
             ...(hasActivePosition ? [['performance', '表现'] as [StockDrawerTab, string]] : []),
+            ...(hasCurrentObservation ? [['observation', '观察表现'] as [StockDrawerTab, string]] : []),
             ...(hasManualSource ? [['tracking', '跟踪'] as [StockDrawerTab, string]] : []),
             ...(hasStrategySignals ? [
               ['judgment', '判断'] as [StockDrawerTab, string],
@@ -596,6 +601,14 @@ export function StockDetailDrawer({
           )}
           {tab === 'performance' && hasActivePosition && (
             <StockPerformancePanel key={detail.symbol} apiBase={apiBase} symbol={detail.symbol} />
+          )}
+          {tab === 'observation' && hasCurrentObservation && selectedCandidateId && (
+            <ObservationPerformancePanel
+              key={selectedCandidateId}
+              apiBase={apiBase}
+              candidateId={selectedCandidateId}
+              asOf={detail.as_of}
+            />
           )}
           {tab === 'tracking' && hasManualSource && (
             <WorkbenchTrackingPanel apiBase={apiBase} detail={detail} onSaved={onTradeSaved} />

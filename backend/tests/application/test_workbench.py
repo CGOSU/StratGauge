@@ -138,6 +138,104 @@ class WorkbenchApplicationTests(unittest.TestCase):
             self.assertEqual(observation.start_close, Decimal("20"))
             self.assertEqual(observation.change_percent, Decimal("0.1"))
 
+    def test_observation_performance_returns_daily_percentages_without_crossing_gaps(self) -> None:
+        with TemporaryDirectory() as directory:
+            selection_store = SelectionImportStore(directory)
+            raw_content = b"code,name,market\n000001,Ping,SZ\n"
+            imported = import_tdx_export(
+                raw_content,
+                selection_date=date(2026, 1, 5),
+                exported_at=datetime(2026, 1, 5, 15, tzinfo=UTC),
+                imported_at=datetime(2026, 1, 5, 16, tzinfo=UTC),
+                formula_name="趋势选股",
+            )
+            selection_store.write(raw_content, imported)
+            candidate = imported.candidates[0]
+            for reviewed_at, decision in (
+                (datetime(2026, 1, 5, 10, tzinfo=UTC), "discard"),
+                (datetime(2026, 1, 10, 10, tzinfo=UTC), "watch"),
+                (datetime(2026, 1, 13, 10, tzinfo=UTC), "discard"),
+            ):
+                selection_store.write_annotation(
+                    imported.batch.batch_id,
+                    _annotation(candidate.candidate_id, decision, reviewed_at=reviewed_at),
+                )
+            market_store = SnapshotStore(f"{directory}/market")
+            _write_approved_market_bar(
+                market_store,
+                symbol=candidate.symbol,
+                local_code=candidate.local_code,
+                session_date=date(2026, 1, 9),
+                security_id=f"security-{candidate.symbol}",
+                close=Decimal("20"),
+                available_at=datetime(2026, 1, 9, 16, tzinfo=UTC),
+            )
+            _write_approved_market_bar(
+                market_store,
+                symbol=candidate.symbol,
+                local_code=candidate.local_code,
+                session_date=date(2026, 1, 10),
+                security_id=f"security-{candidate.symbol}",
+                close=Decimal("21"),
+                available_at=datetime(2026, 1, 10, 16, tzinfo=UTC),
+            )
+            _write_approved_market_bar(
+                market_store,
+                symbol="000002.SZ",
+                local_code="000002",
+                session_date=date(2026, 1, 11),
+                security_id="security-000002.SZ",
+                close=Decimal("10"),
+                available_at=datetime(2026, 1, 11, 16, tzinfo=UTC),
+            )
+            _write_approved_market_bar(
+                market_store,
+                symbol=candidate.symbol,
+                local_code=candidate.local_code,
+                session_date=date(2026, 1, 12),
+                security_id=f"security-{candidate.symbol}",
+                close=Decimal("22"),
+                available_at=datetime(2026, 1, 12, 16, tzinfo=UTC),
+            )
+            _write_approved_market_bar(
+                market_store,
+                symbol=candidate.symbol,
+                local_code=candidate.local_code,
+                session_date=date(2026, 1, 14),
+                security_id=f"security-{candidate.symbol}",
+                close=Decimal("23"),
+                available_at=datetime(2026, 1, 14, 16, tzinfo=UTC),
+            )
+            service = WorkbenchService(
+                selection_store,
+                ManualPortfolioStore(directory),
+                market_store,
+            )
+
+            performance = service.observation_performance(
+                candidate.candidate_id,
+                as_of=datetime(2026, 1, 12, 18, tzinfo=UTC),
+            )
+
+            self.assertEqual(performance.status, MarketEvidenceStatus.INCOMPLETE)
+            self.assertEqual(performance.started_at, datetime(2026, 1, 10, 10, tzinfo=UTC))
+            self.assertEqual(performance.anchor_session_date, date(2026, 1, 9))
+            self.assertEqual(performance.anchor_close, Decimal("20"))
+            self.assertEqual(performance.latest_session_date, date(2026, 1, 12))
+            self.assertEqual(performance.latest_daily_return, None)
+            self.assertEqual(performance.latest_cumulative_return, Decimal("0.1"))
+            points = {point.session_date: point for point in performance.points}
+            self.assertEqual(points[date(2026, 1, 9)].cumulative_return, Decimal("0"))
+            self.assertIsNone(points[date(2026, 1, 9)].daily_return)
+            self.assertEqual(points[date(2026, 1, 10)].daily_return, Decimal("0.05"))
+            self.assertEqual(points[date(2026, 1, 10)].cumulative_return, Decimal("0.05"))
+            self.assertEqual(points[date(2026, 1, 11)].status, MarketEvidenceStatus.INCOMPLETE)
+            self.assertIsNone(points[date(2026, 1, 11)].close)
+            self.assertEqual(points[date(2026, 1, 12)].status, MarketEvidenceStatus.INCOMPLETE)
+            self.assertIsNone(points[date(2026, 1, 12)].daily_return)
+            self.assertEqual(points[date(2026, 1, 12)].cumulative_return, Decimal("0.1"))
+            self.assertNotIn(date(2026, 1, 14), points)
+
     def test_watchlist_observation_performance_does_not_fill_late_anchor_with_zero(self) -> None:
         with TemporaryDirectory() as directory:
             selection_store = SelectionImportStore(directory)

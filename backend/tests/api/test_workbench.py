@@ -56,7 +56,7 @@ class WorkbenchApiTests(unittest.TestCase):
 
             signals = client.get(
                 "/v1/workbench/daily-signals",
-                params={"as_of": "2026-01-05T18:00:00+00:00"},
+                params={"as_of": "2030-01-05T18:00:00+00:00"},
             )
             self.assertEqual(signals.status_code, 200)
             self.assertEqual(signals.json()[0]["review_state"], "watching")
@@ -64,7 +64,7 @@ class WorkbenchApiTests(unittest.TestCase):
 
             paged_signals = client.get(
                 "/v1/workbench/daily-signals/page",
-                params={"page": 1, "page_size": 1, "as_of": "2026-01-05T18:00:00+00:00"},
+                params={"page": 1, "page_size": 1, "as_of": "2030-01-05T18:00:00+00:00"},
             )
             self.assertEqual(paged_signals.status_code, 200)
             self.assertEqual(paged_signals.json()["total"], 1)
@@ -73,13 +73,13 @@ class WorkbenchApiTests(unittest.TestCase):
 
             watchlist = client.get(
                 "/v1/workbench/watchlist",
-                params={"as_of": "2026-01-05T18:00:00+00:00"},
+                params={"as_of": "2030-01-05T18:00:00+00:00"},
             )
             self.assertEqual(watchlist.status_code, 200)
             self.assertEqual(len(watchlist.json()), 1)
             paged_watchlist = client.get(
                 "/v1/workbench/watchlist/page",
-                params={"page": 1, "page_size": 1, "as_of": "2026-01-05T18:00:00+00:00"},
+                params={"page": 1, "page_size": 1, "as_of": "2030-01-05T18:00:00+00:00"},
             )
             self.assertEqual(paged_watchlist.status_code, 200)
             self.assertEqual(paged_watchlist.json()["total"], 1)
@@ -89,16 +89,25 @@ class WorkbenchApiTests(unittest.TestCase):
             self.assertEqual(observation["started_at"], "2026-01-05T15:10:00+08:00")
             self.assertIsNone(observation["change_percent"])
 
+            observation_history = client.get(
+                f"/v1/workbench/candidates/{candidate_id}/observation-performance",
+                params={"as_of": "2030-01-05T18:00:00+00:00"},
+            )
+            self.assertEqual(observation_history.status_code, 200)
+            self.assertEqual(observation_history.json()["candidate_id"], candidate_id)
+            self.assertEqual(observation_history.json()["status"], "unavailable")
+            self.assertFalse(any("amount" in key for key in observation_history.json()))
+
             summary = client.get(
                 "/v1/workbench/summary",
-                params={"as_of": "2026-01-05T18:00:00+00:00"},
+                params={"as_of": "2030-01-05T18:00:00+00:00"},
             )
             self.assertEqual(summary.status_code, 200)
             self.assertEqual(summary.json()["watching_count"], 1)
 
             detail = client.get(
                 "/v1/workbench/stocks/000001.SZ",
-                params={"as_of": "2026-01-05T18:00:00+00:00"},
+                params={"as_of": "2030-01-05T18:00:00+00:00"},
             )
             self.assertEqual(detail.status_code, 200)
             self.assertEqual(detail.json()["timeline"][0]["event_type"], "signal")

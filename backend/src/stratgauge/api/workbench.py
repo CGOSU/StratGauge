@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from stratgauge.application.workbench import (
     WorkbenchAnalyticsView,
+    WorkbenchObservationPerformanceHistory,
     WorkbenchPositionView,
     WorkbenchService,
     WorkbenchSignalView,
@@ -100,6 +101,16 @@ def create_workbench_router(service: WorkbenchService) -> APIRouter:
             page_size=page_size,
         )
         return _page(items, page, page_size, total=total)
+
+    @router.get(
+        "/candidates/{candidate_id}/observation-performance",
+        response_model=WorkbenchObservationPerformanceHistory,
+    )
+    def get_observation_performance(
+        candidate_id: str,
+        as_of: datetime | None = None,
+    ) -> WorkbenchObservationPerformanceHistory:
+        return service.observation_performance(candidate_id, as_of=as_of)
 
     @router.get("/strategies", response_model=tuple[WorkbenchStrategyView, ...])
     def list_strategies(as_of: datetime | None = None) -> tuple[WorkbenchStrategyView, ...]:

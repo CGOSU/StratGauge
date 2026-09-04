@@ -150,7 +150,73 @@ const duplicateWatchlistSignals = [
   watchlistSignal('watch-e', 'batch-e', '600000.SH', '浦发银行', '2026-08-24', '趋势五'),
 ]
 
-async function installMocks(page: Page, { withPosition = true, withDuplicateWatchlist = false }: { withPosition?: boolean; withDuplicateWatchlist?: boolean } = {}) {
+const observationWatchlistSignal = {
+  ...watchlistSignal('watch-observation', 'batch-observation', '000001.SZ', '平安银行', '2026-08-28', '观察趋势'),
+  observation_performance: {
+    status: 'available',
+    started_at: '2026-08-27T10:00:00+08:00',
+    start_snapshot_id: 'snapshot-observation-anchor',
+    start_session_date: '2026-08-27',
+    start_available_at: '2026-08-27T16:00:00+08:00',
+    start_close: '10.00',
+    change_percent: '0.05',
+    reason: null,
+  },
+}
+
+const observationPerformance = {
+  candidate_id: 'watch-observation',
+  symbol: '000001.SZ',
+  as_of: '2026-08-31T18:00:00+08:00',
+  status: 'available',
+  started_at: '2026-08-27T10:00:00+08:00',
+  anchor_snapshot_id: 'snapshot-observation-anchor',
+  anchor_session_date: '2026-08-27',
+  anchor_available_at: '2026-08-27T16:00:00+08:00',
+  anchor_close: '10.00',
+  latest_session_date: '2026-08-28',
+  latest_daily_return: '0.02',
+  latest_cumulative_return: '0.05',
+  reason: null,
+  points: [
+    {
+      session_date: '2026-08-27',
+      status: 'available',
+      market_snapshot_id: 'snapshot-observation-anchor',
+      available_at: '2026-08-27T16:00:00+08:00',
+      close: '10.00',
+      daily_return: null,
+      cumulative_return: '0',
+      reason: null,
+    },
+    {
+      session_date: '2026-08-28',
+      status: 'available',
+      market_snapshot_id: 'snapshot-observation-latest',
+      available_at: '2026-08-28T16:00:00+08:00',
+      close: '10.50',
+      daily_return: '0.02',
+      cumulative_return: '0.05',
+      reason: null,
+    },
+  ],
+}
+
+function observationWatchlistDetail() {
+  return {
+    symbol: '000001.SZ',
+    name: '平安银行',
+    as_of: '2026-08-31T18:00:00+08:00',
+    source: 'signal',
+    market,
+    position: null,
+    tracking_cases: [],
+    signals: [observationWatchlistSignal],
+    timeline: [],
+  }
+}
+
+async function installMocks(page: Page, { withPosition = true, withDuplicateWatchlist = false, withObservationWatchlist = false }: { withPosition?: boolean; withDuplicateWatchlist?: boolean; withObservationWatchlist?: boolean } = {}) {
   let enrolled = false
   let tradeBody: Record<string, unknown> | null = null
   let reviewBody: Record<string, unknown> | null = null
@@ -197,11 +263,35 @@ async function installMocks(page: Page, { withPosition = true, withDuplicateWatc
       })
       return
     }
+    if (path === '/api/v1/workbench/watchlist/page' && method === 'GET' && withObservationWatchlist) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [observationWatchlistSignal], page: 1, page_size: 50, total: 1, has_next: false }),
+      })
+      return
+    }
     if (path === '/api/v1/workbench/watchlist/page' && method === 'GET' && withDuplicateWatchlist) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ items: duplicateWatchlistSignals, page: 1, page_size: 50, total: duplicateWatchlistSignals.length, has_next: false }),
+      })
+      return
+    }
+    if (path === '/api/v1/workbench/candidates/watch-observation/observation-performance' && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(observationPerformance),
+      })
+      return
+    }
+    if (path === '/api/v1/workbench/stocks/000001.SZ' && method === 'GET' && withObservationWatchlist) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(observationWatchlistDetail()),
       })
       return
     }
@@ -343,6 +433,31 @@ test('观察池同页重复股票连续分组并保持相同的左侧颜色标�
   expect(markers[0].color).toBe(markers[1].color)
   expect(markers[2].color).toBe(markers[3].color)
   expect(markers[0].color).not.toBe(markers[2].color)
+})
+
+test('观察池详情按候选展示逐交易日百分比表现', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await installMocks(page, { withObservationWatchlist: true })
+  await page.goto('/')
+  await page.getByRole('button', { name: '观察池', exact: true }).click()
+  await page.locator('.workbench-table--watchlist .workbench-table-row').click()
+
+  const drawer = page.getByRole('dialog', { name: '000001.SZ 股票详情' })
+  await expect(drawer.getByRole('button', { name: '观察表现', exact: true })).toBeVisible()
+  await drawer.getByRole('button', { name: '观察表现', exact: true }).click()
+  await expect(drawer.getByRole('heading', { name: '观察期每日涨跌幅', exact: true })).toBeVisible()
+  await expect(drawer.getByRole('table', { name: '观察期逐交易日百分比明细' })).toBeVisible()
+  await expect(drawer.getByText('5.00%', { exact: true }).first()).toBeVisible()
+  await expect(
+    drawer.getByLabel('观察期百分比表现摘要').getByText('观察期累计涨跌幅', { exact: true }),
+  ).toBeVisible()
+  await expect(drawer.getByText(/金额/)).toHaveCount(0)
+
+  const dimensions = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth)
 })
 
 test('手工持仓详情可纳入跟踪并按案例提交卖出', async ({ page }) => {

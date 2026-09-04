@@ -20,6 +20,9 @@ from stratgauge.application.workbench.helpers import (
     _review_state,
     _stock_source,
 )
+from stratgauge.application.workbench.observation_performance import (
+    build_observation_performance_history,
+)
 from stratgauge.application.workbench.stock_performance import (
     SHANGHAI,
     StockPerformanceError,
@@ -30,6 +33,7 @@ from stratgauge.application.workbench.views import (
     MarketEvidenceStatus,
     WorkbenchAnalyticsView,
     WorkbenchObservationPerformance,
+    WorkbenchObservationPerformanceHistory,
     WorkbenchPositionView,
     WorkbenchReadError,
     WorkbenchSignalView,
@@ -190,6 +194,38 @@ class WorkbenchService:
             len(projections),
         )
 
+    def observation_performance(
+        self,
+        candidate_id: str,
+        *,
+        as_of: datetime | None = None,
+    ) -> WorkbenchObservationPerformanceHistory:
+        visible_at = _require_aware(as_of)
+        projections = self._list_signal_projections(as_of=visible_at)
+        projection = next(
+            (item for item in projections if item.candidate.candidate_id == candidate_id.strip()),
+            None,
+        )
+        if projection is None:
+            raise WorkbenchReadError(
+                "WORKBENCH_CANDIDATE_NOT_FOUND",
+                "没有找到该候选的当前可见策略证据。",
+                404,
+            )
+        market_bars, session_dates, invalid_snapshot_ids = self._observation_market_history(
+            projection.candidate.symbol,
+            as_of=visible_at,
+        )
+        return build_observation_performance_history(
+            candidate_id=projection.candidate.candidate_id,
+            symbol=projection.candidate.symbol,
+            started_at=projection.observation_started_at,
+            as_of=visible_at,
+            market_bars=market_bars,
+            market_session_dates=session_dates,
+            invalid_snapshot_ids=invalid_snapshot_ids,
+        )
+
     def summary(
         self,
         *,
@@ -203,7 +239,8 @@ class WorkbenchService:
             include_excluded=True,
         )
         orders, fills = self._portfolio_evidence()
-        fill_ids_by_candidate = _confirmed_buy_fill_ids(orders, fills)
+        visible_fills = tuple(fill for fill in fills if fill.filled_at <= visible_at)
+        fill_ids_by_candidate = _confirmed_buy_fill_ids(orders, visible_fills)
         unreviewed = sum(
             projection.review_state is SelectionCandidateReviewState.UNREVIEWED
             for projection in projections
@@ -266,8 +303,16 @@ class WorkbenchService:
             )
             projections: list[_SignalProjection] = []
             for batch, candidate in candidates:
-                annotations = annotations_by_candidate.get(candidate.candidate_id, ())
-                exclusions = exclusions_by_candidate.get(candidate.candidate_id, ())
+                annotations = tuple(
+                    annotation
+                    for annotation in annotations_by_candidate.get(candidate.candidate_id, ())
+                    if annotation.recorded_at <= as_of and annotation.reviewed_at <= as_of
+                )
+                exclusions = tuple(
+                    exclusion
+                    for exclusion in exclusions_by_candidate.get(candidate.candidate_id, ())
+                    if exclusion.recorded_at <= as_of and exclusion.excluded_at <= as_of
+                )
                 latest_annotation = annotations[-1] if annotations else None
                 latest_exclusion = exclusions[-1] if exclusions else None
                 projection = _SignalProjection(
@@ -314,7 +359,8 @@ class WorkbenchService:
             as_of=as_of,
         )
         orders, fills = self._portfolio_evidence()
-        fill_ids_by_candidate = _confirmed_buy_fill_ids(orders, fills)
+        visible_fills = tuple(fill for fill in fills if fill.filled_at <= as_of)
+        fill_ids_by_candidate = _confirmed_buy_fill_ids(orders, visible_fills)
         return (
             tuple(
                 projection
@@ -343,6 +389,7 @@ class WorkbenchService:
             return ()
         if orders is None or fills is None:
             orders, fills = self._portfolio_evidence()
+        fills = tuple(fill for fill in fills if fill.filled_at <= as_of)
         candidate_ids = tuple(projection.candidate.candidate_id for projection in projections)
         try:
             labels_by_candidate = self._selection_store.list_labels_for_candidates(candidate_ids)
@@ -712,6 +759,47 @@ class WorkbenchService:
         except (SelectionStoreError, PortfolioStoreError) as exc:
             raise WorkbenchReadError("WORKBENCH_READ_FAILED", str(exc)) from exc
 
+    def _observation_market_history(
+        self,
+        symbol: str,
+        *,
+        as_of: datetime,
+    ) -> tuple[dict[date, tuple[str, DailyBar]], set[date], tuple[str, ...]]:
+        visible_date = as_of.astimezone(SHANGHAI).date()
+        try:
+            manifests = tuple(
+                sorted(
+                    (
+                        manifest
+                        for manifest in self._market_store.list_manifests(SnapshotStatus.APPROVED)
+                        if manifest.request_kind == "market_daily"
+                        and manifest.start_date <= visible_date
+                    ),
+                    key=lambda item: (item.end_date, item.created_at, item.snapshot_id),
+                    reverse=True,
+                )
+            )
+        except (SnapshotStoreError, OSError) as exc:
+            raise WorkbenchReadError("WORKBENCH_MARKET_READ_FAILED", str(exc)) from exc
+        market_bars: dict[date, tuple[str, DailyBar]] = {}
+        session_dates: set[date] = set()
+        invalid_snapshot_ids: list[str] = []
+        for manifest in manifests:
+            if manifest.start_date == manifest.end_date:
+                session_dates.add(manifest.start_date)
+            try:
+                bars = self._market_store.load_bars(manifest.snapshot_id, symbols=(symbol,))
+            except SnapshotStoreError:
+                invalid_snapshot_ids.append(manifest.snapshot_id)
+                continue
+            for bar in bars:
+                if bar.symbol != symbol or bar.session_date > visible_date:
+                    continue
+                session_dates.add(bar.session_date)
+                if bar.available_at <= as_of:
+                    market_bars.setdefault(bar.session_date, (manifest.snapshot_id, bar))
+        return market_bars, session_dates, tuple(sorted(set(invalid_snapshot_ids)))
+
     def _market_evidence(self, symbol: str, as_of: datetime) -> MarketEvidence:
         return self._market_evidence_for_symbols((symbol,), as_of)[symbol]
 
@@ -764,7 +852,8 @@ class WorkbenchService:
             manifests = tuple(
                 manifest
                 for manifest in self._market_store.list_manifests(SnapshotStatus.APPROVED)
-                if manifest.request_kind == "market_daily" and manifest.end_date <= as_of.date()
+                if manifest.request_kind == "market_daily"
+                and manifest.start_date <= as_of.astimezone(SHANGHAI).date()
             )
         except (SnapshotStoreError, OSError) as exc:
             raise WorkbenchReadError("WORKBENCH_MARKET_READ_FAILED", str(exc)) from exc
@@ -795,7 +884,10 @@ class WorkbenchService:
                 if bar.symbol not in requested_set:
                     continue
                 if bar.symbol not in market_by_symbol:
-                    if bar.session_date <= as_of.date() and bar.available_at <= as_of:
+                    if (
+                        bar.session_date <= as_of.astimezone(SHANGHAI).date()
+                        and bar.available_at <= as_of
+                    ):
                         market_by_symbol[bar.symbol] = _available_market_evidence(
                             manifest.snapshot_id,
                             bar,

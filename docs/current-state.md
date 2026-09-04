@@ -19,7 +19,7 @@
 - 已建立 `backend/` Python 工程、Pydantic 领域模型、Tushare/BaoStock/AKShare/歪枣网统一适配器契约、Tushare `stock_basic`/`trade_cal` 参考数据快照、DuckDB 清单索引、内容寻址 JSON/Parquet 快照、质量门、安全策略 AST、下一交易日回测和股票分析 API；另有带 API 健康状态的最小 React/Vite 前端外壳。默认测试不访问网络；真实验证脚本位于 `backend/scripts/verify_live_adapters.py`。
 - 已实现通达信半手动选股首个可验证切片：`tdx_import.py` 支持 UTF-8/GB18030 的 CSV、TSV、分号分隔文件、通达信 `.EBK` 市场前缀格式和通达信行情表 `.txt`；批次记录公式、原始文件名和文件哈希；原始导出和解析结果不可变保存；人工标签和客观结果追加保存；`selection_outcomes.py` 支持明确固定持有期、政策指纹和名义金额的客观结果计算；`selection_stats.py` 按候选/追踪政策取最新结果并分离完成、未入场和未解决样本；FastAPI 候选队列、统计、一次性成熟和成熟任务接口，以及 React 导入、标注、统计、成熟任务状态和数据管理控制已接入。
 - 歪枣网适配器支持按证券代码获取不复权日线，使用 `WAIZAO_TOKEN` 环境变量；`code=all` 当前 Token 无权限。成交量已从手转换为股，原始响应仍保留供应商字段。成交量和成交额交叉比较允许 0.001% 相对容差以覆盖供应商取整。
-- 工作台观察池现返回并展示当前连续 `watch`/`prepare_buy` 周期首条 `reviewed_at` 到最新批准收盘价的累计涨跌幅；仅消费 approved `market_daily` 快照，起点和最新行情均受 `available_at <= as_of` 约束。缺少或时间不可见的证据显示 `unavailable`/`incomplete` 原因，不补零。
+- 工作台观察池分页列表现保留轻量 `observation_performance` 摘要；详情抽屉保留被点击的 `candidate_id`，对当前 `watch`/`prepare_buy` 候选按需调用 `GET /v1/workbench/candidates/{candidate_id}/observation-performance`，展示观察锚点、逐交易日收盘价证据、日涨跌幅和观察期累计涨跌幅。周期按 candidate ID 与连续状态段隔离，`discard` 重置；仅消费本地 approved `market_daily`，按上海时区日期和 `as_of` 过滤，缺失证据显示 `unavailable`/`incomplete` 及原因，不补零或显示金额。
 - 股票详情抽屉现提供规范化 `CODE.EXCHANGE` 到雪球 `EXCHANGE+CODE` 的日线 K 线外链；例如 `000788.SZ` 映射为 `https://xueqiu.com/S/SZ000788`。该链接只读、在新标签页打开，不发起应用内行情请求。
 - 工作台从信号行打开股票详情时会保留被点击的 `candidate_id`；同一证券出现在多个批次时，人工评审和交易写入对应的批次候选，不再固定操作详情中的第一条信号。
 - 观察池同一页出现重复证券时，重复行左侧显示相同颜色的粗边框标记；只对当前观察池页面内重复的标准化证券代码标记，不改变筛选、排序或交易语义。
@@ -46,6 +46,8 @@
 - 研究基础已增加 Tushare 股票列表/交易日历同步、BaoStock + AKShare 备用交易日历交叉校验、交易日历增量缓存、时间点股票池快照、证券主数据快照、`/v1/universe/securities` 与 `/v1/universe/master` 搜索、内容寻址理论回测报告、策略生命周期审计，以及手工订单/成交/持仓/复盘 API；趋势交易 A1 买入规则、A2 胜负/成本规则、B1/B2 全市场增量行情及多日编排、C1 交易日历缓存、C2/C2.1 复权因子同步与历史批量补齐、显式前复权特征输入、C3 已批准行情自动成熟队列以及条件胜率和买入价分析查询已完成；分析查询严格按公式、追踪政策和批次导出时间点筛选历史证据。
 
 ## 最近一次更新
+
+- 2026-09-04 完成观察池候选级逐交易日百分比表现：新增按需 `GET /v1/workbench/candidates/{candidate_id}/observation-performance` 和详情抽屉“观察表现”页签；分页列表只保留摘要，按候选/连续周期隔离，严格按 `as_of` 与上海时区过滤 approved `market_daily`，不写每日记录、不访问 provider、不展示金额。后端完整测试 439 项通过、1 项跳过，Ruff/MyPy 通过；前端 typecheck、build、lint（0 error，19 条既有 warning）通过；定向 Playwright 使用可监听的 4173 临时端口 5 项通过，默认 5173 仍受本机 EACCES 限制；`git diff --check` 通过；未执行 commit/push。
 
 - 2026-09-03 观察池重复证券稳定连续分组：在既有整体排序和筛选结果之后，按证券首次出现顺序将相同证券连续显示，组内保留原记录顺序；既有颜色标记、分页、点击和交易语义不变。前端 typecheck、lint、build 通过，定向 Playwright 4 项通过；未执行 commit/push。
 
