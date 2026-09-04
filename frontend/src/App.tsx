@@ -13,7 +13,7 @@ import type { AppRoute, HealthState, WorkbenchRoute, Workspace } from '@/types'
 
 function App() {
   const [workspace, setWorkspace] = useState<Workspace>('research')
-  const [activeRoute, setActiveRoute] = useState<AppRoute>('workbench')
+  const [activeRoute, setActiveRoute] = useState<AppRoute>('signals')
   const [healthState, setHealthState] = useState<HealthState>('checking')
 
   useEffect(() => {

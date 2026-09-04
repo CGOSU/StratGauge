@@ -151,7 +151,8 @@ async function installMocks(page: Page) {
 test('点击同一股票的未判断信号时，判断保存到被点击的候选', async ({ page }) => {
   const state = await installMocks(page)
   await page.goto('/')
-  await page.getByRole('button', { name: '策略信号', exact: true }).click()
+  await expect(page.getByRole('button', { name: '策略信号', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('button', { name: '工作台', exact: true })).toHaveCount(0)
   await expect(page.getByLabel('策略信号工作区').getByRole('heading', { name: '策略信号', exact: true })).toBeVisible()
   await expect(page.getByText('最新行情：2026-08-28 收盘')).toBeVisible()
 

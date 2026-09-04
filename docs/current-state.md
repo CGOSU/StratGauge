@@ -12,6 +12,7 @@
 - 已确认前端视觉优化需求：恢复相邻操作按钮之间的可见间距，并审查相似操作区在桌面/窄屏下的换行、对齐和横向溢出体验；本轮仅调整前端呈现，不改变 API、数据、任务调度、交易语义、键盘访问或按钮可用性。
 - 已实现观察池重复证券排序修正：同一页内的相同证券按首次出现顺序稳定连续分组，组内保留原有记录顺序，不按代码重排，也不改变筛选、分页、交易语义和既有颜色标记。
 - 已实现单证券持仓表现：持仓页不展示组合级金额净盈亏走势。用户点击当前持仓后，在既有股票详情二级抽屉的“表现”标签中查看该证券独立的历史净收益率走势、百分比摘要、估值日明细和行情证据；只使用该证券已确认成交、`ManualFill` 已记录的佣金/印花税及本地 approved `market_daily` 快照，按 `as_of` 过滤。缺少可见行情时显示明确证据状态和原因，百分比保持为空，不补零、旧价或猜测值。
+- 已确认删除独立“工作台”导航/页面，并将“策略信号”设为默认首页：两者原本共用汇总、策略信号分页、筛选、排序、股票详情、人工评审和交易链路；删除仅针对前端独立入口及其待办队列呈现，不删除共享 `/v1/workbench/*` API、策略信号现有能力或观察池、持仓、交易记录、策略和分析等其他研究路由。
 
 ## 已知状态
 
@@ -19,12 +20,12 @@
 - 已建立 `backend/` Python 工程、Pydantic 领域模型、Tushare/BaoStock/AKShare/歪枣网统一适配器契约、Tushare `stock_basic`/`trade_cal` 参考数据快照、DuckDB 清单索引、内容寻址 JSON/Parquet 快照、质量门、安全策略 AST、下一交易日回测和股票分析 API；另有带 API 健康状态的最小 React/Vite 前端外壳。默认测试不访问网络；真实验证脚本位于 `backend/scripts/verify_live_adapters.py`。
 - 已实现通达信半手动选股首个可验证切片：`tdx_import.py` 支持 UTF-8/GB18030 的 CSV、TSV、分号分隔文件、通达信 `.EBK` 市场前缀格式和通达信行情表 `.txt`；批次记录公式、原始文件名和文件哈希；原始导出和解析结果不可变保存；人工标签和客观结果追加保存；`selection_outcomes.py` 支持明确固定持有期、政策指纹和名义金额的客观结果计算；`selection_stats.py` 按候选/追踪政策取最新结果并分离完成、未入场和未解决样本；FastAPI 候选队列、统计、一次性成熟和成熟任务接口，以及 React 导入、标注、统计、成熟任务状态和数据管理控制已接入。
 - 歪枣网适配器支持按证券代码获取不复权日线，使用 `WAIZAO_TOKEN` 环境变量；`code=all` 当前 Token 无权限。成交量已从手转换为股，原始响应仍保留供应商字段。成交量和成交额交叉比较允许 0.001% 相对容差以覆盖供应商取整。
-- 工作台观察池分页列表现保留轻量 `observation_performance` 摘要；详情抽屉保留被点击的 `candidate_id`，对当前 `watch`/`prepare_buy` 候选按需调用 `GET /v1/workbench/candidates/{candidate_id}/observation-performance`，展示观察锚点、逐交易日收盘价证据、日涨跌幅和观察期累计涨跌幅，并用原生 SVG 绘制累计涨跌幅折线，摘要同时显示可用累计比例中的最高涨幅、最大跌幅及日期，数据点支持悬停和键盘聚焦查看日期与基本行情。周期按 candidate ID 与连续状态段隔离，`discard` 重置；仅消费本地 approved `market_daily`，按上海时区日期和 `as_of` 过滤，缺失证据显示 `unavailable`/`incomplete` 及原因，不补零或显示金额。
+- 观察池分页列表现保留轻量 `observation_performance` 摘要；详情抽屉保留被点击的 `candidate_id`，对当前 `watch`/`prepare_buy` 候选按需调用 `GET /v1/workbench/candidates/{candidate_id}/observation-performance`，展示观察锚点、逐交易日收盘价证据、日涨跌幅和观察期累计涨跌幅，并用原生 SVG 绘制累计涨跌幅折线，摘要同时显示可用累计比例中的最高涨幅、最大跌幅及日期，数据点支持悬停和键盘聚焦查看日期与基本行情。周期按 candidate ID 与连续状态段隔离，`discard` 重置；仅消费本地 approved `market_daily`，按上海时区日期和 `as_of` 过滤，缺失证据显示 `unavailable`/`incomplete` 及原因，不补零或显示金额。
 - 股票详情抽屉现提供规范化 `CODE.EXCHANGE` 到雪球 `EXCHANGE+CODE` 的日线 K 线外链；例如 `000788.SZ` 映射为 `https://xueqiu.com/S/SZ000788`。该链接只读、在新标签页打开，不发起应用内行情请求。
-- 工作台从信号行打开股票详情时会保留被点击的 `candidate_id`；同一证券出现在多个批次时，人工评审和交易写入对应的批次候选，不再固定操作详情中的第一条信号。
+- 策略信号页面从信号行打开股票详情时会保留被点击的 `candidate_id`；同一证券出现在多个批次时，人工评审和交易写入对应的批次候选，不再固定操作详情中的第一条信号。
 - 观察池同一页出现重复证券时，重复行左侧显示相同颜色的粗边框标记；只对当前观察池页面内重复的标准化证券代码标记，不改变筛选、排序或交易语义。
-- 当前持仓详情抽屉的“表现”标签按需调用 `GET /v1/workbench/stocks/{symbol}/performance`；无活动持仓不提供该入口。面板用原生 SVG 绘制累计净收益率，数据点支持悬停和键盘聚焦查看估值日、approved 行情收盘价、日净收益率和累计净收益率，并以语义摘要、估值日表格和行情快照/缺失原因作为并列证据；持仓表现点的 `close` 为可空只读字段。
-- 手工台账、手工持仓跟踪和手工研究候选保持三条边界：新手工确认买入自动进入 `manual-position-tracking-v1` 跟踪案例，历史持仓必须显式登记且不倒填；手工跟踪 evidence 通过独立 `manual-position-tracking-dataset-v1` 导出，手工研究候选仍按 `SelectionBatch.source` 保留 `manual` 来源。
+- 当前持仓详情抽屉的“表现”标签按需调用 `GET /v1/workbench/stocks/{symbol}/performance`；无活动持仓不提供该入口。面板用原生 SVG 绘制累计净收益率，数据点支持悬停和键盘聚焦查看估值日、approved 行情收盘价、日净收益率和累计净收益率，并以语义摘要、估值日表格和行情快照/缺失原因作为并列证据；持仓表现点的 `close` 为可空只读字段，支持“放大查看图表”进入应用内次级图表页。
+- 手工台账、手工持仓跟踪和手工研究候选保持三条边界：新手工确认买入自动进入 `manual-position-tracking-v1` 跟踪案例，历史持仓必须显式登记且不倒填；手工确认卖出不要求选择跟踪案例，未关联卖出不纳入 tracking evidence；手工跟踪 evidence 通过独立 `manual-position-tracking-dataset-v1` 导出，手工研究候选仍按 `SelectionBatch.source` 保留 `manual` 来源。
 - 手工 tracking evidence 导出只读取跟踪开始后的案例关联订单/成交/复盘和 evaluated_at 前已批准的本地行情，报告记录排除、覆盖和资格缺口；它不进入既有四用途训练、注册、shadow、推荐或交易链。报告 `ready` 仅表示证据覆盖完整，不表示已获训练或模型发布授权。
 
 ## 待处理
@@ -34,11 +35,11 @@
 - 2026-08-22 ML 四用途重构已完成代码迁移：中心训练契约、不可变 bundle 写入原语、训练前特征观察 application service、五个训练 application service 和六个研究证据/生命周期 application service 已落地；11 个 ML CLI 仍由人工显式触发，未引入后台训练、自动注册、自动晋升或交易。旧候选成功率链与新用途链保持隔离。
 - 2026-08-22 已补齐四用途训练标签到时间点特征快照的显式 CLI，并用临时目录、真实文件和 fake LightGBM 完成四用途离线全链路演练；演练覆盖 prepare、特征快照、join、baseline/LightGBM、validation-only calibration、注册、人工 shadow transition、shadow、walk-forward 和 compare。真实 provider、真实训练和当前生产数据 readiness 仍未执行或达标。
 - 第一轮 clean-code 整理已完成行为保持型收敛：后端 `uv run mypy` 现在覆盖 `start.py`、`src`、`tests` 和 `scripts`；ML 规范 JSON/SHA-256 与原子文本写入已分别抽为共享私有工具；前端请求客户端、日历输入和主板行情同步面板已拆出，无消费者的 API Context/hook、`decisionDescription` 和成熟任务前端遗留 CSS 已删除。后端公开 API/CLI、数据源适配器和历史兼容路径未因“看起来旧”而删除。
-- 尚未进行大规模职责拆分：`frontend/src/App.tsx` 的工作台/数据管理/持仓页面、`backend/src/stratgauge/api/selections.py` 的综合服务以及 ML 训练大模块仍保留，后续应按领域边界继续小步提取。主板行情同步视觉回归用例已经存在（4 个场景）；本轮已确认排队状态操作区的间距回归通过，但完整套件仍有 2 个既有 completed/partial 结果截图差异未处理；同步阶段进度轮询/取消操作和未成交/部分成交独立前端入口仍未实现。`git push` 仍因 `master` 未配置远程仓库而不可执行。
+- 尚未进行大规模职责拆分：`frontend/src/App.tsx` 的研究路由/数据管理/持仓页面、`backend/src/stratgauge/api/selections.py` 的综合服务以及 ML 训练大模块仍保留，后续应按领域边界继续小步提取。主板行情同步视觉回归用例已经存在（4 个场景）；本轮已确认排队状态操作区的间距回归通过，但完整套件仍有 2 个既有 completed/partial 结果截图差异未处理；同步阶段进度轮询/取消操作和未成交/部分成交独立前端入口仍未实现。`git push` 仍因 `master` 未配置远程仓库而不可执行。
 - 已实现 Tushare `daily`、股票池、交易日历和复权因子适配，以及仅面向 `000300.SH` 的独立 `index_daily` 请求与同步 CLI；本轮只用离线替身验证接口、ingest/快照写入和 readiness 过滤，未执行真实行情请求。现有本地交易日历只覆盖至 2026-08-11；Tushare `trade_cal` 原生端点的供应商溯源请求仍受既有限额约束，BaoStock + AKShare 的备用交易日历缓存需要在使用更晚行情前显式扩展。
 - 已用真实脱敏 `0810.EBK` 和 `081020260810.txt` 样例确认格式：`.EBK` 为 CRLF 七位市场前缀代码；`.txt` 为 GBK 制表符行情表，包含 30 列和 `#数据来源:通达信` 尾行；两份样例的 4 个代码均可解析为 `002167.SZ`、`600593.SH`、`603183.SH`、`603980.SH`，样例文件已加入忽略规则，不进入提交。
 - 当前已有 CLI `mature_tdx_selection.py` 和 Web 一次性成熟操作，新增本地成熟任务账本、事件审计、幂等执行、可恢复超时、有限重试和 `run_selection_maturity_tasks.py` 显式调度入口；JSONL 数据集带 schema 版本，并可由 `split_tdx_dataset.py` 按选股日期生成不可覆盖的 train/validation/test 清单和源文件哈希 manifest；第一版研究参数已冻结为 10 个交易日固定退出、无止盈损、扣费后净收益胜负、100 股整手和默认 10000 元名义金额，后续用户偏好必须创建新政策版本。主板行情同步另有 `LocalJobStore` 耐久任务 API/显式 runner，只有 queued 可取消，FastAPI 不启动后台线程；任务级 Tushare transport 在任务结束后关闭。
-- 数据管理第一版已完成：公式和导入批次支持 Web 新建/查看、筛选、编辑为新版本、停用/恢复、批次详情、原始文件下载和 JSONL 数据集下载；统计支持公式版本、来源、选股日期范围、最新人工决策、结果政策和生命周期筛选；研究工作台支持手工逐条添加候选，批次按通达信/手工来源筛选；生命周期采用追加式事件，归档批次只读，普通研究工作台默认隐藏归档数据。公式编辑不会原地覆盖历史记录。高基数批次、观察池、工作台信号和观察列表已有兼容分页入口，JSONL 下载按记录流式输出，旧完整列表和下载入口保留；本轮分页优化尚未建立运行中生产服务的延迟基线。
+- 数据管理第一版已完成：公式和导入批次支持 Web 新建/查看、筛选、编辑为新版本、停用/恢复、批次详情、原始文件下载和 JSONL 数据集下载；统计支持公式版本、来源、选股日期范围、最新人工决策、结果政策和生命周期筛选；导入数据页支持手工逐条添加候选，批次按通达信/手工来源筛选；生命周期采用追加式事件，归档批次只读，研究页面默认隐藏归档数据。公式编辑不会原地覆盖历史记录。高基数批次、观察池、策略信号和观察列表已有兼容分页入口，JSONL 下载按记录流式输出，旧完整列表和下载入口保留；本轮分页优化尚未建立运行中生产服务的延迟基线。
 - 机器学习相关代码已实现数据准入、历史补齐、特征契约、离线基线/LightGBM 训练入口、带客观结果证据的走步指标、Isotonic 概率校准、基础影子推理和只读模型证据展示；新增四用途数据集构建器、训练标签契约、时间切分/未来标签 purged 分区、时间点特征快照构建和不可变准备 CLI；离线演练已覆盖临时目录中的特征生成、训练、注册和 shadow，但真实数据链仍需授权，模型也尚未自动接入新批次：`features/contract.py`/`engine.py` 提供带版本和溯源的收益、动量、波动率、流动性、均线及基准相对强弱特征；`train_selection_baseline.py` 和可选依赖 CLI `train_selection_lightgbm.py` 以 `selection-feature-dataset-v1`、单一追踪政策和相同时间切分训练模型；LightGBM 输出未校准概率、指标、模型文本和不可覆盖 manifest；`walk_forward.py`/`validate_walk_forward.py` 可选读取 `selection-dataset-v2`，按时间清除训练标签并报告结果覆盖率、执行率、平均净收益、最大回撤、换手和市场状态平均收益；`calibrate_selection_probabilities.py` 只用 validation 拟合 PAVA 校准器，test 隔离评估并记录校准时间、适用日期和源哈希；`ModelRegistryStore` 和 `shadow.py` 已支持 baseline/LightGBM 注册、运行时工件校验、可选校准分数和独立评分报告；新增按候选查询模型版本、分数、样本量、适用日期和失败原因的只读 API/前端面板，所有影子结果仍标记不用于决策。
 - 2026-08-23 本地数据根实际盘点为 12 个导入批次、33 个候选和 4 个客观结果；4 个结果均为 `unresolved`，且采用旧 5-session policy。冻结的 10 个交易日政策尚无完成 `win/loss/flat` 样本；训练标签、特征快照、独立 `000300.SH` `index_daily` 基准和 ML 训练输出仍未形成可用证据。
 - 2026-08-23 `backend/data/selection-market` 含 10 个已批准 `market_daily` 日期（2026-08-10 至 2026-08-21）和 7 个已批准、绑定来源日线的 `adjustment_factor` 快照，但没有 `index_daily` 快照；交易日历文件结束于 2026-08-11，不能为更晚快照自动推断成熟或基准同步交易日。
@@ -46,6 +47,8 @@
 - 研究基础已增加 Tushare 股票列表/交易日历同步、BaoStock + AKShare 备用交易日历交叉校验、交易日历增量缓存、时间点股票池快照、证券主数据快照、`/v1/universe/securities` 与 `/v1/universe/master` 搜索、内容寻址理论回测报告、策略生命周期审计，以及手工订单/成交/持仓/复盘 API；趋势交易 A1 买入规则、A2 胜负/成本规则、B1/B2 全市场增量行情及多日编排、C1 交易日历缓存、C2/C2.1 复权因子同步与历史批量补齐、显式前复权特征输入、C3 已批准行情自动成熟队列以及条件胜率和买入价分析查询已完成；分析查询严格按公式、追踪政策和批次导出时间点筛选历史证据。
 
 ## 最近一次更新
+
+- 2026-09-04 优化观察池与持仓折线图可读性：概览图增加留白和更大的数据点命中范围，新增“放大查看图表”应用内次级图表页；观察池与持仓复用同一实现，提示默认隐藏，命中后保持显示，切换数据点时更新，关闭详情或次级页时清除；放大页不显示初始数据点提示且不产生滚动条。前端 typecheck、build、lint（0 error，19 条既有 warning）通过；受影响 Playwright 5 项通过；未执行 commit/push。
 
 - 2026-09-04 完成观察池与持仓折线图数据点提示：两类图表支持鼠标悬停和键盘聚焦，显示日期、收盘价、当日变化和累计变化；持仓表现点新增可空 `close`，缺失行情显示不可用。前端 typecheck、build、lint（0 error，19 条既有 warning）通过；后端相关测试 18 项通过，Ruff/MyPy 通过；受影响 Playwright 5 项通过；本轮不执行 push。
 

@@ -1,5 +1,37 @@
 # 会话记录
 
+### 2026-09-04 删除独立工作台入口并以策略信号为默认首页
+
+- 完成内容：删除前端独立“工作台”导航和页面，将“策略信号”设为默认首页；移除工作台专属的前 12 条待办截断、连续处理按钮和样式。保留策略信号的汇总、分页、筛选、排序、候选上下文、股票详情、人工评审、交易入口，以及其他研究路由和共享 `/v1/workbench/*` API。直接操作说明改为从策略信号进入；“推荐工作台”独立概念保留。
+- 文档：同步更新 `docs/current-state.md`、`docs/decisions.md`、`docs/使用文档.md` 和 `docs/系统规格说明.md` 的当前导航与职责说明。
+- 实际验证：`cd frontend; corepack pnpm typecheck` 通过；`corepack pnpm lint` 退出码 0（0 error、19 条既有 React Hooks warning）；`corepack pnpm build` 通过；定向 `workbench-annotation-target.spec.ts` 1 项通过，验证默认首页为策略信号且无工作台导航；组合回归 10 项中 9 项通过，观察池外链用例因既有未提交 `StockDetailDrawer` 对夹具缺失 `position` 字段读取 `quantity` 失败，未修改该既有代码或夹具；`git diff --check` 通过。
+- 遗留问题：组合回归中的观察池外链失败属于本次工作区已有缺陷，需后续单独修复；未执行 commit/push、真实 provider 请求或业务数据写入。
+
+### 2026-09-04 取消卖出跟踪案例必选限制
+
+- 完成内容：修正手工确认卖出流程；`tracking_case_id` 改为可选，卖出未选择案例时不再因没有、多个或无法推断案例而阻断；已有单个可推断案例仍可自动关联，明确选择的案例继续校验证券和剩余数量。卖出原因仍保持必填。前端移除“卖出必选”文案，允许无跟踪案例直接提交，并补充回归测试。
+- 文档：同步更新 `docs/decisions.md`、`docs/current-state.md` 和 `docs/使用文档.md`，明确跟踪案例是独立 evidence 范围，不是实际卖出的前置条件。
+- 实际验证：后端相关测试 17 项通过；后端完整测试 440 项通过、1 项跳过；Ruff check、format check 通过；MyPy 346 个源文件通过；前端 typecheck、build 通过；前端 lint 0 error、19 条既有 React Hooks warning；定向 Playwright `workbench-manual-position.spec.ts` 6 项通过；`git diff --check` 通过，仅有 Windows LF/CRLF 转换提示。未执行 commit/push。
+- 遗留问题：未关联的卖出不会纳入任何 tracking evidence；不改变现有持仓成交重放和卖出原因约束。
+
+### 2026-09-04 修正放大图表初始提示和滚动条
+
+- 完成内容：修正放大图表打开时因 Radix Dialog 自动聚焦/指针命中而提前显示数据点提示的问题；初始保持隐藏，只有实际移动到数据点或键盘聚焦才显示。放大图表取消内部滚动条，按视口自适应尺寸展示；观察池和持仓共用实现。
+- 实际验证：`cd frontend; corepack pnpm typecheck` 通过；`cd frontend; corepack pnpm lint` 通过（0 error、19 条既有 React Hooks warning）；`cd frontend; corepack pnpm build` 通过；`cd frontend; corepack pnpm exec playwright test tests/visual/workbench-manual-position.spec.ts --project=chromium --config=playwright.temp-4173.config.ts`（5 项通过，覆盖初始无提示、无滚动条和两类图表放大/返回，临时配置已删除）；`git diff --check` 通过，仅有 Windows 换行转换提示。未执行 commit/push。
+- 遗留问题：完整前端视觉回归仍有既有主板行情同步 completed/partial 截图基线差异；未改变 API、数据或交易语义。
+
+### 2026-09-04 修正折线图提示保持行为
+
+- 完成内容：修正观察池和持仓共用折线图提示逻辑：初始不显示，命中数据点后保持显示，不因鼠标移出或键盘焦点离开而消失；命中下一个数据点时替换为新数据，关闭详情/次级图表后随组件清除。同步补充使用文档、当前状态和设计决策。
+- 实际验证：`cd frontend; corepack pnpm typecheck` 通过；`cd frontend; corepack pnpm lint` 通过（0 error、19 条既有 React Hooks warning）；`cd frontend; corepack pnpm build` 通过；`cd frontend; corepack pnpm exec playwright test tests/visual/workbench-manual-position.spec.ts --project=chromium --config=playwright.temp-4173.config.ts`（5 项通过，临时配置已删除）；`git diff --check` 通过，仅有 Windows 换行转换提示。未执行 commit/push。
+- 遗留问题：完整前端视觉回归仍有既有主板行情同步 completed/partial 截图基线差异；未改变 API、数据或交易语义。
+
+### 2026-09-04 放大观察池与持仓折线图
+
+- 完成内容：概览折线图增加图内留白和更大的数据点命中范围，补充“放大查看图表”应用内次级图表页；观察池和持仓共用同一 SVG 图表实现，放大页不重复请求数据，支持关闭返回详情。新增浏览器回归覆盖两类图表的放大/返回和移动端页面宽度约束。
+- 实际验证：`cd frontend; corepack pnpm typecheck` 通过；`cd frontend; corepack pnpm lint` 通过（0 error、19 条既有 React Hooks warning）；`cd frontend; corepack pnpm build` 通过；`cd frontend; corepack pnpm exec playwright test tests/visual/workbench-manual-position.spec.ts --project=chromium --config=playwright.temp-4173.config.ts`（5 项通过，临时配置已删除）；`git diff --check` 通过，仅有 Windows 换行转换提示。未执行 commit/push。
+- 遗留问题：完整前端视觉回归仍有既有主板行情同步 completed/partial 截图基线差异；未改变 API、数据或交易语义。
+
 ### 2026-09-04 观察池与持仓折线图数据点提示
 
 - 完成内容：共用原生 SVG 折线图的数据点支持鼠标悬停和键盘聚焦；观察池与持仓均显示交易日/估值日、收盘价、当日涨跌幅或净收益率、累计涨跌幅或净收益率。持仓表现 API/类型新增可空 `close` 字段；缺失行情明确显示不可用，不补零或旧值。同步更新 `docs/使用文档.md`、`docs/current-state.md` 和 `docs/decisions.md`。

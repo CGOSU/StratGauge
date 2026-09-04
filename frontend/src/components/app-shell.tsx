@@ -1,9 +1,8 @@
-import { BarChart3, Briefcase, ChartLine, Eye, LayoutDashboard, ListChecks, Receipt, Settings2, Upload } from 'lucide-react'
+import { BarChart3, Briefcase, ChartLine, Eye, ListChecks, Receipt, Settings2, Upload } from 'lucide-react'
 import type { HealthState, AppRoute } from '@/types'
 
 
 export const appRouteLabels: Record<AppRoute, string> = {
-  workbench: '工作台',
   signals: '策略信号',
   watchlist: '观察池',
   positions: '持仓',
@@ -14,8 +13,7 @@ export const appRouteLabels: Record<AppRoute, string> = {
   settings: '设置',
 }
 
-export const appRouteIcons: Record<AppRoute, typeof LayoutDashboard> = {
-  workbench: LayoutDashboard,
+export const appRouteIcons: Record<AppRoute, typeof ListChecks> = {
   signals: ListChecks,
   watchlist: Eye,
   positions: Briefcase,
@@ -27,7 +25,6 @@ export const appRouteIcons: Record<AppRoute, typeof LayoutDashboard> = {
 }
 
 export const primaryAppRoutes: AppRoute[] = [
-  'workbench',
   'signals',
   'watchlist',
   'positions',
@@ -112,7 +109,7 @@ export function OperationalStatusBar({
   return (
     <header className="operational-bar">
       <div className="operational-context">
-        <span className="operational-kicker">研究工作台</span>
+        <span className="operational-kicker">策衡研究台</span>
         <strong>{appRouteLabels[activeRoute]}</strong>
       </div>
       <div className="operational-statuses">

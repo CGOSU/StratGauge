@@ -277,17 +277,12 @@ class ManualPortfolioStore:
             and case_id is None
         ):
             active_cases = self._active_tracking_cases_unlocked(order.security.symbol)
-            if len(active_cases) > 1:
-                raise PortfolioStoreError(
-                    "multiple active tracking cases require an explicit tracking case"
-                )
-            if active_cases:
+            if len(active_cases) == 1:
                 case = active_cases[0]
-                if self._tracking_case_quantity_unlocked(case) != self._quantity_for_symbol(
+                if self._tracking_case_quantity_unlocked(case) == self._quantity_for_symbol(
                     order.security.symbol
                 ):
-                    raise PortfolioStoreError("tracking case is required for an ambiguous sell")
-                case_id = case.tracking_case_id
+                    case_id = case.tracking_case_id
 
         if case_id is not None:
             order = order.model_copy(update={"tracking_case_id": case_id})
@@ -333,10 +328,6 @@ class ManualPortfolioStore:
     ) -> None:
         case_id = _merge_tracking_case_id(order, fill)
         if case_id is None:
-            if order.side is ManualOrderSide.SELL and self._active_tracking_cases_unlocked(
-                order.security.symbol
-            ):
-                raise PortfolioStoreError("tracking case is required for sell")
             return
         case = new_case or self._existing_tracking_case(case_id)
         if case is None:

@@ -10,6 +10,7 @@ from stratgauge.domain.portfolio import (
     ManualFill,
     ManualOrder,
     ManualOrderSide,
+    ManualPositionTrackingCase,
     ManualPositionTrackingOrigin,
     ManualSellReason,
     PortfolioReview,
@@ -172,6 +173,67 @@ class PortfolioStoreTests(unittest.TestCase):
                 store.record_order_and_fill(sell_order, sell_fill)
             self.assertEqual(len(store.list_orders()), 1)
             self.assertEqual(len(store.list_fills()), 1)
+
+    def test_sell_without_tracking_case_is_allowed_with_multiple_active_cases(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = ManualPortfolioStore(directory)
+            buys: list[tuple[ManualOrder, ManualFill]] = []
+            for suffix in ("a", "b"):
+                order = ManualOrder(
+                    order_id=f"buy-{suffix}",
+                    security=_security(),
+                    side=ManualOrderSide.BUY,
+                    ordered_at=datetime(2026, 1, 5, 15, tzinfo=UTC),
+                    quantity=Decimal("100"),
+                )
+                fill = ManualFill(
+                    fill_id=f"fill-{suffix}",
+                    order_id=order.order_id,
+                    filled_at=datetime(2026, 1, 6, 10, tzinfo=UTC),
+                    quantity=Decimal("100"),
+                    price=Decimal("10"),
+                )
+                store.record_order_and_fill(order, fill)
+                buys.append((order, fill))
+
+            for suffix, (order, fill) in zip(("a", "b"), buys, strict=True):
+                store.create_tracking_case(
+                    ManualPositionTrackingCase(
+                        tracking_case_id=f"case-{suffix}",
+                        security=_security(),
+                        tracking_started_at=datetime(2026, 1, 6, 10, tzinfo=UTC),
+                        created_at=datetime(2026, 1, 6, 10, tzinfo=UTC),
+                        origin=ManualPositionTrackingOrigin.HISTORICAL_ENROLLMENT,
+                        source_order_ids=(order.order_id,),
+                        source_fill_ids=(fill.fill_id,),
+                    )
+                )
+
+            sell_order = ManualOrder(
+                order_id="untracked-sell",
+                security=_security(),
+                side=ManualOrderSide.SELL,
+                ordered_at=datetime(2026, 1, 7, 9, tzinfo=UTC),
+                quantity=Decimal("50"),
+                sell_reason=ManualSellReason.OTHER,
+            )
+            sell_fill = ManualFill(
+                fill_id="untracked-sell-fill",
+                order_id=sell_order.order_id,
+                filled_at=datetime(2026, 1, 7, 10, tzinfo=UTC),
+                quantity=Decimal("50"),
+                price=Decimal("11"),
+            )
+
+            result = store.record_order_and_fill(
+                sell_order,
+                sell_fill,
+                auto_resolve_manual_sell=True,
+            )
+
+            self.assertIsNone(result[0].tracking_case_id)
+            self.assertIsNone(result[1].tracking_case_id)
+            self.assertEqual(store.positions()[0].quantity, Decimal("150"))
 
     def test_candidate_trade_writes_order_and_fill_atomically_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as directory:

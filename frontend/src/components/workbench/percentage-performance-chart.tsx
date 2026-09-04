@@ -1,4 +1,5 @@
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import type { WorkbenchMarketEvidence } from '@/types'
 import { formatPercent, formatPrice } from '@/lib/format'
 
@@ -15,6 +16,21 @@ type ChartPoint = {
   index: number
   value: number
 }
+
+export type PercentagePerformanceChartProps = {
+  symbol: string
+  points: PercentagePerformancePoint[]
+  title: string
+  subtitle: string
+  emptyMessage: string
+  dailyLabel: string
+  cumulativeLabel: string
+  lineLabel: string
+  pointUnit: string
+  zeroLineLabel: string
+}
+
+type ChartSize = 'compact' | 'expanded'
 
 function numericValue(value: string | null): number | null {
   if (value === null) return null
@@ -53,45 +69,42 @@ export function PercentagePerformanceChart({
   lineLabel,
   pointUnit,
   zeroLineLabel,
-}: {
-  symbol: string
-  points: PercentagePerformancePoint[]
-  title: string
-  subtitle: string
-  emptyMessage: string
-  dailyLabel: string
-  cumulativeLabel: string
-  lineLabel: string
-  pointUnit: string
-  zeroLineLabel: string
+  size = 'compact',
+  onExpand,
+}: PercentagePerformanceChartProps & {
+  size?: ChartSize
+  onExpand?: () => void
 }) {
   const chartId = useId()
   const titleId = `${chartId}-title`
   const descriptionId = `${chartId}-description`
   const tooltipId = `${chartId}-tooltip`
-  const [focusedPointIndex, setFocusedPointIndex] = useState<number | null>(null)
-  const [hoveredPointIndex, setHoveredPointIndex] = useState<number | null>(null)
-  const activePointIndex = hoveredPointIndex ?? focusedPointIndex
+  const [activePointIndex, setActivePointIndex] = useState<number | null>(null)
+  const ignoreInitialExpandedMouseMove = useRef(size === 'expanded')
   const segments = chartSegments(points)
   const chartPoints = segments.flatMap((segment) => segment)
   const activeChartPoint = chartPoints.find((point) => point.index === activePointIndex) ?? null
   const activePoint = activeChartPoint ? points[activeChartPoint.index] : null
-  const chartWidth = 720
-  const chartHeight = 270
-  const plotLeft = 64
-  const plotRight = 18
-  const plotTop = 20
-  const plotBottom = 36
+  const isExpanded = size === 'expanded'
+  const chartWidth = isExpanded ? 1120 : 720
+  const chartHeight = isExpanded ? 620 : 320
+  const plotLeft = isExpanded ? 120 : 82
+  const plotRight = isExpanded ? 52 : 34
+  const plotTop = isExpanded ? 64 : 34
+  const plotBottom = isExpanded ? 78 : 54
   const plotWidth = chartWidth - plotLeft - plotRight
   const plotHeight = chartHeight - plotTop - plotBottom
   const values = chartPoints.map((point) => point.value)
 
   if (values.length === 0) {
     return (
-      <section className="stock-performance-chart" aria-labelledby={titleId}>
+      <section className={`stock-performance-chart stock-performance-chart--${size}`} aria-labelledby={titleId}>
         <div className="stock-performance-chart-heading">
-          <h4 id={titleId}>{title}</h4>
-          <span>{subtitle}</span>
+          <div>
+            <h4 id={titleId}>{title}</h4>
+            <span>{subtitle}</span>
+          </div>
+          {onExpand && <button className="stock-performance-expand-button" type="button" onClick={onExpand}>放大查看图表</button>}
         </div>
         <p className="stock-performance-chart-empty" role="status">
           {emptyMessage}
@@ -112,15 +125,15 @@ export function PercentagePerformanceChart({
   const lastSegment = segments[segments.length - 1]
   const lastPoint = lastSegment[lastSegment.length - 1]
   const description = `${symbol} 的${title}，缺失行情${pointUnit}保持断开。`
-  const tooltipWidth = 212
-  const tooltipHeight = 106
+  const tooltipWidth = isExpanded ? 330 : 248
+  const tooltipHeight = isExpanded ? 128 : 112
   const tooltipX = activeChartPoint
     ? Math.min(Math.max(xForIndex(activeChartPoint.index) - tooltipWidth / 2, plotLeft), chartWidth - plotRight - tooltipWidth)
     : 0
-  const tooltipY = activeChartPoint && yForValue(activeChartPoint.value) < plotTop + tooltipHeight + 14
-    ? yForValue(activeChartPoint.value) + 14
+  const tooltipY = activeChartPoint && yForValue(activeChartPoint.value) < plotTop + tooltipHeight + 18
+    ? yForValue(activeChartPoint.value) + 18
     : activeChartPoint
-      ? yForValue(activeChartPoint.value) - tooltipHeight - 14
+      ? yForValue(activeChartPoint.value) - tooltipHeight - 18
       : 0
   const tooltipLines = activePoint ? [
     `交易日：${activePoint.session_date}`,
@@ -130,13 +143,16 @@ export function PercentagePerformanceChart({
   ] : []
 
   return (
-    <section className="stock-performance-chart" aria-labelledby={titleId}>
+    <section className={`stock-performance-chart stock-performance-chart--${size}`} aria-labelledby={titleId}>
       <div className="stock-performance-chart-heading">
         <div>
           <h4 id={titleId}>{title}</h4>
           <span id={descriptionId}>{subtitle}</span>
         </div>
-        <span>{points.length} 个{pointUnit}</span>
+        <div className="stock-performance-chart-actions">
+          <span>{points.length} 个{pointUnit}</span>
+          {onExpand && <button className="stock-performance-expand-button" type="button" onClick={onExpand}>放大查看图表</button>}
+        </div>
       </div>
       <svg
         className="stock-performance-chart-svg"
@@ -153,13 +169,13 @@ export function PercentagePerformanceChart({
           y1={zeroY}
           y2={zeroY}
         />
-        <text className="stock-performance-axis-label" x={plotLeft - 8} y={plotTop + 4} textAnchor="end">
+        <text className="stock-performance-axis-label" x={plotLeft - 10} y={plotTop + 5} textAnchor="end">
           {formatPercent(maximum.toString())}
         </text>
-        <text className="stock-performance-axis-label" x={plotLeft - 8} y={zeroY + 4} textAnchor="end">
+        <text className="stock-performance-axis-label" x={plotLeft - 10} y={zeroY + 5} textAnchor="end">
           0.00%
         </text>
-        <text className="stock-performance-axis-label" x={plotLeft - 8} y={plotTop + plotHeight + 4} textAnchor="end">
+        <text className="stock-performance-axis-label" x={plotLeft - 10} y={plotTop + plotHeight + 5} textAnchor="end">
           {formatPercent(minimum.toString())}
         </text>
         {segments.map((segment) => (
@@ -180,11 +196,18 @@ export function PercentagePerformanceChart({
               cx={xForIndex(point.index)}
               cy={yForValue(point.value)}
               key={point.index}
-              onBlur={() => setFocusedPointIndex(null)}
-              onFocus={() => setFocusedPointIndex(point.index)}
-              onMouseEnter={() => setHoveredPointIndex(point.index)}
-              onMouseLeave={() => setHoveredPointIndex(null)}
-              r="5"
+              onFocus={(event) => {
+                if (event.currentTarget.matches(':focus-visible')) setActivePointIndex(point.index)
+              }}
+              onMouseMove={(event) => {
+                if (ignoreInitialExpandedMouseMove.current) {
+                  ignoreInitialExpandedMouseMove.current = false
+                  return
+                }
+                if (event.movementX === 0 && event.movementY === 0) return
+                setActivePointIndex(point.index)
+              }}
+              r={isExpanded ? 14 : 18}
               role="img"
               tabIndex={0}
             />
@@ -195,7 +218,7 @@ export function PercentagePerformanceChart({
             <rect
               className="stock-performance-tooltip-background"
               height={tooltipHeight}
-              rx="8"
+              rx="10"
               width={tooltipWidth}
               x={tooltipX}
               y={tooltipY}
@@ -204,8 +227,8 @@ export function PercentagePerformanceChart({
               <text
                 className={index === 0 ? 'stock-performance-tooltip-title' : 'stock-performance-tooltip-text'}
                 key={line}
-                x={tooltipX + 12}
-                y={tooltipY + 24 + index * 21}
+                x={tooltipX + (isExpanded ? 18 : 14)}
+                y={tooltipY + (isExpanded ? 30 : 25) + index * (isExpanded ? 25 : 22)}
               >
                 {line}
               </text>
@@ -223,5 +246,26 @@ export function PercentagePerformanceChart({
         <span>末个可用点：{points[lastPoint.index].session_date}</span>
       </div>
     </section>
+  )
+}
+
+export function PerformanceChartDialog({
+  open,
+  onOpenChange,
+  ...chartProps
+}: PercentagePerformanceChartProps & {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="performance-chart-dialog">
+        <DialogHeader>
+          <DialogTitle>{chartProps.title}</DialogTitle>
+          <DialogDescription>放大查看本地 approved 行情证据；可悬停或通过 Tab 聚焦数据点查看详情。</DialogDescription>
+        </DialogHeader>
+        <PercentagePerformanceChart key={open ? 'open' : 'closed'} {...chartProps} size="expanded" />
+      </DialogContent>
+    </Dialog>
   )
 }

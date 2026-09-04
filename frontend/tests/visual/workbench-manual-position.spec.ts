@@ -383,6 +383,29 @@ test('无当前持仓时不提供单证券表现入口', async ({ page }) => {
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth)
 })
 
+test('无跟踪案例时仍可直接记录手工卖出', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const state = await installMocks(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: '持仓', exact: true }).click()
+  await page.locator('.workbench-position-row').click()
+
+  const drawer = page.getByRole('dialog', { name: '000001.SZ 股票详情' })
+  await drawer.getByRole('button', { name: '交易', exact: true }).click()
+  await expect(drawer.getByText('跟踪案例（可选）', { exact: true })).toBeVisible()
+  const submitButton = drawer.getByRole('button', { name: '确认并记录卖出', exact: true })
+  await expect(submitButton).toBeEnabled()
+  await drawer.locator('input[type="number"]').nth(0).fill('40')
+  await drawer.locator('input[type="number"]').nth(1).fill('10.50')
+  await submitButton.click()
+
+  await expect.poll(state.tradeBody).toMatchObject({
+    side: 'sell',
+    sell_reason: 'target_reached',
+  })
+  expect(state.tradeBody()).not.toHaveProperty('tracking_case_id')
+})
+
 test('当前持仓详情展示单证券净收益率和缺失行情证据', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await installMocks(page)
@@ -398,19 +421,36 @@ test('当前持仓详情展示单证券净收益率和缺失行情证据', async
   await expect(stockChart).toBeVisible()
   const stockPoint = stockChart.locator('.stock-performance-point').first()
   await expect(stockPoint).toHaveAttribute('tabindex', '0')
-  await stockPoint.hover()
   const stockTooltip = stockChart.locator('.stock-performance-tooltip')
+  await expect(stockTooltip).toHaveCount(0)
+  await stockPoint.hover()
   await expect(stockTooltip).toContainText('交易日：2026-08-27')
   await expect(stockTooltip).toContainText('收盘价：10.20')
   await expect(stockTooltip).toContainText('日净收益率：2.00%')
   await expect(stockTooltip).toContainText('累计净收益率：2.00%')
   await page.mouse.move(0, 0)
-  await expect(stockTooltip).toHaveCount(0)
+  await expect(stockTooltip).toContainText('交易日：2026-08-27')
   await stockPoint.focus()
   await expect(stockTooltip).toContainText('交易日：2026-08-27')
   await drawer.getByRole('button', { name: '表现', exact: true }).focus()
-  await expect(stockTooltip).toHaveCount(0)
+  await expect(stockTooltip).toContainText('交易日：2026-08-27')
   await expect(drawer.getByRole('table', { name: '证券净收益率估值明细' })).toBeVisible()
+  await drawer.getByRole('button', { name: '放大查看图表', exact: true }).click()
+  const stockChartPage = page.getByRole('dialog', { name: '累计净收益率走势', exact: true })
+  await expect(stockChartPage.locator('.stock-performance-chart--expanded')).toBeVisible()
+  await expect(stockChartPage.locator('.stock-performance-tooltip')).toHaveCount(0)
+  const stockDialogLayout = await stockChartPage.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }))
+  expect(stockDialogLayout.scrollHeight).toBeLessThanOrEqual(stockDialogLayout.clientHeight)
+  const expandedDimensions = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }))
+  expect(expandedDimensions.scrollWidth).toBeLessThanOrEqual(expandedDimensions.clientWidth)
+  await stockChartPage.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(stockChartPage).toHaveCount(0)
   await expect(drawer.getByText('证据不完整', { exact: true }).first()).toBeVisible()
   await expect(drawer.locator('.stock-performance-summary').getByText('2.00%', { exact: true }).first()).toBeVisible()
   await expect(drawer.getByText(/缺少仍持仓证券的 approved market_daily 行情：000001\.SZ/).first()).toBeVisible()
@@ -478,19 +518,34 @@ test('观察池详情按候选展示逐交易日百分比表现', async ({ page 
   await expect(chart.locator('.stock-performance-line')).toHaveCount(1)
   await expect(chart.locator('.stock-performance-point')).toHaveCount(3)
   const observationPoint = chart.locator('.stock-performance-point').nth(1)
-  await observationPoint.hover()
   const observationTooltip = chart.locator('.stock-performance-tooltip')
+  await expect(observationTooltip).toHaveCount(0)
+  await observationPoint.hover()
   await expect(observationTooltip).toContainText('交易日：2026-08-28')
   await expect(observationTooltip).toContainText('收盘价：10.50')
   await expect(observationTooltip).toContainText('日涨跌幅：2.00%')
   await expect(observationTooltip).toContainText('观察期累计涨跌幅：5.00%')
   await page.mouse.move(0, 0)
-  await expect(observationTooltip).toHaveCount(0)
+  await expect(observationTooltip).toContainText('交易日：2026-08-28')
   await observationPoint.focus()
   await expect(observationTooltip).toContainText('交易日：2026-08-28')
   await drawer.getByRole('button', { name: '观察表现', exact: true }).focus()
-  await expect(observationTooltip).toHaveCount(0)
+  await expect(observationTooltip).toContainText('交易日：2026-08-28')
+  await chart.locator('.stock-performance-point').nth(2).hover()
+  await expect(observationTooltip).toContainText('交易日：2026-08-31')
+  await expect(observationTooltip).not.toContainText('交易日：2026-08-28')
   await expect(drawer.getByRole('table', { name: '观察期逐交易日百分比明细' })).toBeVisible()
+  await drawer.getByRole('button', { name: '放大查看图表', exact: true }).click()
+  const observationChartPage = page.getByRole('dialog', { name: '观察期累计涨跌幅走势', exact: true })
+  await expect(observationChartPage.locator('.stock-performance-chart--expanded')).toBeVisible()
+  await expect(observationChartPage.locator('.stock-performance-tooltip')).toHaveCount(0)
+  const observationDialogLayout = await observationChartPage.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }))
+  expect(observationDialogLayout.scrollHeight).toBeLessThanOrEqual(observationDialogLayout.clientHeight)
+  await observationChartPage.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(observationChartPage).toHaveCount(0)
   await expect(drawer.getByText('5.00%', { exact: true }).first()).toBeVisible()
   const summary = drawer.getByLabel('观察期百分比表现摘要')
   await expect(summary.getByText('观察期累计涨跌幅', { exact: true })).toBeVisible()

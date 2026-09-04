@@ -410,9 +410,9 @@ export function WorkbenchTradePanel({
   const exchange = signal?.candidate.exchange ?? detail?.symbol.split('.')[1] as Exchange | undefined
   const name = signal?.candidate.name ?? detail?.name ?? null
   const isManual = signal === null
-  const needsManualCase = isManual && (
-    side === 'sell' || (detail?.tracking_cases.length ?? 0) > 1
-  )
+  const needsManualCase = isManual
+    && side === 'buy'
+    && (detail?.tracking_cases.length ?? 0) > 1
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -420,7 +420,7 @@ export function WorkbenchTradePanel({
       return
     }
     if (isManual && needsManualCase && trackingCaseId === null) {
-      setErrorMessage(side === 'sell' ? '卖出必须选择跟踪案例。' : '多个跟踪案例时，买入必须选择跟踪案例。')
+      setErrorMessage('多个跟踪案例时，买入必须选择跟踪案例。')
       return
     }
     setBusy(true)
@@ -487,7 +487,7 @@ export function WorkbenchTradePanel({
           </div>
           {isManual && (
             <label className="drawer-field">
-              <span>跟踪案例{side === 'sell' ? '（卖出必选）' : '（买入可选）'}</span>
+              <span>跟踪案例{needsManualCase ? '（多个时买入必选）' : '（可选）'}</span>
               <select value={trackingCaseId ?? ''} onChange={(event) => setTrackingCaseId(event.target.value || null)} disabled={(detail?.tracking_cases.length ?? 0) === 0}>
                 <option value="">{(detail?.tracking_cases.length ?? 0) === 0 ? '暂无跟踪案例' : '选择跟踪案例'}</option>
                 {(detail?.tracking_cases ?? []).map((trackingCase) => <option value={trackingCase.tracking_case_id} key={trackingCase.tracking_case_id}>{trackingCase.tracking_case_id} · {trackingOriginLabel(trackingCase.origin)}</option>)}
@@ -510,9 +510,9 @@ export function WorkbenchTradePanel({
           </div>
           <label className="drawer-field"><span>交易备注（可选）</span><textarea value={note} onChange={(event) => setNote(event.target.value)} rows={2} placeholder="记录交易事实或复盘线索" /></label>
         </fieldset>
-        {isManual && (detail?.tracking_cases.length ?? 0) === 0 && <p className="drawer-muted-copy">当前没有跟踪案例；买入会自动建立默认案例，卖出前请先纳入跟踪。</p>}
+        {isManual && (detail?.tracking_cases.length ?? 0) === 0 && <p className="drawer-muted-copy">当前没有跟踪案例；买入会自动建立默认案例，卖出可直接记录，不纳入跟踪案例。</p>}
         {errorMessage && <p className="drawer-form-error" role="alert">{errorMessage}</p>}
-        <button type="submit" className="drawer-primary-action drawer-primary-action--trade" disabled={busy || Boolean(signal?.confirmed_buy && side === 'buy') || (isManual && (!manualHasPosition && side === 'sell' || needsManualCase && trackingCaseId === null))}>{busy ? '保存中…' : side === 'buy' ? '确认并记录买入' : '确认并记录卖出'}</button>
+        <button type="submit" className="drawer-primary-action drawer-primary-action--trade" disabled={busy || Boolean(signal?.confirmed_buy && side === 'buy') || (isManual && ((!manualHasPosition && side === 'sell') || (needsManualCase && trackingCaseId === null)))}>{busy ? '保存中…' : side === 'buy' ? '确认并记录买入' : '确认并记录卖出'}</button>
       </form>
     </div>
   )

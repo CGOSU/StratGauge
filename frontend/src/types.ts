@@ -42,7 +42,7 @@ export type ReusableTagSnapshot = {
 }
 export type OutcomeStatus = Exclude<MaturityStatus, 'pending'>
 export type Workspace = 'research' | 'management' | 'portfolio'
-export type AppRoute = 'workbench' | 'signals' | 'watchlist' | 'positions' | 'trades' | 'strategies' | 'analytics' | 'import' | 'settings'
+export type AppRoute = 'signals' | 'watchlist' | 'positions' | 'trades' | 'strategies' | 'analytics' | 'import' | 'settings'
 export type LifecycleStatus = 'active' | 'archived'
 export type ManagementFilter = 'all' | LifecycleStatus
 export type BatchSource = 'tongdaxin' | 'manual'
@@ -536,6 +536,6 @@ export type WorkbenchAnalyticsView = {
   cohorts: WorkbenchCohortMetrics[]
 }
 
-export type WorkbenchRoute = Extract<AppRoute, 'workbench' | 'signals' | 'watchlist' | 'positions' | 'trades' | 'strategies' | 'analytics'>
+export type WorkbenchRoute = Extract<AppRoute, 'signals' | 'watchlist' | 'positions' | 'trades' | 'strategies' | 'analytics'>
 export type WorkbenchReviewFilter = 'all' | 'unreviewed' | 'bullish' | 'watching' | 'preparing' | 'discarded' | 'bought'
 export type StockDrawerTab = 'market' | 'performance' | 'observation' | 'tracking' | 'judgment' | 'signal' | 'trade' | 'review' | 'analysis'

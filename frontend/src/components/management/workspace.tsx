@@ -191,7 +191,7 @@ export function DataManagementWorkspace({
         <div>
           <p className="eyebrow">数据管理</p>
           <h2>管理公式、批次和原始证据</h2>
-          <p>停用只改变工作台可见性，不删除原始导出、标签历史或客观结果。</p>
+          <p>停用只改变研究页面的可见性，不删除原始导出、标签历史或客观结果。</p>
         </div>
         <div className="management-filters">
           <div className="management-filter" role="group" aria-label="数据状态筛选">

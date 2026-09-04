@@ -50,7 +50,7 @@ export function CandidatePanel({ data }: { data: ImportData }) {
             </Button>
           </div>
         </div>
-        <p className="candidate-readonly-note">这里仅查看导入批次和历史证据。新的人工判断请进入“工作台 / 策略信号”，打开股票详情后使用“判断”Tab；旧标签仅保留为历史兼容数据，不再从此处新增或覆盖。</p>
+        <p className="candidate-readonly-note">这里仅查看导入批次和历史证据。新的人工判断请进入“策略信号”，打开股票详情后使用“判断”Tab；旧标签仅保留为历史兼容数据，不再从此处新增或覆盖。</p>
         {recommendationWorkbench && <RecommendationWorkbenchPanel data={recommendationWorkbench} />}
         {selectedStats && !loadingBatch && (
           <div className="stats-strip" aria-label="批次统计">
@@ -200,7 +200,7 @@ export function CandidatePanel({ data }: { data: ImportData }) {
                         <CandidateModelScorePanel data={candidateModelScores[candidate.candidate_id]} />
                       )}
                     </div>
-                    <span className="candidate-readonly-hint">人工判断与交易记录请从工作台股票详情进入。</span>
+                    <span className="candidate-readonly-hint">人工判断与交易记录请从策略信号股票详情进入。</span>
                   </div>
                 </article>
               )

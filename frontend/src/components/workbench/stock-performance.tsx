@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import { requestJson } from '@/api/client'
-import { PercentagePerformanceChart } from '@/components/workbench/percentage-performance-chart'
+import { PercentagePerformanceChart, PerformanceChartDialog } from '@/components/workbench/percentage-performance-chart'
 import type { WorkbenchStockPerformance, WorkbenchStockPerformancePoint } from '@/types'
 import { formatManagementDate, formatPercent } from '@/lib/format'
 
@@ -71,6 +71,7 @@ export function StockPerformancePanel({
   const [performance, setPerformance] = useState<WorkbenchStockPerformance | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [chartExpanded, setChartExpanded] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -109,6 +110,19 @@ export function StockPerformancePanel({
         </p>
       </section>
     )
+  }
+
+  const chartProps = {
+    cumulativeLabel: '累计净收益率',
+    dailyLabel: '日净收益率',
+    emptyMessage: '当前没有可用的累计净收益率估值点；缺失行情不会用旧价、零值或猜测值补齐。',
+    lineLabel: '累计净收益率',
+    points: performance.points,
+    pointUnit: '估值日',
+    subtitle: '按 approved 日线收盘估值',
+    symbol: performance.symbol,
+    title: '累计净收益率走势',
+    zeroLineLabel: '零收益率',
   }
 
   return (
@@ -156,18 +170,8 @@ export function StockPerformancePanel({
         </p>
       )}
       <div className="stock-performance-content">
-        <PercentagePerformanceChart
-          cumulativeLabel="累计净收益率"
-          dailyLabel="日净收益率"
-          emptyMessage="当前没有可用的累计净收益率估值点；缺失行情不会用旧价、零值或猜测值补齐。"
-          lineLabel="累计净收益率"
-          points={performance.points}
-          pointUnit="估值日"
-          subtitle="按 approved 日线收盘估值"
-          symbol={performance.symbol}
-          title="累计净收益率走势"
-          zeroLineLabel="零收益率"
-        />
+        <PercentagePerformanceChart {...chartProps} onExpand={() => setChartExpanded(true)} />
+        <PerformanceChartDialog {...chartProps} open={chartExpanded} onOpenChange={setChartExpanded} />
         <section className="stock-performance-table-section" aria-labelledby={tableId}>
           <div className="stock-performance-table-heading">
             <div>

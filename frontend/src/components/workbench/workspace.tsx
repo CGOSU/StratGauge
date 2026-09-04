@@ -275,7 +275,7 @@ export function WorkbenchWorkspace({
           if (serverReviewState) {
             pageParams.set('review_state', serverReviewState)
           }
-          if (route === 'workbench' || route === 'signals') {
+          if (route === 'signals') {
             const [nextSummary, nextSignals] = await Promise.all([
               requestJson<WorkbenchSummary>(`${apiBase}/v1/workbench/summary`, signal),
               requestJson<WorkbenchSignalPage>(`${apiBase}/v1/workbench/daily-signals/page?${pageParams.toString()}`, signal),
@@ -306,7 +306,7 @@ export function WorkbenchWorkspace({
           if (reason instanceof DOMException && reason.name === 'AbortError') {
             return
           }
-          setPageError(reason instanceof Error ? reason.message : '加载工作台数据失败。')
+          setPageError(reason instanceof Error ? reason.message : '加载研究数据失败。')
         } finally {
           if (!controller.signal.aborted) {
             setLoading(false)
@@ -388,10 +388,6 @@ export function WorkbenchWorkspace({
     const matchesQuery = !normalizedQuery || [signal.candidate.symbol, signal.candidate.local_code, signal.candidate.name ?? '', signal.batch.formula_name].some((value) => value.toLowerCase().includes(normalizedQuery))
     return matchesQuery && matchesWorkbenchFilter(signal, filter)
   }))
-  const nextActionableSignal = visibleSignals.find((signal) => workbenchActionRank(signal) < 2)
-  const openNextActionable = () => {
-    if (nextActionableSignal) void openStock(nextActionableSignal.candidate.symbol, nextActionableSignal.candidate.candidate_id)
-  }
   const latestSignalMarketDate = latestMarketSessionDate(signals)
   const summaryCards = summary ? [
     ['策略信号', summary.signal_count, 'neutral'],
@@ -405,19 +401,10 @@ export function WorkbenchWorkspace({
   return (
     <section className="workbench-page" aria-label={`${appRouteLabels[route]}工作区`}>
       {pageError && <div className="workbench-page-error" role="alert">{pageError}</div>}
-      {(route === 'workbench' || route === 'signals') && summary && (
+      {route === 'signals' && summary && (
         <div className="workbench-kpi-grid">
           {summaryCards.map(([label, value, tone]) => <article className={`workbench-kpi workbench-kpi--${tone}`} key={label}><span>{label}</span><strong className="workbench-kpi-value">{value}</strong></article>)}
         </div>
-      )}
-      {route === 'workbench' && (
-        <>
-          <div className="workbench-section-heading"><div><span className="eyebrow">TODAY · ACTION QUEUE</span><h2>今天需要处理什么</h2><p>按“未判断 → 观察复评 → 已确认事实”排序；点击股票，在右侧详情中追加判断。</p></div><div className="workbench-heading-actions"><span className="workbench-as-of">证据截至 {summary ? formatManagementDate(summary.as_of) : '—'}</span><button type="button" className="workbench-primary-action" onClick={openNextActionable} disabled={!nextActionableSignal || loading}>连续处理待办</button></div></div>
-          <WorkbenchFilterBar query={query} onQueryChange={handleQueryChange} filter={filter} onFilterChange={handleFilterChange} onRefresh={() => setReloadToken((value) => value + 1)} busy={loading} />
-          {loading && loadedRoute !== route ? <div className="workbench-loading">正在读取本地研究证据…</div> : <WorkbenchSignalTable signals={visibleSignals.slice(0, 12)} onOpen={(symbol, candidateId) => void openStock(symbol, candidateId)} emptyMessage="当前没有待处理信号。" />}
-          {!loading && visibleSignals.length > 12 && <p className="workbench-queue-note">当前页显示前 12 条；点击“连续处理待办”可从优先级最高的未判断信号开始。</p>}
-          <PaginationControls page={signalPage} pageSize={signalPageSize} total={signalTotal} busy={loading} onPageChange={setSignalPage} />
-        </>
       )}
       {route === 'signals' && (
         <>

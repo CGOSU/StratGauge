@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import { requestJson } from '@/api/client'
-import { PercentagePerformanceChart } from '@/components/workbench/percentage-performance-chart'
+import { PercentagePerformanceChart, PerformanceChartDialog } from '@/components/workbench/percentage-performance-chart'
 import type { WorkbenchObservationPerformanceHistory, WorkbenchObservationPerformancePoint } from '@/types'
 import { formatManagementDate, formatPercent, formatPrice } from '@/lib/format'
 
@@ -59,6 +59,7 @@ export function ObservationPerformancePanel({
   const [performance, setPerformance] = useState<WorkbenchObservationPerformanceHistory | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [chartExpanded, setChartExpanded] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -97,6 +98,18 @@ export function ObservationPerformancePanel({
   }
 
   const { highest, lowest } = observationReturnExtremes(performance.points)
+  const chartProps = {
+    cumulativeLabel: '观察期累计涨跌幅',
+    dailyLabel: '日涨跌幅',
+    emptyMessage: '当前没有可用的观察期累计涨跌幅点；缺失行情不会用旧价、零值或猜测值补齐。',
+    lineLabel: '观察期累计涨跌幅',
+    points: performance.points,
+    pointUnit: '交易日',
+    subtitle: '按 approved 日线收盘价计算',
+    symbol: performance.symbol,
+    title: '观察期累计涨跌幅走势',
+    zeroLineLabel: '零涨跌幅',
+  }
 
   return (
     <section className="stock-performance-panel" aria-labelledby={panelId} aria-busy={loading}>
@@ -139,18 +152,8 @@ export function ObservationPerformancePanel({
         </p>
       )}
       <div className="stock-performance-content">
-        <PercentagePerformanceChart
-          cumulativeLabel="观察期累计涨跌幅"
-          dailyLabel="日涨跌幅"
-          emptyMessage="当前没有可用的观察期累计涨跌幅点；缺失行情不会用旧价、零值或猜测值补齐。"
-          lineLabel="观察期累计涨跌幅"
-          points={performance.points}
-          pointUnit="交易日"
-          subtitle="按 approved 日线收盘价计算"
-          symbol={performance.symbol}
-          title="观察期累计涨跌幅走势"
-          zeroLineLabel="零涨跌幅"
-        />
+        <PercentagePerformanceChart {...chartProps} onExpand={() => setChartExpanded(true)} />
+        <PerformanceChartDialog {...chartProps} open={chartExpanded} onOpenChange={setChartExpanded} />
         <section className="stock-performance-table-section" aria-labelledby={tableId}>
           <div className="stock-performance-table-heading">
             <div>

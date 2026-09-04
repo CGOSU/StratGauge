@@ -3329,35 +3329,6 @@
     margin: 4px 0;
   }
 
-  .workbench-heading-actions {
-    align-items: flex-end;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .workbench-primary-action {
-    background: var(--text-primary);
-    border: 1px solid var(--text-primary);
-    border-radius: var(--component-radius-sm);
-    color: #fff;
-    cursor: pointer;
-    font-size: 0.72rem;
-    font-weight: 700;
-    min-height: 32px;
-    padding: 0 12px;
-  }
-
-  .workbench-primary-action:disabled {
-    cursor: not-allowed;
-    opacity: 0.45;
-  }
-
-  .workbench-queue-note {
-    color: var(--text-secondary);
-    font-size: 0.72rem;
-    margin: 8px 0 0;
-  }
 
   .workbench-change-summary {
     background: var(--surface-raised);
@@ -4277,6 +4248,77 @@
     text-align: right;
   }
 
+  .stock-performance-chart-actions {
+    align-items: flex-end;
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
+  .stock-performance-expand-button {
+    background: var(--state-review-soft);
+    border: 1px solid var(--state-review);
+    border-radius: var(--component-radius-sm);
+    color: var(--state-review);
+    font-size: 0.72rem;
+    font-weight: 700;
+    min-height: 34px;
+    padding: 0 10px;
+  }
+
+  .stock-performance-expand-button:hover {
+    background: var(--surface-raised);
+  }
+
+  .stock-performance-chart--compact {
+    padding: 18px;
+  }
+
+  .stock-performance-chart--expanded {
+    gap: 18px;
+    padding: 24px;
+  }
+
+  .stock-performance-chart--expanded .stock-performance-chart-heading h4 {
+    font-size: 1.1rem;
+  }
+
+  .stock-performance-chart--expanded .stock-performance-axis-label {
+    font-size: 16px;
+  }
+
+  .stock-performance-chart--expanded .stock-performance-tooltip-title,
+  .stock-performance-chart--expanded .stock-performance-tooltip-text {
+    font-size: 16px;
+  }
+
+  .dialog-content.performance-chart-dialog {
+    box-sizing: border-box;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: min(calc(100dvh - 24px), 900px);
+    max-height: min(92vh, 900px);
+    max-width: min(1400px, calc(100vw - 40px));
+    overflow: hidden;
+    width: min(1400px, calc(100vw - 40px));
+  }
+
+  .dialog-content.performance-chart-dialog > .stock-performance-chart {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .dialog-content.performance-chart-dialog .stock-performance-chart--expanded {
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    min-height: 0;
+  }
+
+  .dialog-content.performance-chart-dialog .stock-performance-chart--expanded .stock-performance-chart-svg {
+    height: 100%;
+    min-height: 0;
+  }
+
   .stock-performance-chart-svg {
     display: block;
     height: auto;
@@ -4892,14 +4934,6 @@
     gap: 8px;
   }
 
-  .workbench-heading-actions {
-    align-items: flex-start;
-    width: 100%;
-  }
-
-  .workbench-primary-action {
-    width: 100%;
-  }
 
   .workbench-change-row {
     align-items: flex-start;
@@ -5242,7 +5276,6 @@
   }
 
   .workbench-as-of,
-  .workbench-queue-note,
   .workbench-disclaimer,
   .workbench-evidence-note,
   .workbench-blocking-reasons {
@@ -5250,13 +5283,6 @@
     line-height: 1.5;
   }
 
-  .workbench-primary-action {
-    border-radius: var(--component-radius-sm);
-    font-size: 14px;
-    font-weight: 600;
-    min-height: 36px;
-    padding: 0 14px;
-  }
 
   .workbench-filter-bar {
     border-radius: var(--component-radius);
@@ -5724,6 +5750,31 @@
 
   .workbench-kpi-value {
     font-size: 22px;
+  }
+
+  .stock-performance-chart--compact {
+    padding: 14px;
+  }
+
+  .stock-performance-chart-actions {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .stock-performance-chart-actions > span,
+  .stock-performance-expand-button {
+    width: 100%;
+  }
+
+  .dialog-content.performance-chart-dialog {
+    max-height: calc(100dvh - 24px);
+    max-width: calc(100vw - 24px);
+    padding: 16px;
+    width: calc(100vw - 24px);
+  }
+
+  .stock-performance-chart--expanded {
+    padding: 14px;
   }
 
   .stock-detail-drawer {
