@@ -1,18 +1,12 @@
 import { useEffect, useId, useState } from 'react'
 import { requestJson } from '@/api/client'
+import { PercentagePerformanceChart } from '@/components/workbench/percentage-performance-chart'
 import type { WorkbenchStockPerformance, WorkbenchStockPerformancePoint } from '@/types'
 import { formatManagementDate, formatPercent } from '@/lib/format'
 
 
-type ChartPoint = {
-  index: number
-  value: number
-}
-
 function numericValue(value: string | null): number | null {
-  if (value === null) {
-    return null
-  }
+  if (value === null) return null
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
 }
@@ -32,9 +26,7 @@ function statusClass(status: WorkbenchStockPerformance['status']): string {
 
 function returnClass(value: string | null): string {
   const numeric = numericValue(value)
-  if (numeric === null) {
-    return ''
-  }
+  if (numeric === null) return ''
   return numeric >= 0 ? 'market-profit' : 'market-loss'
 }
 
@@ -45,146 +37,6 @@ function pointEvidence(point: WorkbenchStockPerformancePoint): string {
       : '行情证据完整'
   }
   return point.reason ?? '该估值日行情证据不可用；收益率保持为空。'
-}
-
-function chartSegments(points: WorkbenchStockPerformancePoint[]): ChartPoint[][] {
-  const segments: ChartPoint[][] = []
-  let segment: ChartPoint[] = []
-  points.forEach((point, index) => {
-    const value = point.status === 'available' ? numericValue(point.cumulative_return) : null
-    if (value === null) {
-      if (segment.length > 0) {
-        segments.push(segment)
-      }
-      segment = []
-      return
-    }
-    segment.push({ index, value })
-  })
-  if (segment.length > 0) {
-    segments.push(segment)
-  }
-  return segments
-}
-
-function formatReturn(value: string | null): string {
-  return formatPercent(value)
-}
-
-function StockPerformanceChart({
-  symbol,
-  points,
-}: {
-  symbol: string
-  points: WorkbenchStockPerformancePoint[]
-}) {
-  const chartId = useId()
-  const titleId = `${chartId}-title`
-  const descriptionId = `${chartId}-description`
-  const segments = chartSegments(points)
-  const chartWidth = 720
-  const chartHeight = 270
-  const plotLeft = 64
-  const plotRight = 18
-  const plotTop = 20
-  const plotBottom = 36
-  const plotWidth = chartWidth - plotLeft - plotRight
-  const plotHeight = chartHeight - plotTop - plotBottom
-  const values = segments.flatMap((segment) => segment.map((point) => point.value))
-
-  if (values.length === 0) {
-    return (
-      <section className="stock-performance-chart" aria-labelledby={titleId}>
-        <div className="stock-performance-chart-heading">
-          <h4 id={titleId}>累计净收益率走势</h4>
-          <span>按 approved 日线收盘估值</span>
-        </div>
-        <p className="stock-performance-chart-empty" role="status">
-          当前没有可用的累计净收益率估值点；缺失行情不会用旧价、零值或猜测值补齐。
-        </p>
-      </section>
-    )
-  }
-
-  const minimum = Math.min(0, ...values)
-  const maximum = Math.max(0, ...values)
-  const range = Math.max(maximum - minimum, 0.0001)
-  const xForIndex = (index: number): number => {
-    if (points.length <= 1) {
-      return plotLeft + plotWidth / 2
-    }
-    return plotLeft + (plotWidth * index) / (points.length - 1)
-  }
-  const yForValue = (value: number): number => (
-    plotTop + ((maximum - value) / range) * plotHeight
-  )
-  const zeroY = yForValue(0)
-  const firstPoint = segments[0][0]
-  const lastSegment = segments[segments.length - 1]
-  const lastPoint = lastSegment[lastSegment.length - 1]
-  const description = `${symbol} 的累计净收益率走势，缺失行情估值日保持断开。`
-
-  return (
-    <section className="stock-performance-chart" aria-labelledby={titleId}>
-      <div className="stock-performance-chart-heading">
-        <div>
-          <h4 id={titleId}>累计净收益率走势</h4>
-          <span id={descriptionId}>百分比按净收益率比例展示，缺口表示估值证据不可用。</span>
-        </div>
-        <span>{points.length} 个估值日</span>
-      </div>
-      <svg
-        className="stock-performance-chart-svg"
-        viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-        role="img"
-        aria-labelledby={`${titleId} ${descriptionId}`}
-      >
-        <title>{description}</title>
-        <desc>累计净收益率折线；虚线为零收益率基线，缺失估值日不连接。</desc>
-        <line
-          className="stock-performance-zero-line"
-          x1={plotLeft}
-          x2={chartWidth - plotRight}
-          y1={zeroY}
-          y2={zeroY}
-        />
-        <text className="stock-performance-axis-label" x={plotLeft - 8} y={plotTop + 4} textAnchor="end">
-          {formatReturn(maximum.toString())}
-        </text>
-        <text className="stock-performance-axis-label" x={plotLeft - 8} y={zeroY + 4} textAnchor="end">
-          0.00%
-        </text>
-        <text className="stock-performance-axis-label" x={plotLeft - 8} y={plotTop + plotHeight + 4} textAnchor="end">
-          {formatReturn(minimum.toString())}
-        </text>
-        {segments.map((segment) => (
-          <path
-            className="stock-performance-line"
-            d={segment.map((point, pointIndex) => `${pointIndex === 0 ? 'M' : 'L'} ${xForIndex(point.index)} ${yForValue(point.value)}`).join(' ')}
-            key={segment[0].index}
-          />
-        ))}
-        {segments.flatMap((segment) => segment).map((point) => (
-          <circle
-            className="stock-performance-point"
-            cx={xForIndex(point.index)}
-            cy={yForValue(point.value)}
-            key={point.index}
-            r="4"
-          />
-        ))}
-      </svg>
-      <div className="stock-performance-chart-legend" aria-label="图表说明">
-        <span>实线：累计净收益率</span>
-        <span>虚线：零收益率基线</span>
-        <span>空档：估值证据不可用</span>
-      </div>
-      <div className="stock-performance-chart-footnote">
-        <span>首个可用点：{points[firstPoint.index].session_date}</span>
-        <span>末个可用点：{points[lastPoint.index].session_date}</span>
-      </div>
-    </section>
-  )
 }
 
 function PerformanceStat({
@@ -201,7 +53,7 @@ function PerformanceStat({
   return (
     <div className={`stock-performance-stat stock-performance-stat--${tone}`}>
       <dt>{label}</dt>
-      <dd className={returnClass(value)}>{formatReturn(value)}</dd>
+      <dd className={returnClass(value)}>{formatPercent(value)}</dd>
       <small>{date ? `${date} 估值` : '暂无可用估值日'}</small>
     </div>
   )
@@ -304,7 +156,18 @@ export function StockPerformancePanel({
         </p>
       )}
       <div className="stock-performance-content">
-        <StockPerformanceChart symbol={performance.symbol} points={performance.points} />
+        <PercentagePerformanceChart
+          cumulativeLabel="累计净收益率"
+          dailyLabel="日净收益率"
+          emptyMessage="当前没有可用的累计净收益率估值点；缺失行情不会用旧价、零值或猜测值补齐。"
+          lineLabel="累计净收益率"
+          points={performance.points}
+          pointUnit="估值日"
+          subtitle="按 approved 日线收盘估值"
+          symbol={performance.symbol}
+          title="累计净收益率走势"
+          zeroLineLabel="零收益率"
+        />
         <section className="stock-performance-table-section" aria-labelledby={tableId}>
           <div className="stock-performance-table-heading">
             <div>
@@ -336,8 +199,8 @@ export function StockPerformancePanel({
                         <small>{formatManagementDate(point.valuation_at)}</small>
                       </th>
                       <td><span className={statusClass(point.status)}>{statusLabel(point.status)}</span></td>
-                      <td className={`stock-performance-number ${returnClass(point.daily_return)}`}>{formatReturn(point.daily_return)}</td>
-                      <td className={`stock-performance-number ${returnClass(point.cumulative_return)}`}>{formatReturn(point.cumulative_return)}</td>
+                      <td className={`stock-performance-number ${returnClass(point.daily_return)}`}>{formatPercent(point.daily_return)}</td>
+                      <td className={`stock-performance-number ${returnClass(point.cumulative_return)}`}>{formatPercent(point.cumulative_return)}</td>
                       <td>{pointEvidence(point)}</td>
                     </tr>
                   ))}

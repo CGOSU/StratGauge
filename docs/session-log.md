@@ -1,5 +1,23 @@
 # 会话记录
 
+### 2026-09-04 观察池与持仓折线图数据点提示
+
+- 完成内容：共用原生 SVG 折线图的数据点支持鼠标悬停和键盘聚焦；观察池与持仓均显示交易日/估值日、收盘价、当日涨跌幅或净收益率、累计涨跌幅或净收益率。持仓表现 API/类型新增可空 `close` 字段；缺失行情明确显示不可用，不补零或旧值。同步更新 `docs/使用文档.md`、`docs/current-state.md` 和 `docs/decisions.md`。
+- 实际验证：`cd backend; $env:PYTHONPATH='src'; uv run python -m unittest tests.application.test_workbench tests.api.test_workbench -q`（18 项通过）；后端相关 Ruff check、format check、MyPy 通过；`cd frontend; corepack pnpm typecheck` 通过；`cd frontend; corepack pnpm lint` 通过（0 error、19 条既有 React Hooks warning）；`cd frontend; corepack pnpm build` 通过；`cd frontend; corepack pnpm exec playwright test tests/visual/workbench-manual-position.spec.ts --project=chromium --config=playwright.temp-4173.config.ts`（5 项通过，临时配置已删除）；`git diff --check` 通过，仅有 Windows 换行转换提示。未执行 push。
+- 遗留问题：完整前端视觉回归仍有既有主板行情同步 completed/partial 截图基线差异；未访问真实 provider 或写入 `backend/data`。
+
+### 2026-09-04 观察池表现补充最高涨幅和最大跌幅
+
+- 完成内容：观察池详情“观察表现”摘要新增观察期最高涨幅、最大跌幅及对应交易日，分别取可用累计涨跌幅的最大值和最小值；缺失或无效点不参与计算，最大跌幅不冒充峰值回撤。新增回归夹具覆盖正负极值，并保留折线、逐日明细和证据状态。
+- 实际验证：`cd frontend; corepack pnpm typecheck` 通过；`cd frontend; corepack pnpm lint` 通过（0 error、19 条既有 React Hooks warning）；`cd frontend; corepack pnpm build` 通过；`cd frontend; corepack pnpm exec playwright test tests/visual/workbench-manual-position.spec.ts --project=chromium --config=playwright.temp-4173.config.ts`（5 项通过，使用临时 4173 端口，配置已删除）；`git diff --check` 通过，仅有 Windows 换行转换提示。未执行 commit/push。
+- 遗留问题：完整前端视觉回归仍有既有主板行情同步 completed/partial 截图基线差异；未新增后端/API 或真实行情验证需求。
+
+### 2026-09-04 观察池详情补充累计涨跌幅折线图
+
+- 完成内容：在既有观察池候选级逐交易日百分比接口和详情表格基础上，新增详情抽屉“观察表现”的原生 SVG 累计涨跌幅折线图；按 approved 日线累计比例绘制，缺失或无效点断开，不补零、不沿用前值、不跨缺口连接，保留原有状态、原因和逐日证据明细。同步更新 `docs/使用文档.md`、`docs/current-state.md` 和 `docs/decisions.md`。
+- 实际验证：`cd frontend; corepack pnpm typecheck` 通过；`cd frontend; corepack pnpm lint` 通过（0 error、19 条既有 React Hooks warning）；`cd frontend; corepack pnpm build` 通过；`cd frontend; corepack pnpm exec playwright test tests/visual/workbench-manual-position.spec.ts --project=chromium --config=playwright.temp-4173.config.ts`（5 项通过，使用临时 4173 端口，配置已删除）；`git diff --check` 通过，仅有 Windows 换行转换提示。未执行 commit/push。
+- 遗留问题：完整前端视觉回归仍有既有主板行情同步 completed/partial 截图基线差异；未新增后端/API 或真实行情验证需求。
+
 ### 2026-09-04 观察池候选逐交易日百分比表现与文档收口
 
 - 完成内容：新增候选级 `GET /v1/workbench/candidates/{candidate_id}/observation-performance` 只读投影和前端详情抽屉“观察表现”页签；分页观察池只保留摘要。实现按 candidate ID 与当前连续 `watch`/`prepare_buy` 周期隔离，`discard` 重置；仅读取本地 approved `market_daily` 和追加式人工事实，按 `as_of` 及上海时区证券日期过滤，缺失证据返回 `unavailable`/`incomplete`，不补零、不展示金额。为新增公开 GET 路由补充基准样例清单和路由数量回归，并修正跨上海日期边界的测试夹具。

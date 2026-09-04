@@ -214,6 +214,7 @@ class WorkbenchStockPerformancePoint(BaseModel):
     valuation_at: datetime
     status: MarketEvidenceStatus
     market_snapshot_ids: tuple[str, ...] = ()
+    close: Decimal | None = None
     daily_return: Decimal | None = None
     cumulative_return: Decimal | None = None
     reason: str | None = None

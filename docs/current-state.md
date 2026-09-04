@@ -19,11 +19,11 @@
 - 已建立 `backend/` Python 工程、Pydantic 领域模型、Tushare/BaoStock/AKShare/歪枣网统一适配器契约、Tushare `stock_basic`/`trade_cal` 参考数据快照、DuckDB 清单索引、内容寻址 JSON/Parquet 快照、质量门、安全策略 AST、下一交易日回测和股票分析 API；另有带 API 健康状态的最小 React/Vite 前端外壳。默认测试不访问网络；真实验证脚本位于 `backend/scripts/verify_live_adapters.py`。
 - 已实现通达信半手动选股首个可验证切片：`tdx_import.py` 支持 UTF-8/GB18030 的 CSV、TSV、分号分隔文件、通达信 `.EBK` 市场前缀格式和通达信行情表 `.txt`；批次记录公式、原始文件名和文件哈希；原始导出和解析结果不可变保存；人工标签和客观结果追加保存；`selection_outcomes.py` 支持明确固定持有期、政策指纹和名义金额的客观结果计算；`selection_stats.py` 按候选/追踪政策取最新结果并分离完成、未入场和未解决样本；FastAPI 候选队列、统计、一次性成熟和成熟任务接口，以及 React 导入、标注、统计、成熟任务状态和数据管理控制已接入。
 - 歪枣网适配器支持按证券代码获取不复权日线，使用 `WAIZAO_TOKEN` 环境变量；`code=all` 当前 Token 无权限。成交量已从手转换为股，原始响应仍保留供应商字段。成交量和成交额交叉比较允许 0.001% 相对容差以覆盖供应商取整。
-- 工作台观察池分页列表现保留轻量 `observation_performance` 摘要；详情抽屉保留被点击的 `candidate_id`，对当前 `watch`/`prepare_buy` 候选按需调用 `GET /v1/workbench/candidates/{candidate_id}/observation-performance`，展示观察锚点、逐交易日收盘价证据、日涨跌幅和观察期累计涨跌幅。周期按 candidate ID 与连续状态段隔离，`discard` 重置；仅消费本地 approved `market_daily`，按上海时区日期和 `as_of` 过滤，缺失证据显示 `unavailable`/`incomplete` 及原因，不补零或显示金额。
+- 工作台观察池分页列表现保留轻量 `observation_performance` 摘要；详情抽屉保留被点击的 `candidate_id`，对当前 `watch`/`prepare_buy` 候选按需调用 `GET /v1/workbench/candidates/{candidate_id}/observation-performance`，展示观察锚点、逐交易日收盘价证据、日涨跌幅和观察期累计涨跌幅，并用原生 SVG 绘制累计涨跌幅折线，摘要同时显示可用累计比例中的最高涨幅、最大跌幅及日期，数据点支持悬停和键盘聚焦查看日期与基本行情。周期按 candidate ID 与连续状态段隔离，`discard` 重置；仅消费本地 approved `market_daily`，按上海时区日期和 `as_of` 过滤，缺失证据显示 `unavailable`/`incomplete` 及原因，不补零或显示金额。
 - 股票详情抽屉现提供规范化 `CODE.EXCHANGE` 到雪球 `EXCHANGE+CODE` 的日线 K 线外链；例如 `000788.SZ` 映射为 `https://xueqiu.com/S/SZ000788`。该链接只读、在新标签页打开，不发起应用内行情请求。
 - 工作台从信号行打开股票详情时会保留被点击的 `candidate_id`；同一证券出现在多个批次时，人工评审和交易写入对应的批次候选，不再固定操作详情中的第一条信号。
 - 观察池同一页出现重复证券时，重复行左侧显示相同颜色的粗边框标记；只对当前观察池页面内重复的标准化证券代码标记，不改变筛选、排序或交易语义。
-- 当前持仓详情抽屉的“表现”标签按需调用 `GET /v1/workbench/stocks/{symbol}/performance`；无活动持仓不提供该入口。面板用原生 SVG 绘制累计净收益率，并以语义摘要、估值日表格和 approved 行情快照/缺失原因作为并列证据。
+- 当前持仓详情抽屉的“表现”标签按需调用 `GET /v1/workbench/stocks/{symbol}/performance`；无活动持仓不提供该入口。面板用原生 SVG 绘制累计净收益率，数据点支持悬停和键盘聚焦查看估值日、approved 行情收盘价、日净收益率和累计净收益率，并以语义摘要、估值日表格和行情快照/缺失原因作为并列证据；持仓表现点的 `close` 为可空只读字段。
 - 手工台账、手工持仓跟踪和手工研究候选保持三条边界：新手工确认买入自动进入 `manual-position-tracking-v1` 跟踪案例，历史持仓必须显式登记且不倒填；手工跟踪 evidence 通过独立 `manual-position-tracking-dataset-v1` 导出，手工研究候选仍按 `SelectionBatch.source` 保留 `manual` 来源。
 - 手工 tracking evidence 导出只读取跟踪开始后的案例关联订单/成交/复盘和 evaluated_at 前已批准的本地行情，报告记录排除、覆盖和资格缺口；它不进入既有四用途训练、注册、shadow、推荐或交易链。报告 `ready` 仅表示证据覆盖完整，不表示已获训练或模型发布授权。
 
@@ -46,6 +46,12 @@
 - 研究基础已增加 Tushare 股票列表/交易日历同步、BaoStock + AKShare 备用交易日历交叉校验、交易日历增量缓存、时间点股票池快照、证券主数据快照、`/v1/universe/securities` 与 `/v1/universe/master` 搜索、内容寻址理论回测报告、策略生命周期审计，以及手工订单/成交/持仓/复盘 API；趋势交易 A1 买入规则、A2 胜负/成本规则、B1/B2 全市场增量行情及多日编排、C1 交易日历缓存、C2/C2.1 复权因子同步与历史批量补齐、显式前复权特征输入、C3 已批准行情自动成熟队列以及条件胜率和买入价分析查询已完成；分析查询严格按公式、追踪政策和批次导出时间点筛选历史证据。
 
 ## 最近一次更新
+
+- 2026-09-04 完成观察池与持仓折线图数据点提示：两类图表支持鼠标悬停和键盘聚焦，显示日期、收盘价、当日变化和累计变化；持仓表现点新增可空 `close`，缺失行情显示不可用。前端 typecheck、build、lint（0 error，19 条既有 warning）通过；后端相关测试 18 项通过，Ruff/MyPy 通过；受影响 Playwright 5 项通过；本轮不执行 push。
+
+- 2026-09-04 补齐观察池最高/最大跌幅摘要：详情抽屉“观察表现”按可用累计涨跌幅点计算并展示最高涨幅、最大跌幅及对应交易日，缺失点不参与计算；同步保留原生 SVG 折线、明细和证据状态。前端 typecheck、build、lint（0 error，19 条既有 warning）通过；受影响 Playwright 5 项通过；未修改 API、数据、行情证据或交易语义，未执行 commit/push。
+
+- 2026-09-04 补齐观察池详情折线图：在既有候选级 `GET /v1/workbench/candidates/{candidate_id}/observation-performance` 逐日证据基础上，详情抽屉“观察表现”新增原生 SVG 累计涨跌幅折线；缺失行情不补点、不跨缺口连接，表格和状态原因保留。前端 typecheck、build、lint（0 error，19 条既有 warning）通过；定向 Playwright 观察池表现用例通过；未修改 API、数据、行情证据或交易语义，未执行 commit/push。
 
 - 2026-09-04 完成观察池候选级逐交易日百分比表现：新增按需 `GET /v1/workbench/candidates/{candidate_id}/observation-performance` 和详情抽屉“观察表现”页签；分页列表只保留摘要，按候选/连续周期隔离，严格按 `as_of` 与上海时区过滤 approved `market_daily`，不写每日记录、不访问 provider、不展示金额。后端完整测试 439 项通过、1 项跳过，Ruff/MyPy 通过；前端 typecheck、build、lint（0 error，19 条既有 warning）通过；定向 Playwright 使用可监听的 4173 临时端口 5 项通过，默认 5173 仍受本机 EACCES 限制；`git diff --check` 通过；未执行 commit/push。
 

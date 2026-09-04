@@ -4307,9 +4307,44 @@
   }
 
   .stock-performance-point {
+    cursor: pointer;
     fill: var(--surface-raised);
     stroke: var(--state-review);
     stroke-width: 3;
+  }
+
+  .stock-performance-point:hover,
+  .stock-performance-point:focus {
+    fill: var(--state-review-soft);
+    outline: none;
+    stroke: var(--color-focus);
+    stroke-width: 4;
+  }
+
+  .stock-performance-tooltip {
+    pointer-events: none;
+  }
+
+  .stock-performance-tooltip-background {
+    fill: var(--surface-raised);
+    stroke: var(--border-strong);
+    stroke-width: 1;
+  }
+
+  .stock-performance-tooltip-title,
+  .stock-performance-tooltip-text {
+    font-family: var(--font-family-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stock-performance-tooltip-title {
+    fill: var(--text-primary);
+    font-weight: 700;
+  }
+
+  .stock-performance-tooltip-text {
+    fill: var(--text-secondary);
   }
 
   .stock-performance-chart-legend,

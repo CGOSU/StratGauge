@@ -476,6 +476,7 @@ export type WorkbenchStockPerformancePoint = {
   valuation_at: string
   status: WorkbenchMarketEvidence['status']
   market_snapshot_ids: string[]
+  close: string | null
   daily_return: string | null
   cumulative_return: string | null
   reason: string | null

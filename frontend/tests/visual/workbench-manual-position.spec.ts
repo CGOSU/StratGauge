@@ -42,6 +42,7 @@ const stockPerformance = {
       valuation_at: '2026-08-27T16:00:00+08:00',
       status: 'available',
       market_snapshot_ids: ['snapshot-manual'],
+      close: '10.20',
       daily_return: '0.02',
       cumulative_return: '0.02',
       reason: null,
@@ -51,6 +52,7 @@ const stockPerformance = {
       valuation_at: '2026-08-28T16:00:00+08:00',
       status: 'incomplete',
       market_snapshot_ids: [],
+      close: null,
       daily_return: null,
       cumulative_return: null,
       reason: '缺少仍持仓证券的 approved market_daily 行情：000001.SZ',
@@ -174,9 +176,9 @@ const observationPerformance = {
   anchor_session_date: '2026-08-27',
   anchor_available_at: '2026-08-27T16:00:00+08:00',
   anchor_close: '10.00',
-  latest_session_date: '2026-08-28',
-  latest_daily_return: '0.02',
-  latest_cumulative_return: '0.05',
+  latest_session_date: '2026-08-31',
+  latest_daily_return: '-0.0762',
+  latest_cumulative_return: '-0.03',
   reason: null,
   points: [
     {
@@ -192,11 +194,21 @@ const observationPerformance = {
     {
       session_date: '2026-08-28',
       status: 'available',
-      market_snapshot_id: 'snapshot-observation-latest',
+      market_snapshot_id: 'snapshot-observation-peak',
       available_at: '2026-08-28T16:00:00+08:00',
       close: '10.50',
       daily_return: '0.02',
       cumulative_return: '0.05',
+      reason: null,
+    },
+    {
+      session_date: '2026-08-31',
+      status: 'available',
+      market_snapshot_id: 'snapshot-observation-latest',
+      available_at: '2026-08-31T16:00:00+08:00',
+      close: '9.70',
+      daily_return: '-0.0762',
+      cumulative_return: '-0.03',
       reason: null,
     },
   ],
@@ -382,7 +394,22 @@ test('当前持仓详情展示单证券净收益率和缺失行情证据', async
   await expect(drawer.getByRole('button', { name: '表现', exact: true })).toBeVisible()
   await drawer.getByRole('button', { name: '表现', exact: true }).click()
   await expect(drawer.getByRole('heading', { name: '单证券历史净收益率', exact: true })).toBeVisible()
-  await expect(drawer.getByRole('img', { name: /累计净收益率走势/ })).toBeVisible()
+  const stockChart = drawer.getByRole('img', { name: /累计净收益率走势/ })
+  await expect(stockChart).toBeVisible()
+  const stockPoint = stockChart.locator('.stock-performance-point').first()
+  await expect(stockPoint).toHaveAttribute('tabindex', '0')
+  await stockPoint.hover()
+  const stockTooltip = stockChart.locator('.stock-performance-tooltip')
+  await expect(stockTooltip).toContainText('交易日：2026-08-27')
+  await expect(stockTooltip).toContainText('收盘价：10.20')
+  await expect(stockTooltip).toContainText('日净收益率：2.00%')
+  await expect(stockTooltip).toContainText('累计净收益率：2.00%')
+  await page.mouse.move(0, 0)
+  await expect(stockTooltip).toHaveCount(0)
+  await stockPoint.focus()
+  await expect(stockTooltip).toContainText('交易日：2026-08-27')
+  await drawer.getByRole('button', { name: '表现', exact: true }).focus()
+  await expect(stockTooltip).toHaveCount(0)
   await expect(drawer.getByRole('table', { name: '证券净收益率估值明细' })).toBeVisible()
   await expect(drawer.getByText('证据不完整', { exact: true }).first()).toBeVisible()
   await expect(drawer.locator('.stock-performance-summary').getByText('2.00%', { exact: true }).first()).toBeVisible()
@@ -446,11 +473,33 @@ test('观察池详情按候选展示逐交易日百分比表现', async ({ page 
   await expect(drawer.getByRole('button', { name: '观察表现', exact: true })).toBeVisible()
   await drawer.getByRole('button', { name: '观察表现', exact: true }).click()
   await expect(drawer.getByRole('heading', { name: '观察期每日涨跌幅', exact: true })).toBeVisible()
+  const chart = drawer.getByRole('img', { name: /观察期累计涨跌幅走势/ })
+  await expect(chart).toBeVisible()
+  await expect(chart.locator('.stock-performance-line')).toHaveCount(1)
+  await expect(chart.locator('.stock-performance-point')).toHaveCount(3)
+  const observationPoint = chart.locator('.stock-performance-point').nth(1)
+  await observationPoint.hover()
+  const observationTooltip = chart.locator('.stock-performance-tooltip')
+  await expect(observationTooltip).toContainText('交易日：2026-08-28')
+  await expect(observationTooltip).toContainText('收盘价：10.50')
+  await expect(observationTooltip).toContainText('日涨跌幅：2.00%')
+  await expect(observationTooltip).toContainText('观察期累计涨跌幅：5.00%')
+  await page.mouse.move(0, 0)
+  await expect(observationTooltip).toHaveCount(0)
+  await observationPoint.focus()
+  await expect(observationTooltip).toContainText('交易日：2026-08-28')
+  await drawer.getByRole('button', { name: '观察表现', exact: true }).focus()
+  await expect(observationTooltip).toHaveCount(0)
   await expect(drawer.getByRole('table', { name: '观察期逐交易日百分比明细' })).toBeVisible()
   await expect(drawer.getByText('5.00%', { exact: true }).first()).toBeVisible()
-  await expect(
-    drawer.getByLabel('观察期百分比表现摘要').getByText('观察期累计涨跌幅', { exact: true }),
-  ).toBeVisible()
+  const summary = drawer.getByLabel('观察期百分比表现摘要')
+  await expect(summary.getByText('观察期累计涨跌幅', { exact: true })).toBeVisible()
+  const highestStat = summary.getByText('观察期最高涨幅', { exact: true }).locator('..')
+  const lowestStat = summary.getByText('观察期最大跌幅', { exact: true }).locator('..')
+  await expect(highestStat.getByText('5.00%', { exact: true })).toBeVisible()
+  await expect(highestStat.getByText('2026-08-28', { exact: true })).toBeVisible()
+  await expect(lowestStat.getByText('-3.00%', { exact: true })).toBeVisible()
+  await expect(lowestStat.getByText('2026-08-31', { exact: true })).toBeVisible()
   await expect(drawer.getByText(/金额/)).toHaveCount(0)
 
   const dimensions = await page.evaluate(() => ({

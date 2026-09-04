@@ -643,6 +643,10 @@ class WorkbenchApplicationTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(
+                [point.close for point in performance.points],
+                [Decimal("9.5"), Decimal("12"), Decimal("11")],
+            )
+            self.assertEqual(
                 [point.daily_return for point in performance.points],
                 [None, Decimal("250") / denominator, Decimal("-101.5") / denominator],
             )
@@ -707,7 +711,9 @@ class WorkbenchApplicationTests(unittest.TestCase):
             self.assertEqual(performance.status, MarketEvidenceStatus.INCOMPLETE)
             self.assertEqual(len(performance.points), 2)
             self.assertEqual(performance.points[0].status, MarketEvidenceStatus.AVAILABLE)
+            self.assertEqual(performance.points[0].close, Decimal("10"))
             self.assertEqual(performance.points[1].status, MarketEvidenceStatus.INCOMPLETE)
+            self.assertIsNone(performance.points[1].close)
             self.assertIsNone(performance.points[1].daily_return)
             self.assertIsNone(performance.points[1].cumulative_return)
             self.assertIn(security.symbol, performance.points[1].reason or "")

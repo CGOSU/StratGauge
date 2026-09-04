@@ -300,6 +300,10 @@ class WorkbenchApiTests(unittest.TestCase):
                 Decimal("97.5") / denominator,
             )
             self.assertEqual(
+                [Decimal(point["close"]) for point in body["points"]],
+                [Decimal("9.5"), Decimal("12"), Decimal("11")],
+            )
+            self.assertEqual(
                 [Decimal(point["cumulative_return"]) for point in body["points"]],
                 [
                     Decimal("-51") / denominator,

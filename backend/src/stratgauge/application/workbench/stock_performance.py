@@ -158,6 +158,7 @@ def build_stock_performance(
                 valuation_at=valuation_at,
                 status=MarketEvidenceStatus.AVAILABLE,
                 market_snapshot_ids=market_snapshot_ids,
+                close=market_entry[1].close if market_entry is not None else None,
                 daily_return=daily_return,
                 cumulative_return=cumulative_return,
                 reason=point_reason,
