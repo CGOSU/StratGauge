@@ -154,6 +154,11 @@ def _open_position_start(
     return open_since
 
 
+def _is_human_bullish(signal: WorkbenchSignalView) -> bool:
+    annotation = signal.latest_review_annotation or signal.latest_annotation
+    return annotation is not None and annotation.outlook is SelectionAnnotationOutlook.BULLISH
+
+
 def _cohort_views(
     signals: Iterable[WorkbenchSignalView],
     orders: Iterable[ManualOrder],
@@ -174,8 +179,7 @@ def _cohort_views(
             tuple(
                 signal
                 for signal in signal_list
-                if signal.annotations
-                and signal.annotations[0].outlook is SelectionAnnotationOutlook.BULLISH
+                if _is_human_bullish(signal)
             ),
         ),
         (

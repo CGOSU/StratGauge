@@ -386,7 +386,11 @@ export type WorkbenchSignal = {
   candidate: Candidate
   labels: SelectionLabel[]
   annotations: Annotation[]
+  review_annotations: Annotation[]
+  review_group_key: string | null
+  review_source_candidate_id: string | null
   latest_annotation: Annotation | null
+  latest_review_annotation: Annotation | null
   exclusions: Exclusion[]
   latest_exclusion: Exclusion | null
   review_state: ReviewState

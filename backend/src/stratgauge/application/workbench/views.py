@@ -123,7 +123,11 @@ class WorkbenchSignalView(BaseModel):
     candidate: SelectionCandidate
     labels: tuple[ManualSelectionLabel, ...] = ()
     annotations: tuple[SelectionAnnotation, ...] = ()
+    review_annotations: tuple[SelectionAnnotation, ...] = ()
+    review_group_key: str | None = None
+    review_source_candidate_id: str | None = None
     latest_annotation: SelectionAnnotation | None = None
+    latest_review_annotation: SelectionAnnotation | None = None
     exclusions: tuple[SelectionCandidateExclusion, ...] = ()
     latest_exclusion: SelectionCandidateExclusion | None = None
     review_state: SelectionCandidateReviewState = SelectionCandidateReviewState.UNREVIEWED

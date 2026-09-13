@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { requestJson } from '@/api/client'
 import { PortfolioWorkspace } from '@/components/portfolio-workspace'
-import type { ReviewState, WorkbenchSignalPage, WorkbenchSignal, WorkbenchSummary, WorkbenchStockDetail, WorkbenchPositionView, WorkbenchTradeView, WorkbenchCohortMetrics, WorkbenchStrategyView, WorkbenchAnalyticsView, WorkbenchRoute, WorkbenchReviewFilter } from '@/types'
+import type { Annotation, ReviewState, WorkbenchSignalPage, WorkbenchSignal, WorkbenchSummary, WorkbenchStockDetail, WorkbenchPositionView, WorkbenchTradeView, WorkbenchCohortMetrics, WorkbenchStrategyView, WorkbenchAnalyticsView, WorkbenchRoute, WorkbenchReviewFilter } from '@/types'
 import { annotationOutlookLabels, annotationDecisionLabels } from '@/lib/labels'
 import { formatManagementDate, formatPrice, formatPercent } from '@/lib/format'
 import { PaginationControls } from '@/components/pagination-controls'
@@ -37,6 +37,34 @@ export function workbenchCohortLabel(cohort: WorkbenchCohortMetrics['cohort']): 
   }
   return labels[cohort]
 }
+export function workbenchLatestAnnotation(signal: WorkbenchSignal): Annotation | null {
+  return signal.latest_review_annotation ?? signal.latest_annotation
+}
+function workbenchReviewAnnotations(signal: WorkbenchSignal): Annotation[] {
+  return signal.review_annotations ?? signal.annotations
+}
+type WorkbenchReviewGroup = {
+  key: string
+  symbol: string
+  annotations: Annotation[]
+}
+function workbenchReviewGroups(signals: WorkbenchSignal[]): WorkbenchReviewGroup[] {
+  const groups = new Map<string, WorkbenchReviewGroup>()
+  for (const signal of signals) {
+    const key = signal.review_group_key ?? `${signal.batch.selection_date}:${signal.candidate.symbol}`
+    const group = groups.get(key) ?? { key, symbol: signal.candidate.symbol, annotations: [] }
+    const annotationIds = new Set(group.annotations.map((annotation) => annotation.annotation_id))
+    for (const annotation of workbenchReviewAnnotations(signal)) {
+      if (!annotationIds.has(annotation.annotation_id)) {
+        group.annotations.push(annotation)
+        annotationIds.add(annotation.annotation_id)
+      }
+    }
+    group.annotations.sort((left, right) => left.recorded_at.localeCompare(right.recorded_at) || left.annotation_id.localeCompare(right.annotation_id))
+    groups.set(key, group)
+  }
+  return [...groups.values()]
+}
 export function matchesWorkbenchFilter(signal: WorkbenchSignal, filter: WorkbenchReviewFilter): boolean {
   switch (filter) {
     case 'all':
@@ -44,7 +72,7 @@ export function matchesWorkbenchFilter(signal: WorkbenchSignal, filter: Workbenc
     case 'unreviewed':
       return signal.review_state === 'unreviewed'
     case 'bullish':
-      return signal.latest_annotation?.outlook === 'bullish'
+      return workbenchLatestAnnotation(signal)?.outlook === 'bullish'
     case 'watching':
       return signal.review_state === 'watching'
     case 'preparing':
@@ -56,7 +84,7 @@ export function matchesWorkbenchFilter(signal: WorkbenchSignal, filter: Workbenc
   }
 }
 export function workbenchActionRank(signal: WorkbenchSignal): number {
-  if (!signal.latest_annotation) return 0
+  if (!workbenchLatestAnnotation(signal)) return 0
   if (signal.review_state === 'watching' || signal.review_state === 'preparing') return 1
   if (signal.confirmed_buy) return 3
   return 2
@@ -66,8 +94,8 @@ export function workbenchSignalSort(signals: WorkbenchSignal[]): WorkbenchSignal
   return [...signals].sort((left, right) => {
     const rankDifference = workbenchActionRank(left) - workbenchActionRank(right)
     if (rankDifference !== 0) return rankDifference
-    const leftAt = left.latest_annotation?.reviewed_at ?? left.batch.selection_date
-    const rightAt = right.latest_annotation?.reviewed_at ?? right.batch.selection_date
+    const leftAt = workbenchLatestAnnotation(left)?.reviewed_at ?? left.batch.selection_date
+    const rightAt = workbenchLatestAnnotation(right)?.reviewed_at ?? right.batch.selection_date
     return rightAt.localeCompare(leftAt)
   })
 }
@@ -79,12 +107,14 @@ function latestMarketSessionDate(signals: WorkbenchSignal[]): string | null {
   }, null)
 }
 export function WorkbenchChangeSummary({ signals }: { signals: WorkbenchSignal[] }) {
-  const recheckSignals = signals.filter((signal) => signal.annotations.length > 1)
-  const changedSignals = recheckSignals.filter((signal) => {
-    const latest = signal.annotations[signal.annotations.length - 1]
-    const previous = signal.annotations[signal.annotations.length - 2]
+  const reviewGroups = workbenchReviewGroups(signals)
+  const recheckGroups = reviewGroups.filter((group) => group.annotations.length > 1)
+  const changedGroups = recheckGroups.filter((group) => {
+    const latest = group.annotations[group.annotations.length - 1]
+    const previous = group.annotations[group.annotations.length - 2]
     return latest.overall_score !== previous.overall_score || latest.outlook !== previous.outlook || latest.decision !== previous.decision
   })
+  const preparingGroupCount = reviewGroups.filter((group) => group.annotations[group.annotations.length - 1]?.decision === 'prepare_buy').length
   return (
     <section className="workbench-change-summary" aria-label="观察池变化摘要">
       <div className="workbench-section-heading workbench-section-heading--compact">
@@ -92,14 +122,14 @@ export function WorkbenchChangeSummary({ signals }: { signals: WorkbenchSignal[]
         <span className="workbench-as-of">仅基于追加记录</span>
       </div>
       <div className="workbench-change-cards">
-        <div><strong>{recheckSignals.length}</strong><span>已有复评记录</span></div>
-        <div><strong>{changedSignals.length}</strong><span>判断发生变化</span></div>
-        <div><strong>{signals.filter((signal) => signal.latest_annotation?.decision === 'prepare_buy').length}</strong><span>当前准备买入</span></div>
+        <div><strong>{recheckGroups.length}</strong><span>已有复评记录</span></div>
+        <div><strong>{changedGroups.length}</strong><span>判断发生变化</span></div>
+        <div><strong>{preparingGroupCount}</strong><span>当前准备买入</span></div>
       </div>
-      {changedSignals.length > 0 ? <div className="workbench-change-list">{changedSignals.slice(0, 8).map((signal) => {
-        const latest = signal.annotations[signal.annotations.length - 1]
-        const previous = signal.annotations[signal.annotations.length - 2]
-        return <div className="workbench-change-row" key={signal.candidate.candidate_id}><strong>{signal.candidate.symbol}</strong><span>{annotationDecisionLabels[previous.decision]} → {annotationDecisionLabels[latest.decision]}</span><span>{previous.overall_score} 分 → {latest.overall_score} 分</span><small>{formatManagementDate(latest.reviewed_at)}</small></div>
+      {changedGroups.length > 0 ? <div className="workbench-change-list">{changedGroups.slice(0, 8).map((group) => {
+        const latest = group.annotations[group.annotations.length - 1]
+        const previous = group.annotations[group.annotations.length - 2]
+        return <div className="workbench-change-row" key={group.key}><strong>{group.symbol}</strong><span>{annotationDecisionLabels[previous.decision]} → {annotationDecisionLabels[latest.decision]}</span><span>{previous.overall_score} 分 → {latest.overall_score} 分</span><small>{formatManagementDate(latest.reviewed_at)}</small></div>
       })}</div> : <p className="workbench-empty workbench-empty--compact">当前没有可比较的复评变化；未判断不等于不看好。</p>}
     </section>
   )
@@ -158,6 +188,7 @@ export function WorkbenchSignalTable({
       <div className="workbench-table-header" role="row"><span>股票</span><span>策略</span><span>信号时间</span><span>行情</span>{showObservationPerformance && <span>观察期涨跌</span>}<span>人工判断</span><span>状态</span></div>
       {displaySignals.map((signal) => {
         const observation = signal.observation_performance
+        const latestAnnotation = workbenchLatestAnnotation(signal)
         const duplicateMarker = duplicateSymbolMarkers.get(signal.candidate.symbol)
         return (
           <button type="button" className={`workbench-table-row${duplicateMarker ? ` workbench-table-row--duplicate ${duplicateMarker}` : ''}`} role="row" key={signal.candidate.candidate_id} onClick={() => onOpen(signal.candidate.symbol, signal.candidate.candidate_id)}>
@@ -166,7 +197,7 @@ export function WorkbenchSignalTable({
             <span className="workbench-table-cell"><strong>{signal.batch.selection_date}</strong><small>{formatManagementDate(signal.batch.exported_at)}</small></span>
             <span className="workbench-table-cell"><strong className="market-value">{formatPrice(signal.market.close)}</strong><small className={`market-change ${Number(signal.market.change_percent ?? 0) >= 0 ? 'market-profit' : 'market-loss'}`}>{formatPercent(signal.market.change_percent)}</small><small>{signal.market.session_date ? `收盘日 ${signal.market.session_date}` : '收盘日期不可用'}</small></span>
             {showObservationPerformance && <span className="workbench-table-cell workbench-observation-cell"><strong className={`market-value ${observationChangeClass(observation)}`}>{observation?.status === 'available' ? formatPercent(observation.change_percent) : '—'}</strong><small>{observation?.started_at ? `起点 ${formatManagementDate(observation.started_at)}` : '观察起点不可用'}</small><small>{observation?.start_close !== null && observation?.start_close !== undefined ? `起点价 ${formatPrice(observation.start_close)}` : observation?.reason ?? '起点价不可用'}</small></span>}
-            <span className="workbench-table-cell"><strong>{signal.latest_annotation ? `${'★'.repeat(signal.latest_annotation.overall_score)}${'☆'.repeat(5 - signal.latest_annotation.overall_score)}` : '—'}</strong><small>{signal.latest_annotation ? annotationOutlookLabels[signal.latest_annotation.outlook] : '未判断'}</small></span>
+            <span className="workbench-table-cell"><strong>{latestAnnotation ? `${'★'.repeat(latestAnnotation.overall_score)}${'☆'.repeat(5 - latestAnnotation.overall_score)}` : '—'}</strong><small>{latestAnnotation ? annotationOutlookLabels[latestAnnotation.outlook] : '未判断'}</small></span>
             <span className="workbench-table-status"><span className={`workbench-status workbench-status--${signal.review_state}`}>{workbenchReviewLabel(signal.review_state)}</span>{signal.confirmed_buy && <span className="workbench-status workbench-status--bought">已买入</span>}</span>
           </button>
         )

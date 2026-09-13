@@ -79,6 +79,140 @@ class WorkbenchApplicationTests(unittest.TestCase):
             )
             self.assertEqual(second.symbol, "600000.SH")
 
+    def test_same_day_cross_strategy_signals_share_latest_review(self) -> None:
+        with TemporaryDirectory() as directory:
+            selection_store = SelectionImportStore(directory)
+            raw_content = b"code,name,market\n000001,Ping,SZ\n"
+            first_import = import_tdx_export(
+                raw_content,
+                selection_date=date(2026, 1, 5),
+                exported_at=datetime(2026, 1, 5, 15, tzinfo=UTC),
+                imported_at=datetime(2026, 1, 5, 16, tzinfo=UTC),
+                formula_name="策略一",
+            )
+            second_import = import_tdx_export(
+                raw_content,
+                selection_date=date(2026, 1, 5),
+                exported_at=datetime(2026, 1, 5, 15, 1, tzinfo=UTC),
+                imported_at=datetime(2026, 1, 5, 16, 1, tzinfo=UTC),
+                formula_name="策略二",
+            )
+            selection_store.write(raw_content, first_import)
+            selection_store.write(raw_content, second_import)
+            first_candidate = first_import.candidates[0]
+            second_candidate = second_import.candidates[0]
+            selection_store.write_annotation(
+                first_import.batch.batch_id,
+                _annotation(
+                    first_candidate.candidate_id,
+                    "watch",
+                    reviewed_at=datetime(2026, 1, 5, 17, tzinfo=UTC),
+                ),
+            )
+            service = WorkbenchService(
+                selection_store,
+                ManualPortfolioStore(directory),
+                SnapshotStore(f"{directory}/market"),
+            )
+
+            signals = service.list_daily_signals(
+                selection_date=date(2026, 1, 5),
+                as_of=datetime(2026, 1, 5, 18, tzinfo=UTC),
+            )
+            self.assertEqual(len(signals), 2)
+            self.assertEqual(
+                {signal.review_state for signal in signals},
+                {SelectionCandidateReviewState.WATCHING},
+            )
+            signals_by_candidate = {
+                signal.candidate.candidate_id: signal for signal in signals
+            }
+            self.assertIsNotNone(signals_by_candidate[first_candidate.candidate_id].latest_annotation)
+            self.assertIsNone(signals_by_candidate[second_candidate.candidate_id].latest_annotation)
+            self.assertEqual(
+                {
+                    signal.latest_review_annotation.candidate_id
+                    for signal in signals
+                    if signal.latest_review_annotation
+                },
+                {first_candidate.candidate_id},
+            )
+            self.assertEqual(
+                {signal.review_group_key for signal in signals},
+                {"2026-01-05:000001.SZ"},
+            )
+            self.assertEqual(
+                {
+                    signal.review_source_candidate_id
+                    for signal in signals
+                    if signal.review_source_candidate_id
+                },
+                {first_candidate.candidate_id},
+            )
+            self.assertEqual(
+                {len(signal.review_annotations) for signal in signals},
+                {1},
+            )
+
+            selection_store.write_annotation(
+                second_import.batch.batch_id,
+                _annotation(
+                    second_candidate.candidate_id,
+                    "prepare_buy",
+                    reviewed_at=datetime(2026, 1, 5, 17, 30, tzinfo=UTC),
+                ),
+            )
+            updated_signals = service.list_daily_signals(
+                selection_date=date(2026, 1, 5),
+                as_of=datetime(2026, 1, 5, 18, tzinfo=UTC),
+            )
+            self.assertEqual(
+                {signal.review_state for signal in updated_signals},
+                {SelectionCandidateReviewState.PREPARING},
+            )
+            self.assertEqual(
+                {
+                    signal.latest_annotation.candidate_id
+                    for signal in updated_signals
+                    if signal.latest_annotation
+                },
+                {first_candidate.candidate_id, second_candidate.candidate_id},
+            )
+            self.assertEqual(
+                {
+                    signal.latest_review_annotation.candidate_id
+                    for signal in updated_signals
+                    if signal.latest_review_annotation
+                },
+                {second_candidate.candidate_id},
+            )
+            self.assertEqual(
+                {
+                    signal.review_source_candidate_id
+                    for signal in updated_signals
+                    if signal.review_source_candidate_id
+                },
+                {second_candidate.candidate_id},
+            )
+            self.assertEqual(
+                {len(signal.review_annotations) for signal in updated_signals},
+                {2},
+            )
+            self.assertEqual(
+                service.summary(
+                    selection_date=date(2026, 1, 5),
+                    as_of=datetime(2026, 1, 5, 18, tzinfo=UTC),
+                ).unreviewed_count,
+                0,
+            )
+            watchlist = service.list_watchlist(
+                as_of=datetime(2026, 1, 5, 18, tzinfo=UTC),
+            )
+            self.assertEqual(
+                {signal.candidate.candidate_id for signal in watchlist},
+                {first_candidate.candidate_id, second_candidate.candidate_id},
+            )
+
     def test_watchlist_observation_performance_uses_current_continuous_period(self) -> None:
         with TemporaryDirectory() as directory:
             selection_store = SelectionImportStore(directory)

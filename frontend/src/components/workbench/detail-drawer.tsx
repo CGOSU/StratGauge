@@ -9,7 +9,7 @@ import type { Exchange, ManualFill, ManualOrder, ManualPositionTrackingCase, Man
 import type { AnnotationOutlook, AnnotationDecision, BatchView, WorkbenchMarketEvidence, WorkbenchSignal, WorkbenchTimelineEvent, WorkbenchStockDetail, StockDrawerTab } from '@/types'
 import { annotationOutlookLabels, annotationDecisionLabels, annotationTagGroups } from '@/lib/labels'
 import { toShanghaiDateTime, formatManagementDate, formatPrice, formatPercent } from '@/lib/format'
-import { workbenchReviewLabel } from '@/components/workbench/workspace'
+import { workbenchLatestAnnotation, workbenchReviewLabel } from '@/components/workbench/workspace'
 
 
 const XUEQIU_SYMBOL_PATTERN = /^(\d{6})\.(SH|SZ|BJ)$/
@@ -61,7 +61,7 @@ export function WorkbenchAnnotationPanel({
   signal: WorkbenchSignal
   onSaved: () => void | Promise<void>
 }) {
-  const latest = signal.latest_annotation
+  const latest = workbenchLatestAnnotation(signal)
   const [score, setScore] = useState(String(latest?.overall_score ?? 3))
   const [outlook, setOutlook] = useState<AnnotationOutlook>(latest?.outlook ?? 'neutral')
   const [decision, setDecision] = useState<AnnotationDecision>(latest?.decision ?? 'watch')
@@ -76,18 +76,19 @@ export function WorkbenchAnnotationPanel({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   useEffect(() => {
-    setScore(String(signal.latest_annotation?.overall_score ?? 3))
-    setOutlook(signal.latest_annotation?.outlook ?? 'neutral')
-    setDecision(signal.latest_annotation?.decision ?? 'watch')
+    const latestAnnotation = workbenchLatestAnnotation(signal)
+    setScore(String(latestAnnotation?.overall_score ?? 3))
+    setOutlook(latestAnnotation?.outlook ?? 'neutral')
+    setDecision(latestAnnotation?.decision ?? 'watch')
     setTags({
-      position_tags: signal.latest_annotation?.position_tags ?? [],
-      pattern_tags: signal.latest_annotation?.pattern_tags ?? [],
-      price_volume_tags: signal.latest_annotation?.price_volume_tags ?? [],
-      sector_tags: signal.latest_annotation?.sector_tags ?? [],
+      position_tags: latestAnnotation?.position_tags ?? [],
+      pattern_tags: latestAnnotation?.pattern_tags ?? [],
+      price_volume_tags: latestAnnotation?.price_volume_tags ?? [],
+      sector_tags: latestAnnotation?.sector_tags ?? [],
     })
-    setNote(signal.latest_annotation?.note ?? '')
+    setNote(latestAnnotation?.note ?? '')
     setErrorMessage(null)
-  }, [signal.candidate.candidate_id, signal.latest_annotation?.annotation_id])
+  }, [signal.candidate.candidate_id, signal.latest_annotation?.annotation_id, signal.latest_review_annotation?.annotation_id])
 
   function toggleTag(key: keyof typeof tags, value: string) {
     setTags((current) => ({

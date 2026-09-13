@@ -22,7 +22,7 @@
 - 歪枣网适配器支持按证券代码获取不复权日线，使用 `WAIZAO_TOKEN` 环境变量；`code=all` 当前 Token 无权限。成交量已从手转换为股，原始响应仍保留供应商字段。成交量和成交额交叉比较允许 0.001% 相对容差以覆盖供应商取整。
 - 观察池分页列表现保留轻量 `observation_performance` 摘要；详情抽屉保留被点击的 `candidate_id`，对当前 `watch`/`prepare_buy` 候选按需调用 `GET /v1/workbench/candidates/{candidate_id}/observation-performance`，展示观察锚点、逐交易日收盘价证据、日涨跌幅和观察期累计涨跌幅，并用原生 SVG 绘制累计涨跌幅折线，摘要同时显示可用累计比例中的最高涨幅、最大跌幅及日期，数据点支持悬停和键盘聚焦查看日期与基本行情。周期按 candidate ID 与连续状态段隔离，`discard` 重置；仅消费本地 approved `market_daily`，按上海时区日期和 `as_of` 过滤，缺失证据显示 `unavailable`/`incomplete` 及原因，不补零或显示金额。
 - 股票详情抽屉现提供规范化 `CODE.EXCHANGE` 到雪球 `EXCHANGE+CODE` 的日线 K 线外链；例如 `000788.SZ` 映射为 `https://xueqiu.com/S/SZ000788`。该链接只读、在新标签页打开，不发起应用内行情请求。
-- 策略信号页面从信号行打开股票详情时会保留被点击的 `candidate_id`；同一证券出现在多个批次时，人工评审和交易写入对应的批次候选，不再固定操作详情中的第一条信号。
+- 策略信号页面从信号行打开股票详情时会保留被点击的 `candidate_id`；人工评审和交易写入仍对应被点击的批次候选，但读取投影会按标准化证券代码与选股日期聚合同日跨策略评审状态，响应中的 `annotations/latest_annotation` 保留候选自身历史，`review_annotations/latest_review_annotation` 表示评审组历史/最新状态，并以 `review_group_key`、`review_source_candidate_id` 明确评审组和最新来源；观察池复评摘要按评审组去重，避免同一股票出现一条“未判断”、另一条“已判断”；不同选股日期仍保持独立评审周期。
 - 观察池同一页出现重复证券时，重复行左侧显示相同颜色的粗边框标记；只对当前观察池页面内重复的标准化证券代码标记，不改变筛选、排序或交易语义。
 - 当前持仓详情抽屉的“表现”标签按需调用 `GET /v1/workbench/stocks/{symbol}/performance`；无活动持仓不提供该入口。面板用原生 SVG 绘制累计净收益率，数据点支持悬停和键盘聚焦查看估值日、approved 行情收盘价、日净收益率和累计净收益率，并以语义摘要、估值日表格和行情快照/缺失原因作为并列证据；持仓表现点的 `close` 为可空只读字段，支持“放大查看图表”进入应用内次级图表页。
 - 手工台账、手工持仓跟踪和手工研究候选保持三条边界：新手工确认买入自动进入 `manual-position-tracking-v1` 跟踪案例，历史持仓必须显式登记且不倒填；手工确认卖出不要求选择跟踪案例，未关联卖出不纳入 tracking evidence；手工跟踪 evidence 通过独立 `manual-position-tracking-dataset-v1` 导出，手工研究候选仍按 `SelectionBatch.source` 保留 `manual` 来源。

@@ -80,8 +80,10 @@ class _SignalProjection:
     batch: SelectionBatch
     candidate: SelectionCandidate
     annotations: tuple[SelectionAnnotation, ...] = ()
+    review_annotations: tuple[SelectionAnnotation, ...] = ()
     observation_started_at: datetime | None = None
     latest_annotation: SelectionAnnotation | None = None
+    latest_review_annotation: SelectionAnnotation | None = None
     exclusions: tuple[SelectionCandidateExclusion, ...] = ()
     latest_exclusion: SelectionCandidateExclusion | None = None
     review_state: SelectionCandidateReviewState = SelectionCandidateReviewState.UNREVIEWED
@@ -298,15 +300,35 @@ class WorkbenchService:
             annotations_by_candidate = self._selection_store.list_annotations_for_candidates(
                 candidate_ids
             )
+            visible_annotations_by_candidate = {
+                candidate_id: tuple(
+                    annotation
+                    for annotation in annotations
+                    if annotation.recorded_at <= as_of and annotation.reviewed_at <= as_of
+                )
+                for candidate_id, annotations in annotations_by_candidate.items()
+            }
+            annotations_by_review_key: dict[tuple[str, date], list[SelectionAnnotation]] = {}
+            for batch, candidate in candidates:
+                review_key = (candidate.symbol, batch.selection_date)
+                annotations_by_review_key.setdefault(review_key, []).extend(
+                    visible_annotations_by_candidate.get(candidate.candidate_id, ())
+                )
+            visible_annotations_by_review_key = {
+                review_key: tuple(
+                    sorted(annotations, key=lambda item: (item.recorded_at, item.annotation_id))
+                )
+                for review_key, annotations in annotations_by_review_key.items()
+            }
             exclusions_by_candidate = self._selection_store.list_exclusions_for_candidates(
                 candidate_ids
             )
             projections: list[_SignalProjection] = []
             for batch, candidate in candidates:
-                annotations = tuple(
-                    annotation
-                    for annotation in annotations_by_candidate.get(candidate.candidate_id, ())
-                    if annotation.recorded_at <= as_of and annotation.reviewed_at <= as_of
+                annotations = visible_annotations_by_candidate.get(candidate.candidate_id, ())
+                review_annotations = visible_annotations_by_review_key.get(
+                    (candidate.symbol, batch.selection_date),
+                    (),
                 )
                 exclusions = tuple(
                     exclusion
@@ -314,16 +336,19 @@ class WorkbenchService:
                     if exclusion.recorded_at <= as_of and exclusion.excluded_at <= as_of
                 )
                 latest_annotation = annotations[-1] if annotations else None
+                latest_review_annotation = review_annotations[-1] if review_annotations else None
                 latest_exclusion = exclusions[-1] if exclusions else None
                 projection = _SignalProjection(
                     batch=batch,
                     candidate=candidate,
                     annotations=annotations,
-                    observation_started_at=_current_observation_start(annotations),
+                    review_annotations=review_annotations,
+                    observation_started_at=_current_observation_start(review_annotations),
                     latest_annotation=latest_annotation,
+                    latest_review_annotation=latest_review_annotation,
                     exclusions=exclusions,
                     latest_exclusion=latest_exclusion,
-                    review_state=_review_state(latest_annotation),
+                    review_state=_review_state(latest_review_annotation),
                     excluded=latest_exclusion is not None,
                 )
                 if projection.excluded and not include_excluded:
@@ -469,7 +494,17 @@ class WorkbenchService:
             candidate=projection.candidate,
             labels=labels_by_candidate.get(candidate_id, ()),
             annotations=projection.annotations,
+            review_annotations=projection.review_annotations,
+            review_group_key=(
+                f"{projection.batch.selection_date.isoformat()}:{projection.candidate.symbol}"
+            ),
+            review_source_candidate_id=(
+                projection.latest_review_annotation.candidate_id
+                if projection.latest_review_annotation is not None
+                else None
+            ),
             latest_annotation=projection.latest_annotation,
+            latest_review_annotation=projection.latest_review_annotation,
             exclusions=projection.exclusions,
             latest_exclusion=projection.latest_exclusion,
             review_state=projection.review_state,

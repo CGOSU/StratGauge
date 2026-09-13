@@ -1,5 +1,12 @@
 # 会话记录
 
+### 2026-09-13 统一同日同股跨策略人工评审状态
+
+- 完成内容：修正工作台读取投影；不同策略在同一选股日期命中同一标准化证券时，共享该 `(symbol, selection_date)` 评审组的最新人工判断、状态和观察起点，避免策略信号列表出现“未判断”而观察池显示已判断。候选自身 `annotations/latest_annotation` 与评审组 `review_annotations/latest_review_annotation` 分开返回，并通过 `review_group_key`、`review_source_candidate_id` 明确评审组和来源；评审组仅取 `as_of` 可见记录并按 `(recorded_at, annotation_id)` 最大值裁决冲突；观察池复评摘要按评审组去重。原始策略信号行、候选级 annotation 写入、交易、排除和客观结果边界保持不变；不同选股日期仍独立。
+- 修改文件：`backend/src/stratgauge/application/workbench/service.py`、`backend/src/stratgauge/application/workbench/views.py`、`backend/src/stratgauge/application/workbench/helpers.py`、`backend/tests/application/test_workbench.py`、`frontend/src/types.ts`、`frontend/src/components/workbench/workspace.tsx`、`frontend/src/components/workbench/detail-drawer.tsx`、`frontend/tests/visual/workbench-annotation-target.spec.ts`，并同步相关项目文档。
+- 实际验证：`cd backend; PYTHONPATH=src uv run python -m unittest tests/application/test_workbench.py tests/api/test_workbench.py -q`（19 项通过，含既有 Starlette 弃用警告）；相关 Ruff check 通过；相关 `mypy`（4 个文件）通过；`cd frontend; corepack pnpm typecheck` 通过；`corepack pnpm lint` 0 error、19 条既有 warning；定向 Playwright `tests/visual/workbench-annotation-target.spec.ts` 1 项、`tests/visual/workbench-manual-position.spec.ts` 6 项通过；`git diff --check` 通过（仅 Windows 换行转换提示）。
+- 遗留问题：未执行前端完整构建/完整视觉套件、完整测试套件、commit/push 或真实 provider 请求；策略信号原始行按设计仍会保留，需使用筛选或观察池查看处理状态。
+
 ### 2026-09-04 删除独立工作台入口并以策略信号为默认首页
 
 - 完成内容：删除前端独立“工作台”导航和页面，将“策略信号”设为默认首页；移除工作台专属的前 12 条待办截断、连续处理按钮和样式。保留策略信号的汇总、分页、筛选、排序、候选上下文、股票详情、人工评审、交易入口，以及其他研究路由和共享 `/v1/workbench/*` API。直接操作说明改为从策略信号进入；“推荐工作台”独立概念保留。

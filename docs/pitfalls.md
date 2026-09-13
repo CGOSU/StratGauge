@@ -14,6 +14,13 @@
 
 ## 已知问题
 
+### 2026-09-13：跨策略同日重复信号不能按 candidate 独立显示评审状态
+
+- 现象：不同策略在同一选股日期命中同一股票时，只给其中一条候选追加人工评审，会导致策略信号列表的另一条仍显示“未判断”，而观察池按已评审候选显示为已判断。
+- 根因：候选 ID 由批次和证券组成，不同策略天然不同；若工作台只按 candidate ID 读取 annotation，就把同一交易日同一证券的重复命中错误拆成多个评审对象。
+- 修复：工作台读取投影按 `(标准化证券代码, selection_date)` 聚合可见 annotation，使用评审组最新状态和观察起点；组内按 `(recorded_at, annotation_id)` 最大值裁决跨候选冲突。`annotations/latest_annotation` 保持候选自身历史，`review_annotations/latest_review_annotation` 单独承载评审组历史和最新值，并以 `review_group_key`、`review_source_candidate_id` 明确组标识及最新来源；观察池复评摘要按评审组去重，避免把其他候选 annotation 放入当前候选字段。持久化仍写入被点击候选，候选级交易/排除/客观结果不合并，不同选股日期不合并。
+- 验证：`tests/application/test_workbench.py` 新增同日跨策略回归；应用层 14 项、API 5 项通过，相关 Ruff check 和 MyPy 检查通过。
+
 ### 2026-09-04：证券交易日必须按上海时区解释 `as_of`
 
 - 现象：直接使用带时区时间的 `as_of.date()` 作为 `DailyBar.session_date` 上界时，接近 UTC 日界的查询可能漏掉上海当天的行情，或把上海下一交易日错误地纳入历史视图。

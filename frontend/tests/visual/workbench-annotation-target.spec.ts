@@ -19,6 +19,7 @@ function createSignal(
   candidateId: string,
   formulaName: string,
   annotation: Record<string, unknown> | null,
+  reviewAnnotation: Record<string, unknown> | null = annotation,
 ) {
   return {
     batch: {
@@ -46,10 +47,14 @@ function createSignal(
     },
     labels: [],
     annotations: annotation ? [annotation] : [],
+    review_annotations: reviewAnnotation ? [reviewAnnotation] : [],
+    review_group_key: '2026-08-28:002673.SZ',
+    review_source_candidate_id: reviewAnnotation ? reviewAnnotation.candidate_id : null,
     latest_annotation: annotation,
+    latest_review_annotation: reviewAnnotation,
     exclusions: [],
     latest_exclusion: null,
-    review_state: annotation ? 'watching' : 'unreviewed',
+    review_state: reviewAnnotation ? 'watching' : 'unreviewed',
     excluded: false,
     outcomes: [],
     performances: [],
@@ -77,7 +82,7 @@ async function installMocks(page: Page) {
     taxonomy_version: 'selection-annotation-taxonomy-v1',
     note: null,
   }
-  const unreviewedSignal = createSignal('batch-unreviewed', 'candidate-unreviewed', '策略 A', null)
+  const unreviewedSignal = createSignal('batch-unreviewed', 'candidate-unreviewed', '策略 A', null, reviewedAnnotation)
   const reviewedSignal = createSignal('batch-reviewed', 'candidate-reviewed', '策略 B', reviewedAnnotation)
   const detail = {
     symbol: '002673.SZ',
@@ -112,10 +117,10 @@ async function installMocks(page: Page) {
         body: JSON.stringify({
           as_of: detail.as_of,
           signal_count: 2,
-          unreviewed_count: 1,
-          watching_count: 1,
+          unreviewed_count: 0,
+          watching_count: 2,
           preparing_count: 0,
-          reviewed_count: 1,
+          reviewed_count: 2,
           confirmed_buy_count: 0,
         }),
       })
@@ -148,7 +153,7 @@ async function installMocks(page: Page) {
   return { annotationCandidateId: () => annotationCandidateId }
 }
 
-test('点击同一股票的未判断信号时，判断保存到被点击的候选', async ({ page }) => {
+test('点击同一股票的重复策略信号时，显示共享评审并保存到被点击的候选', async ({ page }) => {
   const state = await installMocks(page)
   await page.goto('/')
   await expect(page.getByRole('button', { name: '策略信号', exact: true })).toHaveAttribute('aria-current', 'page')
@@ -165,7 +170,7 @@ test('点击同一股票的未判断信号时，判断保存到被点击的候�
   const drawer = page.getByRole('dialog', { name: '002673.SZ 股票详情' })
   await expect(drawer).toBeVisible()
   await drawer.getByRole('button', { name: '判断', exact: true }).click()
-  await expect(drawer.getByText('尚未判断。未判断不等同于不看好。', { exact: true })).toBeVisible()
+  await expect(drawer.getByText('上次判断', { exact: false })).toBeVisible()
   await drawer.getByRole('button', { name: '追加本次判断', exact: true }).click()
 
   await expect.poll(state.annotationCandidateId).toBe('candidate-unreviewed')
