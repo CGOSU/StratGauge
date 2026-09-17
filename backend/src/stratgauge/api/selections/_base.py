@@ -10,6 +10,7 @@ from stratgauge.api.selections.requests import (  # noqa: F401
     ManualSelectionCandidateRequest,
     ManualSelectionRequest,
     SelectionAnnotationRequest,
+    SelectionDismissalRequest,
     SelectionExclusionRequest,
     SelectionFormulaCreateRequest,
     SelectionImportRequest,
@@ -23,6 +24,7 @@ from stratgauge.api.selections.views import (  # noqa: F401
     SelectionBatchPage,
     SelectionBatchView,
     SelectionCandidateView,
+    SelectionDismissalView,
     SelectionFormulaView,
     SelectionManagedBatchDetailView,
     SelectionManagedBatchPage,
@@ -44,6 +46,7 @@ from stratgauge.domain.selections import (
     SelectionAnnotation,
     SelectionAnnotationDecision,
     SelectionCandidate,
+    SelectionCandidateDismissal,
     SelectionCandidateExclusion,
     SelectionCandidateReviewState,
     SelectionFormula,
@@ -93,6 +96,7 @@ class SelectionServiceBase:
         labels_by_candidate = self._store.list_labels_for_candidates(candidate_ids)
         annotations_by_candidate = self._store.list_annotations_for_candidates(candidate_ids)
         exclusions_by_candidate = self._store.list_exclusions_for_candidates(candidate_ids)
+        dismissals_by_candidate = self._store.list_dismissals_for_candidates(candidate_ids)
         outcomes_by_candidate = self._store.list_outcomes_for_candidates(candidate_ids)
         performances_by_candidate = self._store.list_performances_for_candidates(candidate_ids)
         return tuple(
@@ -101,6 +105,7 @@ class SelectionServiceBase:
                 labels=labels_by_candidate[candidate.candidate_id],
                 annotations=annotations_by_candidate[candidate.candidate_id],
                 exclusions=exclusions_by_candidate[candidate.candidate_id],
+                dismissals=dismissals_by_candidate[candidate.candidate_id],
                 outcomes=outcomes_by_candidate[candidate.candidate_id],
                 performances=performances_by_candidate[candidate.candidate_id],
             )
@@ -114,20 +119,25 @@ class SelectionServiceBase:
         labels: tuple[ManualSelectionLabel, ...],
         annotations: tuple[SelectionAnnotation, ...],
         exclusions: tuple[SelectionCandidateExclusion, ...],
+        dismissals: tuple[SelectionCandidateDismissal, ...],
         outcomes: tuple[SelectionOutcome, ...],
         performances: tuple[SelectionPerformance, ...],
     ) -> SelectionCandidateView:
         latest_annotation = annotations[-1] if annotations else None
         latest_exclusion = exclusions[-1] if exclusions else None
+        latest_dismissal = dismissals[-1] if dismissals else None
         return SelectionCandidateView(
             candidate=candidate,
             labels=labels,
             annotations=annotations,
             exclusions=exclusions,
+            dismissals=dismissals,
             latest_annotation=latest_annotation,
             latest_exclusion=latest_exclusion,
+            latest_dismissal=latest_dismissal,
             review_state=_review_state(latest_annotation),
             excluded=latest_exclusion is not None,
+            dismissed=latest_dismissal is not None,
             outcomes=outcomes,
             performances=performances,
         )

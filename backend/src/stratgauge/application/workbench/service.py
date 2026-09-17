@@ -66,6 +66,7 @@ from stratgauge.domain.selections import (
     SelectionAnnotation,
     SelectionBatch,
     SelectionCandidate,
+    SelectionCandidateDismissal,
     SelectionCandidateExclusion,
     SelectionCandidateReviewState,
     SelectionOutcome,
@@ -86,6 +87,8 @@ class _SignalProjection:
     latest_review_annotation: SelectionAnnotation | None = None
     exclusions: tuple[SelectionCandidateExclusion, ...] = ()
     latest_exclusion: SelectionCandidateExclusion | None = None
+    dismissals: tuple[SelectionCandidateDismissal, ...] = ()
+    latest_dismissal: SelectionCandidateDismissal | None = None
     review_state: SelectionCandidateReviewState = SelectionCandidateReviewState.UNREVIEWED
     excluded: bool = False
 
@@ -116,6 +119,7 @@ class WorkbenchService:
         query: str = "",
         review_state: SelectionCandidateReviewState | None = None,
         include_excluded: bool = True,
+        include_dismissed: bool = False,
         as_of: datetime | None = None,
     ) -> tuple[WorkbenchSignalView, ...]:
         visible_at = _require_aware(as_of)
@@ -124,6 +128,7 @@ class WorkbenchService:
             query=query,
             review_state=review_state,
             include_excluded=include_excluded,
+            include_dismissed=include_dismissed,
             as_of=visible_at,
         )
         return self._hydrate_signals(projections, as_of=visible_at)
@@ -135,6 +140,7 @@ class WorkbenchService:
         query: str = "",
         review_state: SelectionCandidateReviewState | None = None,
         include_excluded: bool = True,
+        include_dismissed: bool = False,
         as_of: datetime | None = None,
         page: int,
         page_size: int,
@@ -145,6 +151,7 @@ class WorkbenchService:
             query=query,
             review_state=review_state,
             include_excluded=include_excluded,
+            include_dismissed=include_dismissed,
             as_of=visible_at,
         )
         start = (page - 1) * page_size
@@ -239,6 +246,7 @@ class WorkbenchService:
             selection_date=selection_date,
             as_of=visible_at,
             include_excluded=True,
+            include_dismissed=False,
         )
         orders, fills = self._portfolio_evidence()
         visible_fills = tuple(fill for fill in fills if fill.filled_at <= visible_at)
@@ -276,6 +284,7 @@ class WorkbenchService:
         query: str = "",
         review_state: SelectionCandidateReviewState | None = None,
         include_excluded: bool = True,
+        include_dismissed: bool = False,
         as_of: datetime,
         include_archived: bool = False,
         candidate_symbol: str | None = None,
@@ -323,6 +332,9 @@ class WorkbenchService:
             exclusions_by_candidate = self._selection_store.list_exclusions_for_candidates(
                 candidate_ids
             )
+            dismissals_by_candidate = self._selection_store.list_dismissals_for_candidates(
+                candidate_ids
+            )
             projections: list[_SignalProjection] = []
             for batch, candidate in candidates:
                 annotations = visible_annotations_by_candidate.get(candidate.candidate_id, ())
@@ -335,9 +347,15 @@ class WorkbenchService:
                     for exclusion in exclusions_by_candidate.get(candidate.candidate_id, ())
                     if exclusion.recorded_at <= as_of and exclusion.excluded_at <= as_of
                 )
+                dismissals = tuple(
+                    dismissal
+                    for dismissal in dismissals_by_candidate.get(candidate.candidate_id, ())
+                    if dismissal.recorded_at <= as_of and dismissal.dismissed_at <= as_of
+                )
                 latest_annotation = annotations[-1] if annotations else None
                 latest_review_annotation = review_annotations[-1] if review_annotations else None
                 latest_exclusion = exclusions[-1] if exclusions else None
+                latest_dismissal = dismissals[-1] if dismissals else None
                 projection = _SignalProjection(
                     batch=batch,
                     candidate=candidate,
@@ -348,9 +366,13 @@ class WorkbenchService:
                     latest_review_annotation=latest_review_annotation,
                     exclusions=exclusions,
                     latest_exclusion=latest_exclusion,
+                    dismissals=dismissals,
+                    latest_dismissal=latest_dismissal,
                     review_state=_review_state(latest_review_annotation),
                     excluded=latest_exclusion is not None,
                 )
+                if projection.latest_dismissal is not None and not include_dismissed:
+                    continue
                 if projection.excluded and not include_excluded:
                     continue
                 if review_state is not None and projection.review_state is not review_state:
@@ -507,8 +529,11 @@ class WorkbenchService:
             latest_review_annotation=projection.latest_review_annotation,
             exclusions=projection.exclusions,
             latest_exclusion=projection.latest_exclusion,
+            dismissals=projection.dismissals,
+            latest_dismissal=projection.latest_dismissal,
             review_state=projection.review_state,
             excluded=projection.excluded,
+            dismissed=projection.latest_dismissal is not None,
             outcomes=outcomes_by_candidate.get(candidate_id, ()),
             performances=performances_by_candidate.get(candidate_id, ()),
             market=market,
@@ -648,7 +673,11 @@ class WorkbenchService:
         as_of: datetime | None = None,
     ) -> tuple[WorkbenchStrategyView, ...]:
         visible_at = _require_aware(as_of)
-        signals = self.list_daily_signals(as_of=visible_at, include_excluded=True)
+        signals = self.list_daily_signals(
+            as_of=visible_at,
+            include_excluded=True,
+            include_dismissed=True,
+        )
         orders, fills = self._portfolio_evidence()
         grouped: dict[tuple[str | None, str, str | None], list[WorkbenchSignalView]] = {}
         for signal in signals:
@@ -674,7 +703,11 @@ class WorkbenchService:
 
     def analytics(self, *, as_of: datetime | None = None) -> WorkbenchAnalyticsView:
         visible_at = _require_aware(as_of)
-        signals = self.list_daily_signals(as_of=visible_at, include_excluded=True)
+        signals = self.list_daily_signals(
+            as_of=visible_at,
+            include_excluded=True,
+            include_dismissed=True,
+        )
         orders, fills = self._portfolio_evidence()
         return WorkbenchAnalyticsView(
             as_of=visible_at,
@@ -712,6 +745,7 @@ class WorkbenchService:
             projections = self._list_signal_projections(
                 as_of=visible_at,
                 include_archived=True,
+                include_dismissed=True,
                 candidate_symbol=normalized_symbol,
             )
             if not projections and not (symbol_orders or symbol_fills or reviews or tracking_cases):

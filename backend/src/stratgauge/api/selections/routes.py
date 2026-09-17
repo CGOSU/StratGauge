@@ -14,6 +14,7 @@ from fastapi.responses import Response, StreamingResponse
 from stratgauge.api.selections.requests import (
     ManualSelectionRequest,
     SelectionAnnotationRequest,
+    SelectionDismissalRequest,
     SelectionExclusionRequest,
     SelectionFormulaCreateRequest,
     SelectionImportRequest,
@@ -27,6 +28,7 @@ from stratgauge.api.selections.service import SelectionService
 from stratgauge.api.selections.views import (
     SelectionBatchPage,
     SelectionBatchView,
+    SelectionDismissalView,
     SelectionFormulaView,
     SelectionManagedBatchDetailView,
     SelectionManagedBatchPage,
@@ -442,5 +444,15 @@ def create_selections_router(
         request: SelectionExclusionRequest,
     ) -> SelectionBatchView:
         return selections.exclude_candidate(batch_id, request)
+
+    @router.post(
+        "/v1/selection-batches/{batch_id}/dismissals",
+        response_model=SelectionDismissalView,
+    )
+    def dismiss_unreviewed_selection_candidate(
+        batch_id: str,
+        request: SelectionDismissalRequest,
+    ) -> SelectionDismissalView:
+        return selections.dismiss_unreviewed_candidate(batch_id, request)
 
     return router

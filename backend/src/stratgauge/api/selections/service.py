@@ -6,6 +6,7 @@ from stratgauge.api.selections._analysis import AnalysisMixin
 from stratgauge.api.selections._annotations import AnnotationsMixin
 from stratgauge.api.selections._batches import BatchesMixin
 from stratgauge.api.selections._catalog import CatalogMixin
+from stratgauge.api.selections._dismissals import DismissalsMixin
 from stratgauge.api.selections._maturity import MaturityMixin
 from stratgauge.application.selection_management import SelectionApiError as SelectionApiError
 from stratgauge.application.selection_management import (
@@ -20,6 +21,7 @@ class SelectionService(
     MaturityMixin,
     AnalysisMixin,
     AnnotationsMixin,
+    DismissalsMixin,
 ):
     """Application service backed by immutable local selection storage."""
 

@@ -49,6 +49,7 @@ def create_workbench_router(service: WorkbenchService) -> APIRouter:
         query: str = "",
         review_state: SelectionCandidateReviewState | None = None,
         include_excluded: bool = True,
+        include_dismissed: bool = False,
         as_of: datetime | None = None,
     ) -> tuple[WorkbenchSignalView, ...]:
         return service.list_daily_signals(
@@ -56,6 +57,7 @@ def create_workbench_router(service: WorkbenchService) -> APIRouter:
             query=query,
             review_state=review_state,
             include_excluded=include_excluded,
+            include_dismissed=include_dismissed,
             as_of=as_of,
         )
 
@@ -65,6 +67,7 @@ def create_workbench_router(service: WorkbenchService) -> APIRouter:
         query: str = "",
         review_state: SelectionCandidateReviewState | None = None,
         include_excluded: bool = True,
+        include_dismissed: bool = False,
         as_of: datetime | None = None,
         page: int = Query(default=1, ge=1),
         page_size: int = Query(default=50, ge=1, le=200),
@@ -74,6 +77,7 @@ def create_workbench_router(service: WorkbenchService) -> APIRouter:
             query=query,
             review_state=review_state,
             include_excluded=include_excluded,
+            include_dismissed=include_dismissed,
             as_of=as_of,
             page=page,
             page_size=page_size,

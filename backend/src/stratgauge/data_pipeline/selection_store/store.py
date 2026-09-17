@@ -12,6 +12,7 @@ from stratgauge.data_pipeline.selection_index import (
 )
 from stratgauge.data_pipeline.selection_store._base import SelectionStoreError
 from stratgauge.data_pipeline.selection_store.annotations import AnnotationsMixin
+from stratgauge.data_pipeline.selection_store.dismissals import DismissalsMixin
 from stratgauge.data_pipeline.selection_store.formulas import FormulasMixin
 from stratgauge.data_pipeline.selection_store.lifecycle import LifecycleMixin
 from stratgauge.data_pipeline.selection_store.maturity import MaturityTasksMixin
@@ -23,6 +24,7 @@ class SelectionImportStore(
     ReusableTagsMixin,
     FormulasMixin,
     AnnotationsMixin,
+    DismissalsMixin,
     OutcomesMixin,
     MaturityTasksMixin,
     LifecycleMixin,
@@ -37,6 +39,7 @@ class SelectionImportStore(
         self.label_dir = self.root / "tdx" / "labels"
         self.annotation_dir = self.root / "tdx" / "annotations"
         self.exclusion_dir = self.root / "tdx" / "exclusions"
+        self.dismissal_dir = self.root / "tdx" / "dismissals"
         self.outcome_dir = self.root / "tdx" / "outcomes"
         self.performance_dir = self.root / "tdx" / "performances"
         self.formula_dir = self.root / "tdx" / "formulas"
@@ -52,6 +55,7 @@ class SelectionImportStore(
             self.label_dir,
             self.annotation_dir,
             self.exclusion_dir,
+            self.dismissal_dir,
             self.outcome_dir,
             self.performance_dir,
             self.formula_dir,

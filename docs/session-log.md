@@ -1,5 +1,13 @@
 # 会话记录
 
+### 2026-09-17 策略信号支持删除未判断候选
+
+- 完成内容：新增独立 `SelectionCandidateDismissal` 追加事件和 `tdx/dismissals` 持久化；新增 `POST /v1/selection-batches/{batch_id}/dismissals` 命令，按同一选股日、同一标准化证券的跨策略共享评审校验未判断状态，重复请求幂等，并为归档批次、错误候选和已有人工判断返回结构化错误。工作台默认策略信号列表/分页/汇总隐藏 dismissal，策略与分析统计、股票历史详情和时间线保留 dismissal 证据。
+- 完成内容：策略信号前端仅为 `unreviewed` 行显示删除入口；删除前确认只从默认列表移除且原始证据保留，取消不写入，成功后刷新分页/汇总并在末页回退；主行打开与删除为同级原生按钮，API 失败显示真实错误。
+- 修改文件：`backend/src/stratgauge/domain/selections/`、`backend/src/stratgauge/data_pipeline/selection_store/`、`backend/src/stratgauge/api/selections/`、`backend/src/stratgauge/api/workbench.py`、`backend/src/stratgauge/application/workbench/`、相关后端测试；`frontend/src/components/workbench/workspace.tsx`、`frontend/src/types.ts`、`frontend/src/styles.css`、`frontend/tests/visual/workbench-dismissal.spec.ts` 及观察池夹具字段。
+- 实际验证：后端 `PYTHONPATH=src uv run python -m unittest tests.data_pipeline.test_selection_store tests.api.test_selections tests.application.test_workbench -q`（67 项通过）；相关 19 个 Python 文件 Ruff check、format check 通过；相关 16 个源文件 MyPy 通过；前端 `corepack pnpm typecheck` 通过；`corepack pnpm lint` 0 error、19 条既有 warning；定向 Playwright `workbench-dismissal.spec.ts`、`workbench-annotation-target.spec.ts`、`watchlist.spec.ts` 共 4 项通过；任务涉及路径 `git diff --check` 通过，仅有 Windows LF/CRLF 转换提示。
+- 遗留问题：本轮误执行的完整前端视觉套件中仍有既有主板行情同步 completed/partial 截图基线差异，未扩大范围修复；未执行 commit/push、真实 provider 请求或真实业务数据写入。
+
 ### 2026-09-13 统一同日同股跨策略人工评审状态
 
 - 完成内容：修正工作台读取投影；不同策略在同一选股日期命中同一标准化证券时，共享该 `(symbol, selection_date)` 评审组的最新人工判断、状态和观察起点，避免策略信号列表出现“未判断”而观察池显示已判断。候选自身 `annotations/latest_annotation` 与评审组 `review_annotations/latest_review_annotation` 分开返回，并通过 `review_group_key`、`review_source_candidate_id` 明确评审组和来源；评审组仅取 `as_of` 可见记录并按 `(recorded_at, annotation_id)` 最大值裁决冲突；观察池复评摘要按评审组去重。原始策略信号行、候选级 annotation 写入、交易、排除和客观结果边界保持不变；不同选股日期仍独立。

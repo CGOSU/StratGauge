@@ -46,6 +46,7 @@ class SelectionStoreBase:
     label_dir: Path
     annotation_dir: Path
     exclusion_dir: Path
+    dismissal_dir: Path
     outcome_dir: Path
     performance_dir: Path
     formula_dir: Path

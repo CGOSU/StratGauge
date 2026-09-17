@@ -20,6 +20,7 @@ from stratgauge.domain.selections import (
     SelectionAnnotation,
     SelectionBatch,
     SelectionCandidate,
+    SelectionCandidateDismissal,
     SelectionCandidateExclusion,
     SelectionCandidateReviewState,
     SelectionOutcome,
@@ -130,8 +131,11 @@ class WorkbenchSignalView(BaseModel):
     latest_review_annotation: SelectionAnnotation | None = None
     exclusions: tuple[SelectionCandidateExclusion, ...] = ()
     latest_exclusion: SelectionCandidateExclusion | None = None
+    dismissals: tuple[SelectionCandidateDismissal, ...] = ()
+    latest_dismissal: SelectionCandidateDismissal | None = None
     review_state: SelectionCandidateReviewState = SelectionCandidateReviewState.UNREVIEWED
     excluded: bool = False
+    dismissed: bool = False
     outcomes: tuple[SelectionOutcome, ...] = ()
     performances: tuple[SelectionPerformance, ...] = ()
     market: MarketEvidence
@@ -170,6 +174,7 @@ class WorkbenchTimelineEvent(BaseModel):
         "review",
         "outcome",
         "performance",
+        "dismissal",
     ]
     occurred_at: datetime
     source_id: str

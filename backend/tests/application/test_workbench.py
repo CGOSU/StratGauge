@@ -23,6 +23,7 @@ from stratgauge.domain.portfolio import (
 )
 from stratgauge.domain.selections import (
     SelectionAnnotation,
+    SelectionCandidateDismissal,
     SelectionCandidateReviewState,
     SelectionPerformance,
     SelectionPerformancePoint,
@@ -79,6 +80,41 @@ class WorkbenchApplicationTests(unittest.TestCase):
             )
             self.assertEqual(second.symbol, "600000.SH")
 
+    def test_dismissed_signals_leave_default_scope_but_remain_in_history_and_stats(self) -> None:
+        with TemporaryDirectory() as directory:
+            selection_store = SelectionImportStore(directory)
+            raw_content = b"code,name,market\n000001,Ping,SZ\n"
+            imported = import_tdx_export(
+                raw_content,
+                selection_date=date(2026, 1, 5),
+                exported_at=datetime(2026, 1, 5, 15, tzinfo=UTC),
+                imported_at=datetime(2026, 1, 5, 16, tzinfo=UTC),
+                formula_name="趋势选股",
+            )
+            selection_store.write(raw_content, imported)
+            candidate = imported.candidates[0]
+            dismissal = SelectionCandidateDismissal(
+                dismissal_id="dismissal-signal",
+                candidate_id=candidate.candidate_id,
+                dismissed_at=datetime(2026, 1, 5, 18, tzinfo=UTC),
+                recorded_at=datetime(2026, 1, 5, 18, tzinfo=UTC),
+            )
+            selection_store.write_dismissal(imported.batch.batch_id, dismissal)
+            service = WorkbenchService(
+                selection_store,
+                ManualPortfolioStore(directory),
+                SnapshotStore(f"{directory}/market"),
+            )
+
+            as_of = datetime(2026, 1, 5, 19, tzinfo=UTC)
+            self.assertEqual(service.list_daily_signals(as_of=as_of), ())
+            history = service.list_daily_signals(as_of=as_of, include_dismissed=True)
+            self.assertEqual(len(history), 1)
+            self.assertTrue(history[0].dismissed)
+            self.assertEqual(history[0].dismissals, (dismissal,))
+            self.assertEqual(service.summary(as_of=as_of).signal_count, 0)
+            self.assertEqual(service.list_strategies(as_of=as_of)[0].signal_count, 1)
+
     def test_same_day_cross_strategy_signals_share_latest_review(self) -> None:
         with TemporaryDirectory() as directory:
             selection_store = SelectionImportStore(directory)
@@ -124,10 +160,10 @@ class WorkbenchApplicationTests(unittest.TestCase):
                 {signal.review_state for signal in signals},
                 {SelectionCandidateReviewState.WATCHING},
             )
-            signals_by_candidate = {
-                signal.candidate.candidate_id: signal for signal in signals
-            }
-            self.assertIsNotNone(signals_by_candidate[first_candidate.candidate_id].latest_annotation)
+            signals_by_candidate = {signal.candidate.candidate_id: signal for signal in signals}
+            self.assertIsNotNone(
+                signals_by_candidate[first_candidate.candidate_id].latest_annotation
+            )
             self.assertIsNone(signals_by_candidate[second_candidate.candidate_id].latest_annotation)
             self.assertEqual(
                 {

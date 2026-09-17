@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { RotateCcw } from 'lucide-react'
+import { RotateCcw, Trash2 } from 'lucide-react'
 import { requestJson } from '@/api/client'
 import { PortfolioWorkspace } from '@/components/portfolio-workspace'
-import type { Annotation, ReviewState, WorkbenchSignalPage, WorkbenchSignal, WorkbenchSummary, WorkbenchStockDetail, WorkbenchPositionView, WorkbenchTradeView, WorkbenchCohortMetrics, WorkbenchStrategyView, WorkbenchAnalyticsView, WorkbenchRoute, WorkbenchReviewFilter } from '@/types'
+import type { Annotation, ReviewState, WorkbenchDismissalResponse, WorkbenchSignalPage, WorkbenchSignal, WorkbenchSummary, WorkbenchStockDetail, WorkbenchPositionView, WorkbenchTradeView, WorkbenchCohortMetrics, WorkbenchStrategyView, WorkbenchAnalyticsView, WorkbenchRoute, WorkbenchReviewFilter } from '@/types'
 import { annotationOutlookLabels, annotationDecisionLabels } from '@/lib/labels'
 import { formatManagementDate, formatPrice, formatPercent } from '@/lib/format'
 import { PaginationControls } from '@/components/pagination-controls'
@@ -161,11 +161,15 @@ function stableGroupSignals(signals: WorkbenchSignal[]): WorkbenchSignal[] {
 export function WorkbenchSignalTable({
   signals,
   onOpen,
+  onDismiss,
+  dismissingCandidateId = null,
   emptyMessage,
   showObservationPerformance = false,
 }: {
   signals: WorkbenchSignal[]
   onOpen: (symbol: string, candidateId: string) => void
+  onDismiss?: (signal: WorkbenchSignal) => void | Promise<void>
+  dismissingCandidateId?: string | null
   emptyMessage: string
   showObservationPerformance?: boolean
 }) {
@@ -184,22 +188,52 @@ export function WorkbenchSignalTable({
   }
   const displaySignals = showObservationPerformance ? stableGroupSignals(signals) : signals
   return displaySignals.length === 0 ? <p className="workbench-empty">{emptyMessage}</p> : (
-    <div className={`workbench-table${showObservationPerformance ? ' workbench-table--watchlist' : ''}`} role="table" aria-label={showObservationPerformance ? '观察池列表' : '策略信号列表'}>
-      <div className="workbench-table-header" role="row"><span>股票</span><span>策略</span><span>信号时间</span><span>行情</span>{showObservationPerformance && <span>观察期涨跌</span>}<span>人工判断</span><span>状态</span></div>
+    <div className={`workbench-table${showObservationPerformance ? ' workbench-table--watchlist' : ' workbench-table--signals'}`} role="table" aria-label={showObservationPerformance ? '观察池列表' : '策略信号列表'}>
+      <div className="workbench-table-header" role="row"><span>股票</span><span>策略</span><span>信号时间</span><span>行情</span>{showObservationPerformance && <span>观察期涨跌</span>}<span>人工判断</span><span>状态</span>{!showObservationPerformance && <span>操作</span>}</div>
       {displaySignals.map((signal) => {
         const observation = signal.observation_performance
         const latestAnnotation = workbenchLatestAnnotation(signal)
         const duplicateMarker = duplicateSymbolMarkers.get(signal.candidate.symbol)
         return (
-          <button type="button" className={`workbench-table-row${duplicateMarker ? ` workbench-table-row--duplicate ${duplicateMarker}` : ''}`} role="row" key={signal.candidate.candidate_id} onClick={() => onOpen(signal.candidate.symbol, signal.candidate.candidate_id)}>
-            <span className="workbench-stock-cell"><strong>{signal.candidate.symbol}</strong><small>{signal.candidate.name ?? '未提供名称'}</small></span>
-            <span className="workbench-table-cell"><strong>{signal.batch.formula_name}</strong><small>{signal.batch.formula_version ?? '未版本化'}</small></span>
-            <span className="workbench-table-cell"><strong>{signal.batch.selection_date}</strong><small>{formatManagementDate(signal.batch.exported_at)}</small></span>
-            <span className="workbench-table-cell"><strong className="market-value">{formatPrice(signal.market.close)}</strong><small className={`market-change ${Number(signal.market.change_percent ?? 0) >= 0 ? 'market-profit' : 'market-loss'}`}>{formatPercent(signal.market.change_percent)}</small><small>{signal.market.session_date ? `收盘日 ${signal.market.session_date}` : '收盘日期不可用'}</small></span>
-            {showObservationPerformance && <span className="workbench-table-cell workbench-observation-cell"><strong className={`market-value ${observationChangeClass(observation)}`}>{observation?.status === 'available' ? formatPercent(observation.change_percent) : '—'}</strong><small>{observation?.started_at ? `起点 ${formatManagementDate(observation.started_at)}` : '观察起点不可用'}</small><small>{observation?.start_close !== null && observation?.start_close !== undefined ? `起点价 ${formatPrice(observation.start_close)}` : observation?.reason ?? '起点价不可用'}</small></span>}
-            <span className="workbench-table-cell"><strong>{latestAnnotation ? `${'★'.repeat(latestAnnotation.overall_score)}${'☆'.repeat(5 - latestAnnotation.overall_score)}` : '—'}</strong><small>{latestAnnotation ? annotationOutlookLabels[latestAnnotation.outlook] : '未判断'}</small></span>
-            <span className="workbench-table-status"><span className={`workbench-status workbench-status--${signal.review_state}`}>{workbenchReviewLabel(signal.review_state)}</span>{signal.confirmed_buy && <span className="workbench-status workbench-status--bought">已买入</span>}</span>
-          </button>
+          <div
+            className={`workbench-table-row${duplicateMarker ? ` workbench-table-row--duplicate ${duplicateMarker}` : ''}`}
+            role="row"
+            key={signal.candidate.candidate_id}
+            onClick={(event) => {
+              if (event.target instanceof Element && event.target.closest('.workbench-table-row-dismiss')) {
+                return
+              }
+              onOpen(signal.candidate.symbol, signal.candidate.candidate_id)
+            }}
+          >
+            <button
+              type="button"
+              className="workbench-table-row-main"
+              aria-label={`打开 ${signal.candidate.symbol} 股票详情`}
+            />
+            <div className="workbench-table-row-content" aria-hidden="true">
+              <span className="workbench-stock-cell"><strong>{signal.candidate.symbol}</strong><small>{signal.candidate.name ?? '未提供名称'}</small></span>
+              <span className="workbench-table-cell"><strong>{signal.batch.formula_name}</strong><small>{signal.batch.formula_version ?? '未版本化'}</small></span>
+              <span className="workbench-table-cell"><strong>{signal.batch.selection_date}</strong><small>{formatManagementDate(signal.batch.exported_at)}</small></span>
+              <span className="workbench-table-cell"><strong className="market-value">{formatPrice(signal.market.close)}</strong><small className={`market-change ${Number(signal.market.change_percent ?? 0) >= 0 ? 'market-profit' : 'market-loss'}`}>{formatPercent(signal.market.change_percent)}</small><small>{signal.market.session_date ? `收盘日 ${signal.market.session_date}` : '收盘日期不可用'}</small></span>
+              {showObservationPerformance && <span className="workbench-table-cell workbench-observation-cell"><strong className={`market-value ${observationChangeClass(observation)}`}>{observation?.status === 'available' ? formatPercent(observation.change_percent) : '—'}</strong><small>{observation?.started_at ? `起点 ${formatManagementDate(observation.started_at)}` : '观察起点不可用'}</small><small>{observation?.start_close !== null && observation?.start_close !== undefined ? `起点价 ${formatPrice(observation.start_close)}` : observation?.reason ?? '起点价不可用'}</small></span>}
+              <span className="workbench-table-cell"><strong>{latestAnnotation ? `${'★'.repeat(latestAnnotation.overall_score)}${'☆'.repeat(5 - latestAnnotation.overall_score)}` : '—'}</strong><small>{latestAnnotation ? annotationOutlookLabels[latestAnnotation.outlook] : '未判断'}</small></span>
+              <span className="workbench-table-status"><span className={`workbench-status workbench-status--${signal.review_state}`}>{workbenchReviewLabel(signal.review_state)}</span>{signal.confirmed_buy && <span className="workbench-status workbench-status--bought">已买入</span>}</span>
+            </div>
+            {onDismiss && !showObservationPerformance && signal.review_state === 'unreviewed' && !signal.dismissed && (
+              <button
+                type="button"
+                className="workbench-table-row-dismiss"
+                aria-label={`删除 ${signal.candidate.symbol} 未判断信号`}
+                title="删除未判断信号"
+                disabled={dismissingCandidateId !== null}
+                onClick={() => void onDismiss(signal)}
+              >
+                <Trash2 aria-hidden="true" />
+                <span>{dismissingCandidateId === signal.candidate.candidate_id ? '删除中…' : '删除'}</span>
+              </button>
+            )}
+          </div>
         )
       })}
     </div>
@@ -262,6 +296,7 @@ export function WorkbenchWorkspace({
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
+  const [dismissingCandidateId, setDismissingCandidateId] = useState<string | null>(null)
   const [signalPage, setSignalPage] = useState(1)
   const [signalTotal, setSignalTotal] = useState(0)
   const signalPageSize = 50
@@ -374,6 +409,17 @@ export function WorkbenchWorkspace({
     setSignalPage(1)
   }
 
+  function closeStock() {
+    stockController.current?.abort()
+    stockController.current = null
+    stockRequestId.current += 1
+    setSelectedSymbol(null)
+    setSelectedCandidateId(null)
+    setStockDetail(null)
+    setDrawerLoading(false)
+    setDrawerError(null)
+  }
+
   async function openStock(symbol: string, candidateId?: string) {
     stockController.current?.abort()
     const controller = new AbortController()
@@ -414,6 +460,40 @@ export function WorkbenchWorkspace({
     await openStock(selectedSymbol, selectedCandidateId ?? undefined)
   }
 
+  async function dismissSignal(signal: WorkbenchSignal) {
+    if (route !== 'signals' || signal.review_state !== 'unreviewed' || dismissingCandidateId !== null) {
+      return
+    }
+    const confirmed = window.confirm(
+      `删除 ${signal.candidate.symbol} 的未判断信号？\n\n这只会将它从策略信号列表移除，原始策略信号及其历史证据仍会保留。`,
+    )
+    if (!confirmed) {
+      return
+    }
+    const candidateId = signal.candidate.candidate_id
+    setDismissingCandidateId(candidateId)
+    setPageError(null)
+    try {
+      await requestJson<WorkbenchDismissalResponse>(
+        `${apiBase}/v1/selection-batches/${encodeURIComponent(signal.batch.batch_id)}/dismissals`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ candidate_id: candidateId }),
+        },
+      )
+      if (selectedCandidateId === candidateId) {
+        closeStock()
+      }
+      setSignalPage((current) => current > 1 && signals.length === 1 ? current - 1 : current)
+      setReloadToken((value) => value + 1)
+    } catch (reason: unknown) {
+      setPageError(reason instanceof Error ? reason.message : '删除策略信号失败。')
+    } finally {
+      setDismissingCandidateId(null)
+    }
+  }
+
   const visibleSignals = workbenchSignalSort(signals.filter((signal) => {
     const normalizedQuery = query.trim().toLowerCase()
     const matchesQuery = !normalizedQuery || [signal.candidate.symbol, signal.candidate.local_code, signal.candidate.name ?? '', signal.batch.formula_name].some((value) => value.toLowerCase().includes(normalizedQuery))
@@ -441,7 +521,7 @@ export function WorkbenchWorkspace({
         <>
           <div className="workbench-section-heading"><div><span className="eyebrow">SIGNALS · IMMUTABLE FACTS</span><h2>策略信号</h2><p>展示当前证据时间内已导入批次的所有策略命中；人工判断不会改变原始信号。</p></div><span className="workbench-as-of">共 {signalTotal} 条 · 最新行情：{latestSignalMarketDate ? `${latestSignalMarketDate} 收盘` : '不可用'}</span></div>
           <WorkbenchFilterBar query={query} onQueryChange={handleQueryChange} filter={filter} onFilterChange={handleFilterChange} onRefresh={() => setReloadToken((value) => value + 1)} busy={loading} />
-          {loading && loadedRoute !== route ? <div className="workbench-loading">正在读取信号…</div> : <WorkbenchSignalTable signals={visibleSignals} onOpen={(symbol, candidateId) => void openStock(symbol, candidateId)} emptyMessage="没有匹配的策略信号。" />}
+          {loading && loadedRoute !== route ? <div className="workbench-loading">正在读取信号…</div> : <WorkbenchSignalTable signals={visibleSignals} onOpen={(symbol, candidateId) => void openStock(symbol, candidateId)} onDismiss={dismissSignal} dismissingCandidateId={dismissingCandidateId} emptyMessage="没有匹配的策略信号。" />}
           <PaginationControls page={signalPage} pageSize={signalPageSize} total={signalTotal} busy={loading} onPageChange={setSignalPage} />
         </>
       )}
@@ -494,7 +574,7 @@ export function WorkbenchWorkspace({
       )}
       {selectedSymbol && drawerLoading && <div className="stock-drawer-loading" role="status">正在读取 {selectedSymbol} 的证据…</div>}
       {selectedSymbol && drawerError && <div className="stock-drawer-loading stock-drawer-loading--error" role="alert">{drawerError}<button type="button" onClick={() => setSelectedSymbol(null)}>关闭</button></div>}
-      {stockDetail && <StockDetailDrawer apiBase={apiBase} detail={stockDetail} selectedCandidateId={selectedCandidateId} onClose={() => { setSelectedSymbol(null); setSelectedCandidateId(null); setStockDetail(null) }} onAnnotationSaved={async () => { setReloadToken((value) => value + 1); await refreshStock() }} onTradeSaved={async () => { setReloadToken((value) => value + 1); await refreshStock() }} />}
+      {stockDetail && <StockDetailDrawer apiBase={apiBase} detail={stockDetail} selectedCandidateId={selectedCandidateId} onClose={closeStock} onAnnotationSaved={async () => { setReloadToken((value) => value + 1); await refreshStock() }} onTradeSaved={async () => { setReloadToken((value) => value + 1); await refreshStock() }} />}
     </section>
   )
 }

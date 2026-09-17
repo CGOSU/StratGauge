@@ -13,6 +13,7 @@ from stratgauge.domain.selections import (
     SelectionAnnotation,
     SelectionBatch,
     SelectionCandidate,
+    SelectionCandidateDismissal,
     SelectionCandidateExclusion,
     SelectionCandidateReviewState,
     SelectionFormula,
@@ -89,12 +90,22 @@ class SelectionCandidateView(BaseModel):
     labels: tuple[ManualSelectionLabel, ...] = ()
     annotations: tuple[SelectionAnnotation, ...] = ()
     exclusions: tuple[SelectionCandidateExclusion, ...] = ()
+    dismissals: tuple[SelectionCandidateDismissal, ...] = ()
     latest_annotation: SelectionAnnotation | None = None
     latest_exclusion: SelectionCandidateExclusion | None = None
+    latest_dismissal: SelectionCandidateDismissal | None = None
     review_state: SelectionCandidateReviewState = SelectionCandidateReviewState.UNREVIEWED
     excluded: bool = False
+    dismissed: bool = False
     outcomes: tuple[SelectionOutcome, ...] = ()
     performances: tuple[SelectionPerformance, ...] = ()
+
+
+class SelectionDismissalView(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    dismissal: SelectionCandidateDismissal
+    created: bool
 
 
 class SelectionObservationView(BaseModel):

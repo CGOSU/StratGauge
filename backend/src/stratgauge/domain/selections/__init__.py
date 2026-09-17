@@ -13,6 +13,10 @@ from stratgauge.domain.selections.core import (
     SelectionFormula,
     SelectionLifecycleEvent,
 )
+from stratgauge.domain.selections.dismissals import (
+    DEFAULT_SELECTION_CANDIDATE_DISMISSAL_REASON,
+    SelectionCandidateDismissal,
+)
 from stratgauge.domain.selections.enums import (
     SELECTION_ANNOTATION_TAXONOMY_VERSION,
     ManualSelectionDecision,
@@ -80,6 +84,8 @@ __all__ = [
     "SelectionCandidate",
     "SelectionAnnotation",
     "SelectionCandidateExclusion",
+    "SelectionCandidateDismissal",
+    "DEFAULT_SELECTION_CANDIDATE_DISMISSAL_REASON",
     "ManualSelectionLabel",
     "SelectionOutcome",
     "SelectionPerformancePoint",

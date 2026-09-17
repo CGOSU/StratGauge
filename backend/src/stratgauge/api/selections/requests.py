@@ -184,6 +184,12 @@ class SelectionExclusionRequest(BaseModel):
         return normalized
 
 
+class SelectionDismissalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str = Field(min_length=1)
+
+
 class SelectionMatureRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -222,5 +228,6 @@ __all__ = [
     "SelectionLabelRequest",
     "SelectionAnnotationRequest",
     "SelectionExclusionRequest",
+    "SelectionDismissalRequest",
     "SelectionMatureRequest",
 ]

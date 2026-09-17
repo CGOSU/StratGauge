@@ -176,11 +176,7 @@ def _cohort_views(
         ("all_signals", tuple(signal_list)),
         (
             "human_bullish",
-            tuple(
-                signal
-                for signal in signal_list
-                if _is_human_bullish(signal)
-            ),
+            tuple(signal for signal in signal_list if _is_human_bullish(signal)),
         ),
         (
             "confirmed_trades",
@@ -533,6 +529,17 @@ def _build_timeline(
                     source_id=exclusion.exclusion_id,
                     title="候选排除",
                     detail=exclusion.reason,
+                )
+            )
+        for dismissal in signal.dismissals:
+            events.append(
+                WorkbenchTimelineEvent(
+                    event_id=dismissal.dismissal_id,
+                    event_type="dismissal",
+                    occurred_at=dismissal.dismissed_at,
+                    source_id=dismissal.dismissal_id,
+                    title="从策略信号中移除",
+                    detail=dismissal.reason,
                 )
             )
         for outcome in signal.outcomes:

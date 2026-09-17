@@ -914,6 +914,120 @@ class SelectionApiTests(unittest.TestCase):
         self.assertEqual(included.status_code, 200)
         self.assertEqual(len(included.json()), 1)
 
+    def test_dismissal_hides_only_unreviewed_signal_and_is_idempotent(self) -> None:
+        def import_batch(formula_name: str) -> dict:
+            return self.client.post(
+                "/v1/selection-batches",
+                json={
+                    "content_base64": base64.b64encode(CONTENT).decode(),
+                    "selection_date": "2026-01-05",
+                    "exported_at": "2026-01-05T15:05:00+08:00",
+                    "formula_name": formula_name,
+                },
+            ).json()
+
+        first = import_batch("趋势选股 A")
+        second = import_batch("趋势选股 B")
+        first_candidate_id = first["candidates"][0]["candidate"]["candidate_id"]
+        dismissed = self.client.post(
+            f"/v1/selection-batches/{first['batch']['batch_id']}/dismissals",
+            json={"candidate_id": first_candidate_id},
+        )
+        self.assertEqual(dismissed.status_code, 200)
+        self.assertTrue(dismissed.json()["created"])
+        dismissal_id = dismissed.json()["dismissal"]["dismissal_id"]
+
+        retried = self.client.post(
+            f"/v1/selection-batches/{first['batch']['batch_id']}/dismissals",
+            json={"candidate_id": first_candidate_id},
+        )
+        self.assertEqual(retried.status_code, 200)
+        self.assertFalse(retried.json()["created"])
+        self.assertEqual(retried.json()["dismissal"]["dismissal_id"], dismissal_id)
+
+        as_of = datetime.now(UTC).isoformat()
+        signals = self.client.get(
+            "/v1/workbench/daily-signals",
+            params={"as_of": as_of},
+        )
+        self.assertEqual(signals.status_code, 200)
+        self.assertEqual(
+            [item["candidate"]["candidate_id"] for item in signals.json()],
+            [second["candidates"][0]["candidate"]["candidate_id"]],
+        )
+        history = self.client.get(
+            "/v1/workbench/daily-signals",
+            params={"as_of": as_of, "include_dismissed": "true"},
+        )
+        self.assertEqual(history.status_code, 200)
+        dismissed_history = next(
+            item
+            for item in history.json()
+            if item["candidate"]["candidate_id"] == first_candidate_id
+        )
+        self.assertTrue(dismissed_history["dismissed"])
+        summary = self.client.get("/v1/workbench/summary", params={"as_of": as_of})
+        self.assertEqual(summary.status_code, 200)
+        self.assertEqual(summary.json()["signal_count"], 1)
+        strategies = self.client.get("/v1/workbench/strategies", params={"as_of": as_of})
+        self.assertEqual(strategies.status_code, 200)
+        self.assertEqual(sum(item["signal_count"] for item in strategies.json()), 2)
+
+        archived = self.client.post(
+            f"/v1/data-management/batches/{first['batch']['batch_id']}/archive",
+            json={"reason": "删除测试归档"},
+        )
+        self.assertEqual(archived.status_code, 200)
+        archived_dismissal = self.client.post(
+            f"/v1/selection-batches/{first['batch']['batch_id']}/dismissals",
+            json={"candidate_id": first_candidate_id},
+        )
+        self.assertEqual(archived_dismissal.status_code, 422)
+        self.assertEqual(archived_dismissal.json()["error"]["code"], "SELECTION_BATCH_ARCHIVED")
+        missing = self.client.post(
+            f"/v1/selection-batches/{second['batch']['batch_id']}/dismissals",
+            json={"candidate_id": "missing-candidate"},
+        )
+        self.assertEqual(missing.status_code, 404)
+        self.assertEqual(missing.json()["error"]["code"], "SELECTION_CANDIDATE_NOT_FOUND")
+
+    def test_dismissal_rejects_shared_same_day_human_review(self) -> None:
+        def import_batch(formula_name: str) -> dict:
+            return self.client.post(
+                "/v1/selection-batches",
+                json={
+                    "content_base64": base64.b64encode(CONTENT).decode(),
+                    "selection_date": "2026-01-05",
+                    "exported_at": "2026-01-05T15:05:00+08:00",
+                    "formula_name": formula_name,
+                },
+            ).json()
+
+        reviewed_batch = import_batch("已判断策略")
+        target_batch = import_batch("待删除策略")
+        reviewed_candidate_id = reviewed_batch["candidates"][0]["candidate"]["candidate_id"]
+        target_candidate_id = target_batch["candidates"][0]["candidate"]["candidate_id"]
+        annotated = self.client.post(
+            f"/v1/selection-batches/{reviewed_batch['batch']['batch_id']}/annotations",
+            json={
+                "candidate_id": reviewed_candidate_id,
+                "reviewed_at": "2026-01-05T17:00:00+08:00",
+                "overall_score": 3,
+                "outlook": "neutral",
+                "decision": "watch",
+            },
+        )
+        self.assertEqual(annotated.status_code, 200)
+        rejected = self.client.post(
+            f"/v1/selection-batches/{target_batch['batch']['batch_id']}/dismissals",
+            json={"candidate_id": target_candidate_id},
+        )
+        self.assertEqual(rejected.status_code, 422)
+        self.assertEqual(
+            rejected.json()["error"]["code"],
+            "SELECTION_CANDIDATE_ALREADY_REVIEWED",
+        )
+
     def test_annotation_before_export_or_on_archived_batch_is_rejected(self) -> None:
         imported = self.client.post(
             "/v1/selection-batches",

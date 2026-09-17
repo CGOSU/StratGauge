@@ -12,6 +12,7 @@ from stratgauge.domain.selections import (
     SelectionAnnotation,
     SelectionAnnotationDecision,
     SelectionAnnotationOutlook,
+    SelectionCandidateDismissal,
     SelectionCandidateExclusion,
     SelectionLifecycleStatus,
     SelectionOutcome,
@@ -374,6 +375,32 @@ class SelectionImportStoreTests(unittest.TestCase):
                     candidate_id=exclusion.candidate_id,
                     excluded_at=exclusion.excluded_at,
                     recorded_at=exclusion.recorded_at,
+                    reason=" ",
+                )
+
+    def test_dismissals_are_idempotent_and_separate_from_exclusions(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SelectionImportStore(directory)
+            parsed = parsed_import()
+            store.write(CONTENT, parsed)
+            dismissal = SelectionCandidateDismissal(
+                dismissal_id="dismissal-first",
+                candidate_id=parsed.candidates[0].candidate_id,
+                dismissed_at=datetime(2026, 1, 6, 9, tzinfo=UTC),
+                recorded_at=datetime(2026, 1, 6, 9, 1, tzinfo=UTC),
+            )
+
+            self.assertEqual(store.write_dismissal(parsed.batch.batch_id, dismissal), dismissal)
+            self.assertEqual(store.write_dismissal(parsed.batch.batch_id, dismissal), dismissal)
+            self.assertEqual(store.list_dismissals(dismissal.candidate_id), (dismissal,))
+            self.assertEqual(store.latest_dismissal(dismissal.candidate_id), dismissal)
+            self.assertEqual(store.list_exclusions(dismissal.candidate_id), ())
+            with self.assertRaises(ValueError):
+                SelectionCandidateDismissal(
+                    dismissal_id="dismissal-invalid",
+                    candidate_id=dismissal.candidate_id,
+                    dismissed_at=dismissal.dismissed_at,
+                    recorded_at=dismissal.recorded_at,
                     reason=" ",
                 )
 

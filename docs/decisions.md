@@ -8,6 +8,14 @@
 
 ## 已确认决策
 
+### 2026-09-17：策略信号删除采用仅限未判断的追加式隐藏事件
+
+- 决定：策略信号页允许用户删除仍为“未判断”的信号，但删除只写入独立的 `SelectionCandidateDismissal` 追加事件；原始导入、策略信号、人工评审、排除、行情、客观结果、未来表现和交易证据均不硬删除、不原地修改。默认策略信号列表、分页和汇总隐藏已 dismissal 的候选；策略/分析统计和股票历史详情仍读取并保留这些证据。
+- 决定：删除命令使用 `POST /v1/selection-batches/{batch_id}/dismissals`，按候选 ID 内容寻址并保持幂等；响应使用结构化 `dismissal` 与 `created` 字段。已归档批次、不属于批次的候选和已有有效人工判断分别返回稳定错误 code/message，而不伪装为成功。
+- 决定：服务端按工作台当前同日同股跨策略评审投影判断“未判断”：同一选股日期、同一标准化证券的任何当前可见 `SelectionAnnotation` 都阻止删除，即使被点击的策略候选自身没有 annotation。`SelectionCandidateExclusion` 继续只表示无效研究数据，不承载用户删除意图。
+- 决定：前端只在策略信号页的 `unreviewed` 行显示删除入口；删除前必须确认“只从列表移除、原始证据保留”，取消不写入，成功后刷新列表/汇总，失败展示 API 的真实结构化错误。
+- 原因：用户需要清理尚未人工处理的工作区噪声，但研究证据必须可重放、可审计；独立 dismissal 可以改变默认工作区可见性而不混淆数据无效、投资决策和实际交易。
+
 ### 2026-09-13：同日同股跨策略信号共享人工评审投影
 
 - 决定：当不同策略在同一选股日期命中同一标准化证券时，工作台读取投影按 `(symbol, selection_date)` 聚合可见 annotation，并将最新人工评审、评审状态和当前观察起点同步到该日的全部策略信号；原始信号行仍分别保留。响应的 `annotations/latest_annotation` 继续表示当前候选自身历史，新增 `review_annotations/latest_review_annotation` 明确表示同日同股评审组历史和最新评审，并通过 `review_group_key` 与 `review_source_candidate_id` 暴露评审组标识及最新评审来源，避免把别的候选 annotation 冒充当前候选事实。

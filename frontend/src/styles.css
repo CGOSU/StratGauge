@@ -3497,6 +3497,81 @@
     min-width: 980px;
   }
 
+  .workbench-table--signals .workbench-table-header,
+  .workbench-table--signals .workbench-table-row {
+    grid-template-columns: minmax(130px, 1.25fr) minmax(120px, 1fr) minmax(105px, 0.9fr) minmax(90px, 0.75fr) minmax(100px, 0.9fr) minmax(120px, 0.9fr) minmax(72px, 0.45fr);
+    min-width: 900px;
+  }
+
+  .workbench-table-row-content {
+    align-items: center;
+    display: grid;
+    gap: inherit;
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(130px, 1.25fr) minmax(120px, 1fr) minmax(105px, 0.9fr) minmax(90px, 0.75fr) minmax(100px, 0.9fr) minmax(120px, 0.9fr);
+    min-width: 0;
+    pointer-events: none;
+    position: relative;
+    z-index: 0;
+  }
+
+  .workbench-table--watchlist .workbench-table-row-content {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(130px, 1.25fr) minmax(120px, 1fr) minmax(105px, 0.9fr) minmax(90px, 0.75fr) minmax(160px, 1.2fr) minmax(100px, 0.9fr) minmax(120px, 0.9fr);
+  }
+
+  .workbench-table-row-main {
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    inset: 0;
+    padding: 0;
+    pointer-events: none;
+    position: absolute;
+    z-index: 1;
+  }
+
+  .workbench-table-row-dismiss {
+    align-items: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--component-radius-sm);
+    color: var(--text-muted);
+    display: inline-flex;
+    flex-direction: column;
+    font-size: 0.68rem;
+    gap: 2px;
+    grid-column: -1;
+    justify-self: center;
+    min-height: 34px;
+    min-width: 52px;
+    padding: 4px 6px;
+    position: relative;
+    z-index: 2;
+  }
+
+  .workbench-table-row-dismiss svg {
+    height: 15px;
+    width: 15px;
+  }
+
+  .workbench-table-row-dismiss:hover:not(:disabled) {
+    background: var(--state-loss-soft);
+    border-color: var(--state-loss);
+    color: var(--state-loss);
+  }
+
+  .workbench-table-row-dismiss:disabled {
+    cursor: wait;
+    opacity: 0.65;
+  }
+
+  .workbench-table-row-main:focus-visible,
+  .workbench-table-row-dismiss:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--state-focus);
+    outline: none;
+  }
+
   .workbench-table-header {
     background: var(--primitive-slate-50);
     border-bottom: 1px solid var(--border-default);
@@ -3513,6 +3588,7 @@
     border: 0;
     border-bottom: 1px solid var(--primitive-slate-100);
     color: var(--text-primary);
+    cursor: pointer;
     min-height: var(--component-row-height);
     text-align: left;
     width: 100%;

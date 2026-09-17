@@ -132,6 +132,14 @@ export type Exclusion = {
   reason: string
 }
 
+export type Dismissal = {
+  dismissal_id: string
+  candidate_id: string
+  dismissed_at: string
+  recorded_at: string
+  reason: string
+}
+
 export type Candidate = {
   candidate_id: string
   batch_id: string
@@ -393,14 +401,22 @@ export type WorkbenchSignal = {
   latest_review_annotation: Annotation | null
   exclusions: Exclusion[]
   latest_exclusion: Exclusion | null
+  dismissals: Dismissal[]
+  latest_dismissal: Dismissal | null
   review_state: ReviewState
   excluded: boolean
+  dismissed: boolean
   outcomes: Outcome[]
   performances: Performance[]
   market: WorkbenchMarketEvidence
   observation_performance: WorkbenchObservationPerformance | null
   confirmed_buy: boolean
   confirmed_buy_fill_ids: string[]
+}
+
+export type WorkbenchDismissalResponse = {
+  dismissal: Dismissal
+  created: boolean
 }
 
 export type WorkbenchSummary = {

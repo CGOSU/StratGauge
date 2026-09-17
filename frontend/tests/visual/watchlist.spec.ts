@@ -143,7 +143,10 @@ async function installApiMocks(page: Page) {
         symbol: positiveSignal.candidate.symbol,
         name: positiveSignal.candidate.name,
         as_of: '2026-08-14T16:00:00+08:00',
+        source: 'signal',
         market,
+        position: null,
+        tracking_cases: [],
         signals: [positiveSignal],
         timeline: [
           {
