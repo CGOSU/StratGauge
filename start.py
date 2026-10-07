@@ -6,6 +6,7 @@ import ctypes
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -14,6 +15,10 @@ from pathlib import Path
 from types import FrameType
 from typing import Any, Protocol, TextIO, cast
 
+BACKEND_HOST = "127.0.0.1"
+DEFAULT_BACKEND_PORT = 8000
+FALLBACK_BACKEND_PORT = 8091
+BACKEND_PORT_ENV = "STRATGAUGE_BACKEND_PORT"
 BACKEND_COMMAND = (
     "run",
     "uvicorn",
@@ -199,18 +204,63 @@ def repository_root() -> Path:
     return Path(__file__).resolve().parent
 
 
+def _is_port_available(host: str, port: int) -> bool:
+    """Return whether a local TCP port can currently be bound."""
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            probe.bind((host, port))
+            probe.listen(1)
+    except OSError:
+        return False
+    return True
+
+
+def resolve_backend_port() -> int:
+    """Resolve the backend port, falling back when the default is unavailable."""
+
+    configured_port = os.environ.get(BACKEND_PORT_ENV)
+    if configured_port is not None:
+        try:
+            port = int(configured_port)
+        except ValueError as error:
+            raise StartupError(f"{BACKEND_PORT_ENV} 必须是有效的端口号。") from error
+        if not 1 <= port <= 65535:
+            raise StartupError(f"{BACKEND_PORT_ENV} 必须在 1 到 65535 之间。")
+        return port
+
+    for port in (DEFAULT_BACKEND_PORT, FALLBACK_BACKEND_PORT):
+        if _is_port_available(BACKEND_HOST, port):
+            return port
+
+    raise StartupError(
+        f"后端端口 {DEFAULT_BACKEND_PORT} 和备用端口 {FALLBACK_BACKEND_PORT} 均不可用。"
+    )
+
+
 def build_service_specs(
     root: Path,
     *,
     uv_executable: str = "uv",
     corepack_executable: str = "corepack",
+    backend_port: int = DEFAULT_BACKEND_PORT,
 ) -> tuple[ServiceSpec, ServiceSpec]:
-    """Build the fixed backend/frontend commands used by the launcher."""
+    """Build the backend/frontend commands used by the launcher."""
 
     backend = (root / "backend").resolve()
     frontend = (root / "frontend").resolve()
+    backend_command = (
+        uv_executable,
+        *BACKEND_COMMAND,
+        "--host",
+        BACKEND_HOST,
+        "--port",
+        str(backend_port),
+    )
     return (
-        ServiceSpec("backend", backend, (uv_executable, *BACKEND_COMMAND)),
+        ServiceSpec("backend", backend, backend_command),
         ServiceSpec("frontend", frontend, (corepack_executable, *FRONTEND_COMMAND)),
     )
 
@@ -489,13 +539,20 @@ def main() -> int:
     try:
         validate_repository(root)
         uv, corepack = resolve_tools()
-        specs = build_service_specs(root, uv_executable=uv, corepack_executable=corepack)
+        backend_port = resolve_backend_port()
+        os.environ[BACKEND_PORT_ENV] = str(backend_port)
+        specs = build_service_specs(
+            root,
+            uv_executable=uv,
+            corepack_executable=corepack,
+            backend_port=backend_port,
+        )
         process_tree = create_process_tree()
     except (OSError, StartupError) as error:
         _write_error(str(error))
         return 2
 
-    print("[launcher] 启动 backend : http://127.0.0.1:8000", flush=True)
+    print(f"[launcher] 启动 backend : http://{BACKEND_HOST}:{backend_port}", flush=True)
     print("[launcher] 启动 frontend: http://127.0.0.1:5173", flush=True)
     return ServiceRunner(specs, process_tree).run()
 

@@ -220,18 +220,22 @@ export function WorkbenchSignalTable({
               <span className="workbench-table-cell"><strong>{latestAnnotation ? `${'★'.repeat(latestAnnotation.overall_score)}${'☆'.repeat(5 - latestAnnotation.overall_score)}` : '—'}</strong><small>{latestAnnotation ? annotationOutlookLabels[latestAnnotation.outlook] : '未判断'}</small></span>
               <span className="workbench-table-status"><span className={`workbench-status workbench-status--${signal.review_state}`}>{workbenchReviewLabel(signal.review_state)}</span>{signal.confirmed_buy && <span className="workbench-status workbench-status--bought">已买入</span>}</span>
             </div>
-            {onDismiss && !showObservationPerformance && signal.review_state === 'unreviewed' && !signal.dismissed && (
-              <button
-                type="button"
-                className="workbench-table-row-dismiss"
-                aria-label={`删除 ${signal.candidate.symbol} 未判断信号`}
-                title="删除未判断信号"
-                disabled={dismissingCandidateId !== null}
-                onClick={() => void onDismiss(signal)}
-              >
-                <Trash2 aria-hidden="true" />
-                <span>{dismissingCandidateId === signal.candidate.candidate_id ? '删除中…' : '删除'}</span>
-              </button>
+            {!showObservationPerformance && (
+              <div className="workbench-table-row-action">
+                {onDismiss && signal.review_state === 'unreviewed' && !signal.dismissed && (
+                  <button
+                    type="button"
+                    className="workbench-table-row-dismiss"
+                    aria-label={`删除 ${signal.candidate.symbol} 未判断信号`}
+                    title="删除未判断信号"
+                    disabled={dismissingCandidateId !== null}
+                    onClick={() => void onDismiss(signal)}
+                  >
+                    <Trash2 aria-hidden="true" />
+                    <span>{dismissingCandidateId === signal.candidate.candidate_id ? '删除中…' : '删除'}</span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )

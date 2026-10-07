@@ -8,6 +8,13 @@
 - 实际验证：后端 `PYTHONPATH=src uv run python -m unittest tests.data_pipeline.test_selection_store tests.api.test_selections tests.application.test_workbench -q`（67 项通过）；相关 19 个 Python 文件 Ruff check、format check 通过；相关 16 个源文件 MyPy 通过；前端 `corepack pnpm typecheck` 通过；`corepack pnpm lint` 0 error、19 条既有 warning；定向 Playwright `workbench-dismissal.spec.ts`、`workbench-annotation-target.spec.ts`、`watchlist.spec.ts` 共 4 项通过；任务涉及路径 `git diff --check` 通过，仅有 Windows LF/CRLF 转换提示。
 - 遗留问题：本轮误执行的完整前端视觉套件中仍有既有主板行情同步 completed/partial 截图基线差异，未扩大范围修复；未执行 commit/push、真实 provider 请求或真实业务数据写入。
 
+### 2026-09-14 修复 Windows 保留端口导致统一启动失败
+
+- 完成内容：统一启动器启动前探测后端 TCP 端口；默认 8000 不可绑定时自动切换到 8091，显式设置 `STRATGAUGE_BACKEND_PORT` 时使用指定端口；后端 Uvicorn 增加明确的 host/port 参数，前端 Vite 代理读取同一环境变量，避免后端回退后 API 仍指向 8000。
+- 修改文件：`start.py`、`backend/tests/test_start_launcher.py`、`frontend/vite.config.ts`，并同步启动说明、当前状态和踩坑记录。
+- 实际验证：`cd backend; uv run python -m unittest tests.test_start_launcher -v`（6 项通过）；`uv run ruff check ../start.py tests/test_start_launcher.py`、`uv run ruff format --check ../start.py tests/test_start_launcher.py`、`uv run mypy ../start.py tests/test_start_launcher.py` 均通过；`cd frontend; corepack pnpm typecheck` 通过，`corepack pnpm lint` 0 error、19 条既有 warning；Windows 实际启动中后端 `/healthz` 和前端 `http://localhost:5173/` 均返回 200，退出后 8091/5173 无监听残留。
+- 遗留问题：未执行完整后端测试、前端 build 或 commit/push；端口保留段的具体系统组件未进一步拆分确认。
+
 ### 2026-09-13 统一同日同股跨策略人工评审状态
 
 - 完成内容：修正工作台读取投影；不同策略在同一选股日期命中同一标准化证券时，共享该 `(symbol, selection_date)` 评审组的最新人工判断、状态和观察起点，避免策略信号列表出现“未判断”而观察池显示已判断。候选自身 `annotations/latest_annotation` 与评审组 `review_annotations/latest_review_annotation` 分开返回，并通过 `review_group_key`、`review_source_candidate_id` 明确评审组和来源；评审组仅取 `as_of` 可见记录并按 `(recorded_at, annotation_id)` 最大值裁决冲突；观察池复评摘要按评审组去重。原始策略信号行、候选级 annotation 写入、交易、排除和客观结果边界保持不变；不同选股日期仍独立。

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import sys
 import threading
 import unittest
@@ -90,11 +91,22 @@ class StartLauncherTests(unittest.TestCase):
                 "--reload",
                 "--app-dir",
                 "src",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8000",
             ),
         )
         self.assertEqual(frontend.name, "frontend")
         self.assertEqual(frontend.working_directory, ROOT / "frontend")
         self.assertEqual(frontend.command, ("corepack.cmd", "pnpm", "dev"))
+
+    def test_backend_port_falls_back_when_default_is_unavailable(self) -> None:
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(start, "_is_port_available", side_effect=[False, True]),
+        ):
+            self.assertEqual(start.resolve_backend_port(), start.FALLBACK_BACKEND_PORT)
 
     def test_output_is_prefixed_by_service_name(self) -> None:
         output = io.StringIO()

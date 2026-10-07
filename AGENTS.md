@@ -70,6 +70,28 @@
 - 至少运行与改动直接相关的测试、类型检查或构建命令。
 - 只记录实际执行的验证及真实结果，不把未执行检查描述为通过。
 
+<!-- pi-init:managed:start fast-path-wrap-up -->
+## Fast Path 收尾优先级
+
+满足全局 `AGENTS.md` 定义的全部 Fast Path 条件时，本节优先于下方通用会话收尾规则。
+
+- 只修改明确目标及保持仓库一致性所必需的直接关联内容；
+- 不创建 `task_workflow` 或额外书面计划；
+- 不为判断是否需要留痕而预读或更新 `docs/current-state.md`、`docs/decisions.md`、`docs/session-log.md` 和 `docs/pitfalls.md`；
+- 不默认运行 test、typecheck、lint、formatter、build 或 dev server，只进行必要的静态核对；
+- 不因规划或例行留痕额外切换角色，但职责路由、上下文恢复门和 architect 禁止执行的边界仍然有效。
+
+若目标文件本身就是文档或项目记录，可以定向读取和修改该目标，不因此退出 Fast Path。
+
+出现以下任一情况时退出 Fast Path：
+
+- 修改 API、数据结构、依赖、架构、业务规则、权限、路由、交互或无障碍语义；
+- 产生后续开发需要依赖的新事实、重要决策、遗留问题、关键验证结果或可复发陷阱；
+- 修改范围不再局部、低风险或可逆。
+
+用户明确要求测试、构建、更新其他文档或执行 Git 收尾时，只增加对应动作，并继续遵循相应职责规则。
+<!-- pi-init:managed:end fast-path-wrap-up -->
+
 ## 会话收尾
 
 完成任务后：

@@ -3499,7 +3499,7 @@
 
   .workbench-table--signals .workbench-table-header,
   .workbench-table--signals .workbench-table-row {
-    grid-template-columns: minmax(130px, 1.25fr) minmax(120px, 1fr) minmax(105px, 0.9fr) minmax(90px, 0.75fr) minmax(100px, 0.9fr) minmax(120px, 0.9fr) minmax(72px, 0.45fr);
+    grid-template-columns: minmax(130px, 1.25fr) minmax(120px, 1fr) minmax(105px, 0.9fr) minmax(90px, 0.75fr) minmax(100px, 0.9fr) minmax(120px, 0.9fr) 72px;
     min-width: 900px;
   }
 
@@ -3515,9 +3515,25 @@
     z-index: 0;
   }
 
+  .workbench-table--signals .workbench-table-row-content {
+    grid-column: 1 / -2;
+  }
+
   .workbench-table--watchlist .workbench-table-row-content {
     grid-column: 1 / -1;
     grid-template-columns: minmax(130px, 1.25fr) minmax(120px, 1fr) minmax(105px, 0.9fr) minmax(90px, 0.75fr) minmax(160px, 1.2fr) minmax(100px, 0.9fr) minmax(120px, 0.9fr);
+  }
+
+  .workbench-table-row-action {
+    align-items: center;
+    display: flex;
+    grid-column: -1;
+    height: 100%;
+    justify-content: center;
+    min-width: 72px;
+    position: relative;
+    width: 72px;
+    z-index: 2;
   }
 
   .workbench-table-row-main {
@@ -3541,8 +3557,6 @@
     flex-direction: column;
     font-size: 0.68rem;
     gap: 2px;
-    grid-column: -1;
-    justify-self: center;
     min-height: 34px;
     min-width: 52px;
     padding: 4px 6px;
@@ -5504,6 +5518,7 @@
 
   .market-change {
     font-variant-numeric: tabular-nums;
+    font-weight: 900;
   }
 
   .market-sync-success,
