@@ -1,0 +1,18 @@
+{
+  "snapshot_id": "snapshot-b4a9f7768affb4023026",
+  "provider": "tushare",
+  "adapter_version": "0.2",
+  "start_date": "2026-09-14",
+  "end_date": "2026-09-14",
+  "row_count": 3185,
+  "content_sha256": "b4a9f7768affb4023026278bceeb88617c7783b669028262b5d7beab943f5436",
+  "raw_path": "raw\\snapshot-b4a9f7768affb4023026.json",
+  "normalized_path": "normalized\\snapshot-b4a9f7768affb4023026.parquet",
+  "status": "approved",
+  "quality_run_id": "quality-e6cdc2068f14351ab4ad",
+  "created_at": "2026-09-14T11:55:59.092626Z",
+  "request_kind": "market_daily",
+  "universe_snapshot_id": "universe-d8b8d8f30a3f50c43fd9",
+  "source_daily_snapshot_id": null,
+  "request_sha256": "3366474a6775d8da6a528aa009661c0b9ce15f80f971f164bd1654a4c2797d7f"
+}

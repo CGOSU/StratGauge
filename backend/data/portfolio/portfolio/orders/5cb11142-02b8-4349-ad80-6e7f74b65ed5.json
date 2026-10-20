@@ -1,0 +1,22 @@
+{
+  "order_id": "5cb11142-02b8-4349-ad80-6e7f74b65ed5",
+  "security": {
+    "security_id": "portfolio-600583.SH",
+    "local_code": "600583",
+    "symbol": "600583.SH",
+    "exchange": "SH",
+    "name": "海油工程",
+    "listed_at": null,
+    "listed": true,
+    "delisted_at": null
+  },
+  "side": "buy",
+  "ordered_at": "2026-08-24T09:30:00+08:00",
+  "quantity": "100",
+  "limit_price": null,
+  "strategy_version_id": null,
+  "recommendation_id": null,
+  "selection_candidate_id": "tdx-c6cd9d5f5572db6e5ec9:600583.SH",
+  "sell_reason": null,
+  "note": null
+}

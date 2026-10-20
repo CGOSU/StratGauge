@@ -1,0 +1,23 @@
+{
+  "order_id": "763bd124-762c-471e-af71-7ac809e90f74",
+  "security": {
+    "security_id": "portfolio-002298.SZ",
+    "local_code": "002298",
+    "symbol": "002298.SZ",
+    "exchange": "SZ",
+    "name": "中电鑫龙",
+    "listed_at": null,
+    "listed": true,
+    "delisted_at": null
+  },
+  "side": "sell",
+  "ordered_at": "2026-09-08T10:58:00+08:00",
+  "quantity": "100",
+  "limit_price": null,
+  "strategy_version_id": null,
+  "recommendation_id": null,
+  "selection_candidate_id": null,
+  "tracking_case_id": "manual-tracking-case-d2f7192ab5470919d653",
+  "sell_reason": "trend_weakened",
+  "note": null
+}

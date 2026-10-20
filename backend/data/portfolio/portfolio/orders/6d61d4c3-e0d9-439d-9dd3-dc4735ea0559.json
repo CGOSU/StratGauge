@@ -1,0 +1,22 @@
+{
+  "order_id": "6d61d4c3-e0d9-439d-9dd3-dc4735ea0559",
+  "security": {
+    "security_id": "portfolio-002365.SZ",
+    "local_code": "002365",
+    "symbol": "002365.SZ",
+    "exchange": "SZ",
+    "name": "永安药业",
+    "listed_at": null,
+    "listed": true,
+    "delisted_at": null
+  },
+  "side": "buy",
+  "ordered_at": "2026-08-19T12:00:19.789000Z",
+  "quantity": "100",
+  "limit_price": null,
+  "strategy_version_id": null,
+  "recommendation_id": null,
+  "selection_candidate_id": null,
+  "sell_reason": null,
+  "note": null
+}

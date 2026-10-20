@@ -1,0 +1,14 @@
+{
+  "snapshot_id": "calendar-reference-baostock-5190cea18e7a15f118b1",
+  "provider": "baostock",
+  "endpoint": "query_trade_dates",
+  "request": {
+    "end_date": "2026-08-11",
+    "exchange": "SSE",
+    "is_open": "1",
+    "start_date": "2024-01-01"
+  },
+  "content_sha256": "5190cea18e7a15f118b1aa8cf75fee02d18ed4e9dbf08d81d86ea5348049423a",
+  "raw_path": "calendar/reference/raw/baostock/5190cea18e7a15f118b1aa8cf75fee02d18ed4e9dbf08d81d86ea5348049423a.json",
+  "created_at": "2026-08-11T01:09:07.159439Z"
+}

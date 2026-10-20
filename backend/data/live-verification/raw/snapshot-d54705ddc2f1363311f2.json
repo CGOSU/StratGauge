@@ -1,0 +1,1 @@
+{"adapter_version":"0.1","provider":"tushare","records":[],"request":{"end_date":"2024-01-05","security":{"delisted_at":null,"exchange":"SZ","listed":true,"local_code":"000001","name":null,"security_id":"live-000001.SZ","symbol":"000001.SZ"},"start_date":"2024-01-02"}}

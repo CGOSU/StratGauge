@@ -1,0 +1,24 @@
+{
+  "annotation_id": "annotation-951086cd3e6e9ae5ed3a",
+  "candidate_id": "manual-7c0f5d7129d4b69d2fda:603161.SH",
+  "reviewed_at": "2026-08-17T14:50:12.037000Z",
+  "recorded_at": "2026-08-17T14:50:12.060472Z",
+  "overall_score": 5,
+  "outlook": "bullish",
+  "decision": "prepare_buy",
+  "position_tags": [
+    "support"
+  ],
+  "pattern_tags": [
+    "breakout"
+  ],
+  "price_volume_tags": [
+    "volume_pullback"
+  ],
+  "sector_tags": [
+    "sector_weak"
+  ],
+  "reusable_tag_snapshots": [],
+  "taxonomy_version": "selection-annotation-taxonomy-v1",
+  "note": "75%的筹码逐渐变少，90%的筹码集中度基本没变说明散户已经走了很多"
+}

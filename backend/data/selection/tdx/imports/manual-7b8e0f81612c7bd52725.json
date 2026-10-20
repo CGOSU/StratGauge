@@ -1,0 +1,27 @@
+{
+  "batch": {
+    "batch_id": "manual-7b8e0f81612c7bd52725",
+    "source": "manual",
+    "source_filename": "manual-2026-08-18.json",
+    "formula_id": "formula-c6971d6d4d9f17a453bb",
+    "selection_date": "2026-08-18",
+    "exported_at": "2026-08-18T20:18:00+08:00",
+    "imported_at": "2026-08-18T12:19:05.897940Z",
+    "formula_name": "十字星",
+    "formula_version": null,
+    "formula_sha256": null,
+    "source_file_sha256": "7b8e0f81612c7bd52725cd959399d40ba21a566cf5428dd936c54c3cd5c8c285",
+    "candidate_count": 1
+  },
+  "candidates": [
+    {
+      "candidate_id": "manual-7b8e0f81612c7bd52725:002479.SZ",
+      "batch_id": "manual-7b8e0f81612c7bd52725",
+      "local_code": "002479",
+      "symbol": "002479.SZ",
+      "exchange": "SZ",
+      "name": "富春环保",
+      "source_fields": {}
+    }
+  ]
+}

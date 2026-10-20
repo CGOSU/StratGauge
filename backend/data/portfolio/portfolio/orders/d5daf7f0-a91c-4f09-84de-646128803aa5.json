@@ -1,0 +1,23 @@
+{
+  "order_id": "d5daf7f0-a91c-4f09-84de-646128803aa5",
+  "security": {
+    "security_id": "portfolio-600435.SH",
+    "local_code": "600435",
+    "symbol": "600435.SH",
+    "exchange": "SH",
+    "name": "北方导航",
+    "listed_at": null,
+    "listed": true,
+    "delisted_at": null
+  },
+  "side": "buy",
+  "ordered_at": "2026-09-07T09:55:00+08:00",
+  "quantity": "100",
+  "limit_price": null,
+  "strategy_version_id": null,
+  "recommendation_id": null,
+  "selection_candidate_id": "tdx-81bb398309e9df228475:600435.SH",
+  "tracking_case_id": null,
+  "sell_reason": null,
+  "note": null
+}

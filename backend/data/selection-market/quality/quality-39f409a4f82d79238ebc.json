@@ -1,0 +1,16 @@
+{
+  "snapshot_id": "snapshot-5162c7b271e5ec56210f",
+  "checked_rows": 0,
+  "issues": [
+    {
+      "severity": "error",
+      "code": "MISSING_SECURITY",
+      "message": "预期证券没有返回日线。",
+      "symbol": null,
+      "session_date": null,
+      "details": {
+        "security_id": "selection-tdx-4c5433f66491a06c9a2b:001298.SZ"
+      }
+    }
+  ]
+}

@@ -7,11 +7,7 @@ __pycache__/
 
 backend/.venv/
 
-# Runtime data and generated artifacts
-data/
-artifacts/
-*.EBK
-/[0-9]*.txt
+# Business data, artifacts, and imported source files are tracked in Git.
 
 # Frontend dependencies and build output
 frontend/node_modules/
@@ -20,3 +16,4 @@ frontend/test-results/
 
 # Local agent skills (user-installed, not project code)
 .agents/
+.empryo

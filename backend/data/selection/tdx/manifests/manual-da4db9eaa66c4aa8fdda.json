@@ -1,0 +1,7 @@
+{
+  "batch_id": "manual-da4db9eaa66c4aa8fdda",
+  "source_file_sha256": "da4db9eaa66c4aa8fdda4c7ed200e0fa7eec6a91c52f87559863ce4db872b63e",
+  "candidate_count": 2,
+  "raw_path": "tdx\\raw\\da4db9eaa66c4aa8fdda4c7ed200e0fa7eec6a91c52f87559863ce4db872b63e.bin",
+  "import_path": "tdx\\imports\\manual-da4db9eaa66c4aa8fdda.json"
+}

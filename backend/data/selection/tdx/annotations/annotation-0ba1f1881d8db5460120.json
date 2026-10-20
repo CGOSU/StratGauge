@@ -1,0 +1,16 @@
+{
+  "annotation_id": "annotation-0ba1f1881d8db5460120",
+  "candidate_id": "tdx-8c32e05219ea97e2384b:002371.SZ",
+  "reviewed_at": "2026-09-21T16:20:33.699000Z",
+  "recorded_at": "2026-09-21T16:20:33.722305Z",
+  "overall_score": 3,
+  "outlook": "neutral",
+  "decision": "watch",
+  "position_tags": [],
+  "pattern_tags": [],
+  "price_volume_tags": [],
+  "sector_tags": [],
+  "reusable_tag_snapshots": [],
+  "taxonomy_version": "selection-annotation-taxonomy-v1",
+  "note": null
+}

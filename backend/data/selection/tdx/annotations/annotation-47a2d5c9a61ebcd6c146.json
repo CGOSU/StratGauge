@@ -1,0 +1,24 @@
+{
+  "annotation_id": "annotation-47a2d5c9a61ebcd6c146",
+  "candidate_id": "tdx-8f92a55dee40cecaf88c:000537.SZ",
+  "reviewed_at": "2026-09-14T13:25:14.611000Z",
+  "recorded_at": "2026-09-14T13:25:14.635849Z",
+  "overall_score": 4,
+  "outlook": "bullish",
+  "decision": "prepare_buy",
+  "position_tags": [
+    "support"
+  ],
+  "pattern_tags": [
+    "pullback"
+  ],
+  "price_volume_tags": [
+    "price_down_volume_down"
+  ],
+  "sector_tags": [
+    "stock_independent"
+  ],
+  "reusable_tag_snapshots": [],
+  "taxonomy_version": "selection-annotation-taxonomy-v1",
+  "note": null
+}

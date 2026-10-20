@@ -1,0 +1,24 @@
+{
+  "annotation_id": "annotation-eab1a5f6270c1e0c6d1f",
+  "candidate_id": "manual-da4db9eaa66c4aa8fdda:000695.SZ",
+  "reviewed_at": "2026-08-17T14:57:37.258000Z",
+  "recorded_at": "2026-08-17T14:57:37.281119Z",
+  "overall_score": 2,
+  "outlook": "bearish",
+  "decision": "watch",
+  "position_tags": [
+    "high"
+  ],
+  "pattern_tags": [
+    "pattern_break"
+  ],
+  "price_volume_tags": [
+    "price_down_volume_down"
+  ],
+  "sector_tags": [
+    "sector_weak"
+  ],
+  "reusable_tag_snapshots": [],
+  "taxonomy_version": "selection-annotation-taxonomy-v1",
+  "note": "织布机"
+}

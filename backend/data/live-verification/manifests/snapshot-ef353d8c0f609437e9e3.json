@@ -1,0 +1,14 @@
+{
+  "snapshot_id": "snapshot-ef353d8c0f609437e9e3",
+  "provider": "tushare",
+  "adapter_version": "0.2",
+  "start_date": "2024-01-02",
+  "end_date": "2024-01-05",
+  "row_count": 4,
+  "content_sha256": "ef353d8c0f609437e9e3846d187036beb4e2eb7c60a69c3612ff244af5922286",
+  "raw_path": "raw\\snapshot-ef353d8c0f609437e9e3.json",
+  "normalized_path": "normalized\\snapshot-ef353d8c0f609437e9e3.parquet",
+  "status": "approved",
+  "quality_run_id": "quality-8b418bf074875f34c0f6",
+  "created_at": "2026-08-10T13:14:41.527870Z"
+}

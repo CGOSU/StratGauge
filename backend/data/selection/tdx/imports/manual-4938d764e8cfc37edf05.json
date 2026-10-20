@@ -1,0 +1,45 @@
+{
+  "batch": {
+    "batch_id": "manual-4938d764e8cfc37edf05",
+    "source": "manual",
+    "source_filename": "manual-2026-08-14.json",
+    "formula_id": "formula-23de21ca454e53c782cd",
+    "selection_date": "2026-08-14",
+    "exported_at": "2026-08-14T15:39:00+08:00",
+    "imported_at": "2026-08-14T07:40:34.913699Z",
+    "formula_name": "三阳一阴（买入版）",
+    "formula_version": null,
+    "formula_sha256": null,
+    "source_file_sha256": "4938d764e8cfc37edf05829ff02cdda397edf00e44e46115069429461dd491c2",
+    "candidate_count": 3
+  },
+  "candidates": [
+    {
+      "candidate_id": "manual-4938d764e8cfc37edf05:000026.SZ",
+      "batch_id": "manual-4938d764e8cfc37edf05",
+      "local_code": "000026",
+      "symbol": "000026.SZ",
+      "exchange": "SZ",
+      "name": "飞亚达",
+      "source_fields": {}
+    },
+    {
+      "candidate_id": "manual-4938d764e8cfc37edf05:000700.SZ",
+      "batch_id": "manual-4938d764e8cfc37edf05",
+      "local_code": "000700",
+      "symbol": "000700.SZ",
+      "exchange": "SZ",
+      "name": "模塑科技",
+      "source_fields": {}
+    },
+    {
+      "candidate_id": "manual-4938d764e8cfc37edf05:603626.SH",
+      "batch_id": "manual-4938d764e8cfc37edf05",
+      "local_code": "603626",
+      "symbol": "603626.SH",
+      "exchange": "SH",
+      "name": "科森科技",
+      "source_fields": {}
+    }
+  ]
+}

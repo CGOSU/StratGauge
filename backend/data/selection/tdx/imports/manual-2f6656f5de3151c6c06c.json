@@ -1,0 +1,36 @@
+{
+  "batch": {
+    "batch_id": "manual-2f6656f5de3151c6c06c",
+    "source": "manual",
+    "source_filename": "manual-2026-08-20.json",
+    "formula_id": "formula-1e331f30f04de8b52638",
+    "selection_date": "2026-08-20",
+    "exported_at": "2026-08-20T21:55:00+08:00",
+    "imported_at": "2026-08-20T13:57:04.735674Z",
+    "formula_name": "缩量反弹",
+    "formula_version": null,
+    "formula_sha256": null,
+    "source_file_sha256": "2f6656f5de3151c6c06c9f1810d3b5d2dceabd2a8576771dff1a4729d056147b",
+    "candidate_count": 2
+  },
+  "candidates": [
+    {
+      "candidate_id": "manual-2f6656f5de3151c6c06c:600359.SH",
+      "batch_id": "manual-2f6656f5de3151c6c06c",
+      "local_code": "600359",
+      "symbol": "600359.SH",
+      "exchange": "SH",
+      "name": "新农开发",
+      "source_fields": {}
+    },
+    {
+      "candidate_id": "manual-2f6656f5de3151c6c06c:600198.SH",
+      "batch_id": "manual-2f6656f5de3151c6c06c",
+      "local_code": "600198",
+      "symbol": "600198.SH",
+      "exchange": "SH",
+      "name": "大唐电信",
+      "source_fields": {}
+    }
+  ]
+}

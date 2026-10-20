@@ -1,0 +1,23 @@
+{
+  "order_id": "8511a554-9a64-41d2-8e74-774962b3b97f",
+  "security": {
+    "security_id": "portfolio-002632.SZ",
+    "local_code": "002632",
+    "symbol": "002632.SZ",
+    "exchange": "SZ",
+    "name": "道明光学",
+    "listed_at": null,
+    "listed": true,
+    "delisted_at": null
+  },
+  "side": "buy",
+  "ordered_at": "2026-09-08T10:30:00+08:00",
+  "quantity": "100",
+  "limit_price": null,
+  "strategy_version_id": null,
+  "recommendation_id": null,
+  "selection_candidate_id": "tdx-316c62b7c111709acd98:002632.SZ",
+  "tracking_case_id": null,
+  "sell_reason": null,
+  "note": null
+}

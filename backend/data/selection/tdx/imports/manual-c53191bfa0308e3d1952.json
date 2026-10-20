@@ -1,0 +1,36 @@
+{
+  "batch": {
+    "batch_id": "manual-c53191bfa0308e3d1952",
+    "source": "manual",
+    "source_filename": "manual-2026-08-26.json",
+    "formula_id": "formula-c6971d6d4d9f17a453bb",
+    "selection_date": "2026-08-26",
+    "exported_at": "2026-08-26T19:31:00+08:00",
+    "imported_at": "2026-08-26T11:36:40.421462Z",
+    "formula_name": "十字星",
+    "formula_version": null,
+    "formula_sha256": null,
+    "source_file_sha256": "c53191bfa0308e3d19527b7baa07c44efc26366eb80e9ffd817567d759c75b7a",
+    "candidate_count": 2
+  },
+  "candidates": [
+    {
+      "candidate_id": "manual-c53191bfa0308e3d1952:600367.SH",
+      "batch_id": "manual-c53191bfa0308e3d1952",
+      "local_code": "600367",
+      "symbol": "600367.SH",
+      "exchange": "SH",
+      "name": "红星发展",
+      "source_fields": {}
+    },
+    {
+      "candidate_id": "manual-c53191bfa0308e3d1952:601088.SH",
+      "batch_id": "manual-c53191bfa0308e3d1952",
+      "local_code": "601088",
+      "symbol": "601088.SH",
+      "exchange": "SH",
+      "name": "中国神华",
+      "source_fields": {}
+    }
+  ]
+}

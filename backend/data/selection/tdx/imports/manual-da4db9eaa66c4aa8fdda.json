@@ -1,0 +1,36 @@
+{
+  "batch": {
+    "batch_id": "manual-da4db9eaa66c4aa8fdda",
+    "source": "manual",
+    "source_filename": "manual-2026-08-17.json",
+    "formula_id": "formula-23de21ca454e53c782cd",
+    "selection_date": "2026-08-17",
+    "exported_at": "2026-08-17T21:14:00+08:00",
+    "imported_at": "2026-08-17T13:15:03.637084Z",
+    "formula_name": "三阳一阴（买入版）",
+    "formula_version": null,
+    "formula_sha256": null,
+    "source_file_sha256": "da4db9eaa66c4aa8fdda4c7ed200e0fa7eec6a91c52f87559863ce4db872b63e",
+    "candidate_count": 2
+  },
+  "candidates": [
+    {
+      "candidate_id": "manual-da4db9eaa66c4aa8fdda:000695.SZ",
+      "batch_id": "manual-da4db9eaa66c4aa8fdda",
+      "local_code": "000695",
+      "symbol": "000695.SZ",
+      "exchange": "SZ",
+      "name": "滨海能源",
+      "source_fields": {}
+    },
+    {
+      "candidate_id": "manual-da4db9eaa66c4aa8fdda:000788.SZ",
+      "batch_id": "manual-da4db9eaa66c4aa8fdda",
+      "local_code": "000788",
+      "symbol": "000788.SZ",
+      "exchange": "SZ",
+      "name": "北大医药",
+      "source_fields": {}
+    }
+  ]
+}

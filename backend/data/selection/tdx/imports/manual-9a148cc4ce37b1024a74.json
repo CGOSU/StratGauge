@@ -1,0 +1,27 @@
+{
+  "batch": {
+    "batch_id": "manual-9a148cc4ce37b1024a74",
+    "source": "manual",
+    "source_filename": "manual-2026-08-24.json",
+    "formula_id": "formula-c6971d6d4d9f17a453bb",
+    "selection_date": "2026-08-24",
+    "exported_at": "2026-08-24T21:31:00+08:00",
+    "imported_at": "2026-08-24T13:31:55.172984Z",
+    "formula_name": "十字星",
+    "formula_version": null,
+    "formula_sha256": null,
+    "source_file_sha256": "9a148cc4ce37b1024a74b83b8c02ec25a08a928394ac1b851a26f8a590bc71ff",
+    "candidate_count": 1
+  },
+  "candidates": [
+    {
+      "candidate_id": "manual-9a148cc4ce37b1024a74:603038.SH",
+      "batch_id": "manual-9a148cc4ce37b1024a74",
+      "local_code": "603038",
+      "symbol": "603038.SH",
+      "exchange": "SH",
+      "name": "华立股份",
+      "source_fields": {}
+    }
+  ]
+}

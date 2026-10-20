@@ -1,0 +1,18 @@
+{
+  "snapshot_id": "snapshot-e6e0c2605935dc48f47c",
+  "provider": "tushare",
+  "adapter_version": "0.2",
+  "start_date": "2026-08-11",
+  "end_date": "2026-08-25",
+  "row_count": 1,
+  "content_sha256": "e6e0c2605935dc48f47c16834b973a7941f71cc8b693607600bff22d7e8991ad",
+  "raw_path": "raw\\snapshot-e6e0c2605935dc48f47c.json",
+  "normalized_path": "normalized\\snapshot-e6e0c2605935dc48f47c.parquet",
+  "status": "approved",
+  "quality_run_id": "quality-2560968da04024da8278",
+  "created_at": "2026-08-11T11:48:09.925111Z",
+  "request_kind": "security_daily",
+  "universe_snapshot_id": null,
+  "source_daily_snapshot_id": null,
+  "request_sha256": "60b36cf089cf46e06750b5fd17311a7b82e2e1469f0c73ae4f65709833812e07"
+}

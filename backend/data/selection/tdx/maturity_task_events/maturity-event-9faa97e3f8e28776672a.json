@@ -1,0 +1,14 @@
+{
+  "event_id": "maturity-event-9faa97e3f8e28776672a",
+  "task_id": "maturity-task-86ae37e165dcfb331fbd",
+  "event_type": "running",
+  "occurred_at": "2026-08-11T11:48:58.375680Z",
+  "attempt_count": 1,
+  "status": "running",
+  "outcomes_written": 0,
+  "rejected_candidates": [],
+  "market_snapshot_ids": [],
+  "failure_reason": null,
+  "retryable": false,
+  "reason": "attempt_started"
+}

@@ -1,0 +1,8 @@
+# Preserve exact bytes of runtime data and content-addressed source files.
+**/data/** -text
+**/artifacts/** -text
+*.EBK -text
+/[0-9]*.txt -text
+/.gitattributes text eol=lf
+/.gitignore text
+backend/data/selection/tdx/raw/** -diff

@@ -1,0 +1,18 @@
+{
+  "snapshot_id": "snapshot-0f420c27e2fcdd2868e2",
+  "provider": "tushare",
+  "adapter_version": "0.1",
+  "start_date": "2026-08-27",
+  "end_date": "2026-08-27",
+  "row_count": 3193,
+  "content_sha256": "0f420c27e2fcdd2868e2d49390b1709eac92d9d3f617de9bf6c285c094bc9dd9",
+  "raw_path": "raw\\snapshot-0f420c27e2fcdd2868e2.json",
+  "normalized_path": "normalized\\snapshot-0f420c27e2fcdd2868e2.parquet",
+  "status": "approved",
+  "quality_run_id": "quality-4e7a6994ba6577b93458",
+  "created_at": "2026-08-27T11:10:36.160933Z",
+  "request_kind": "adjustment_factor",
+  "universe_snapshot_id": "universe-d8b8d8f30a3f50c43fd9",
+  "source_daily_snapshot_id": "snapshot-817c2da841b2d8da33ca",
+  "request_sha256": "2422c1baa2c7f48a65d20bc435ac140a436902ca1ad625348c0b3328dd7fc13a"
+}

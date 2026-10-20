@@ -1,0 +1,36 @@
+{
+  "batch": {
+    "batch_id": "manual-95f5e335651d4a7c7cbb",
+    "source": "manual",
+    "source_filename": "manual-2026-08-20.json",
+    "formula_id": "formula-1e331f30f04de8b52638",
+    "selection_date": "2026-08-20",
+    "exported_at": "2026-08-20T21:55:00+08:00",
+    "imported_at": "2026-08-20T13:59:49.903369Z",
+    "formula_name": "缩量反弹",
+    "formula_version": null,
+    "formula_sha256": null,
+    "source_file_sha256": "95f5e335651d4a7c7cbbb00eb7732787b955ab4f6a9b59ad161f2c2f100e202d",
+    "candidate_count": 2
+  },
+  "candidates": [
+    {
+      "candidate_id": "manual-95f5e335651d4a7c7cbb:601952.SH",
+      "batch_id": "manual-95f5e335651d4a7c7cbb",
+      "local_code": "601952",
+      "symbol": "601952.SH",
+      "exchange": "SH",
+      "name": "苏垦农发",
+      "source_fields": {}
+    },
+    {
+      "candidate_id": "manual-95f5e335651d4a7c7cbb:603326.SH",
+      "batch_id": "manual-95f5e335651d4a7c7cbb",
+      "local_code": "603326",
+      "symbol": "603326.SH",
+      "exchange": "SH",
+      "name": "我乐我家",
+      "source_fields": {}
+    }
+  ]
+}

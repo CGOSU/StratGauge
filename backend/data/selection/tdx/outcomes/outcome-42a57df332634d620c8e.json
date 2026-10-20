@@ -1,0 +1,23 @@
+{
+  "candidate_id": "tdx-caf8d55f2052d6ce0fc3:603183.SH",
+  "batch_id": "tdx-caf8d55f2052d6ce0fc3",
+  "selection_date": "2026-08-10",
+  "status": "unresolved",
+  "evaluated_at": "2026-08-25T19:32:00+08:00",
+  "horizon_sessions": 5,
+  "entry_session": "2026-08-11",
+  "exit_session": null,
+  "entry_price": "4.64",
+  "exit_price": null,
+  "gross_return": null,
+  "net_return": null,
+  "reason": "insufficient_horizon_data",
+  "tracking_policy_id": "selection-policy-36c8ab89d6d741804339",
+  "outcome_policy_id": "outcome-fixed-fbc390fe8380fe793148",
+  "cost_schedule_id": "a-share-main-board-cost-v1",
+  "position_notional": "10000",
+  "source_snapshot_ids": [
+    "snapshot-f419586178b57608396a"
+  ],
+  "maturity_task_id": "maturity-task-6b3384d9dd1c637bf678"
+}

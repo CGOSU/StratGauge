@@ -1,0 +1,24 @@
+{
+  "annotation_id": "annotation-7dc073e7013b090aed41",
+  "candidate_id": "tdx-7d4667ed3aec8d0b1c28:603051.SH",
+  "reviewed_at": "2026-09-17T16:29:25.782000Z",
+  "recorded_at": "2026-09-17T16:29:25.857047Z",
+  "overall_score": 4,
+  "outlook": "bullish",
+  "decision": "watch",
+  "position_tags": [
+    "new_high"
+  ],
+  "pattern_tags": [
+    "breakout"
+  ],
+  "price_volume_tags": [
+    "price_up_volume_down"
+  ],
+  "sector_tags": [
+    "stock_independent"
+  ],
+  "reusable_tag_snapshots": [],
+  "taxonomy_version": "selection-annotation-taxonomy-v1",
+  "note": null
+}

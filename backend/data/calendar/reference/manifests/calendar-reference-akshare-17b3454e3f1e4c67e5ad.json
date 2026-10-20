@@ -1,0 +1,14 @@
+{
+  "snapshot_id": "calendar-reference-akshare-17b3454e3f1e4c67e5ad",
+  "provider": "akshare",
+  "endpoint": "tool_trade_date_hist_sina",
+  "request": {
+    "end_date": "2026-08-11",
+    "exchange": "SSE",
+    "is_open": "1",
+    "start_date": "2024-01-01"
+  },
+  "content_sha256": "17b3454e3f1e4c67e5adeedd1761bfbd5520af22dda51254f49d8aff01a19bbd",
+  "raw_path": "calendar/reference/raw/akshare/17b3454e3f1e4c67e5adeedd1761bfbd5520af22dda51254f49d8aff01a19bbd.json",
+  "created_at": "2026-08-11T01:09:07.159439Z"
+}

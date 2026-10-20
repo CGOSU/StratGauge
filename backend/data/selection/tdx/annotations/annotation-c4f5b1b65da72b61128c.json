@@ -1,0 +1,24 @@
+{
+  "annotation_id": "annotation-c4f5b1b65da72b61128c",
+  "candidate_id": "manual-95f5e335651d4a7c7cbb:601952.SH",
+  "reviewed_at": "2026-08-20T14:06:02.185000Z",
+  "recorded_at": "2026-08-20T14:06:02.215099Z",
+  "overall_score": 4,
+  "outlook": "bullish",
+  "decision": "watch",
+  "position_tags": [
+    "resistance"
+  ],
+  "pattern_tags": [
+    "pullback"
+  ],
+  "price_volume_tags": [
+    "price_up_volume_up"
+  ],
+  "sector_tags": [
+    "sector_weak"
+  ],
+  "reusable_tag_snapshots": [],
+  "taxonomy_version": "selection-annotation-taxonomy-v1",
+  "note": "8.5左右"
+}

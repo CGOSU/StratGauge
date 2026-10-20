@@ -1,0 +1,45 @@
+{
+  "batch": {
+    "batch_id": "manual-7c0f5d7129d4b69d2fda",
+    "source": "manual",
+    "source_filename": "manual-2026-08-17.json",
+    "formula_id": "formula-c6971d6d4d9f17a453bb",
+    "selection_date": "2026-08-17",
+    "exported_at": "2026-08-17T21:19:00+08:00",
+    "imported_at": "2026-08-17T13:21:11.206187Z",
+    "formula_name": "十字星",
+    "formula_version": null,
+    "formula_sha256": null,
+    "source_file_sha256": "7c0f5d7129d4b69d2fda67ff83aae917294a5ee6f26e36f307aabe634d40b35d",
+    "candidate_count": 3
+  },
+  "candidates": [
+    {
+      "candidate_id": "manual-7c0f5d7129d4b69d2fda:600267.SH",
+      "batch_id": "manual-7c0f5d7129d4b69d2fda",
+      "local_code": "600267",
+      "symbol": "600267.SH",
+      "exchange": "SH",
+      "name": "海正药业",
+      "source_fields": {}
+    },
+    {
+      "candidate_id": "manual-7c0f5d7129d4b69d2fda:600333.SH",
+      "batch_id": "manual-7c0f5d7129d4b69d2fda",
+      "local_code": "600333",
+      "symbol": "600333.SH",
+      "exchange": "SH",
+      "name": "长春燃气",
+      "source_fields": {}
+    },
+    {
+      "candidate_id": "manual-7c0f5d7129d4b69d2fda:603161.SH",
+      "batch_id": "manual-7c0f5d7129d4b69d2fda",
+      "local_code": "603161",
+      "symbol": "603161.SH",
+      "exchange": "SH",
+      "name": "科华控股",
+      "source_fields": {}
+    }
+  ]
+}

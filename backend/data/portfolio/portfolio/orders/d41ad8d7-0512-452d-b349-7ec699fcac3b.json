@@ -1,0 +1,23 @@
+{
+  "order_id": "d41ad8d7-0512-452d-b349-7ec699fcac3b",
+  "security": {
+    "security_id": "portfolio-605277.SH",
+    "local_code": "605277",
+    "symbol": "605277.SH",
+    "exchange": "SH",
+    "name": "新亚电子",
+    "listed_at": null,
+    "listed": true,
+    "delisted_at": null
+  },
+  "side": "buy",
+  "ordered_at": "2026-09-01T10:48:00+08:00",
+  "quantity": "100",
+  "limit_price": null,
+  "strategy_version_id": null,
+  "recommendation_id": null,
+  "selection_candidate_id": "tdx-fb93abc88fcf361e7d59:605277.SH",
+  "tracking_case_id": null,
+  "sell_reason": null,
+  "note": null
+}

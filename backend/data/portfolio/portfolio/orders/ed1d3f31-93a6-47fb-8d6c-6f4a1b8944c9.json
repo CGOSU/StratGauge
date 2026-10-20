@@ -1,0 +1,22 @@
+{
+  "order_id": "ed1d3f31-93a6-47fb-8d6c-6f4a1b8944c9",
+  "security": {
+    "security_id": "portfolio-600698.SH",
+    "local_code": "600698",
+    "symbol": "600698.SH",
+    "exchange": "SH",
+    "name": "湖南天雁",
+    "listed_at": null,
+    "listed": true,
+    "delisted_at": null
+  },
+  "side": "buy",
+  "ordered_at": "2026-08-14T09:36:00+08:00",
+  "quantity": "100",
+  "limit_price": null,
+  "strategy_version_id": null,
+  "recommendation_id": null,
+  "selection_candidate_id": "manual-c8cd7022b3cd1833433c:600698.SH",
+  "sell_reason": null,
+  "note": null
+}

@@ -1,0 +1,36 @@
+{
+  "batch": {
+    "batch_id": "manual-c8cd7022b3cd1833433c",
+    "source": "manual",
+    "source_filename": "manual-2026-08-13.json",
+    "formula_id": "formula-23de21ca454e53c782cd",
+    "selection_date": "2026-08-13",
+    "exported_at": "2026-08-13T21:16:00+08:00",
+    "imported_at": "2026-08-13T13:20:59.110229Z",
+    "formula_name": "三阳一阴（买入版）",
+    "formula_version": null,
+    "formula_sha256": null,
+    "source_file_sha256": "c8cd7022b3cd1833433c67fba0b21b095b5c7b42e52eb88a5517771361b8e539",
+    "candidate_count": 2
+  },
+  "candidates": [
+    {
+      "candidate_id": "manual-c8cd7022b3cd1833433c:002508.SZ",
+      "batch_id": "manual-c8cd7022b3cd1833433c",
+      "local_code": "002508",
+      "symbol": "002508.SZ",
+      "exchange": "SZ",
+      "name": "老板电器",
+      "source_fields": {}
+    },
+    {
+      "candidate_id": "manual-c8cd7022b3cd1833433c:600698.SH",
+      "batch_id": "manual-c8cd7022b3cd1833433c",
+      "local_code": "600698",
+      "symbol": "600698.SH",
+      "exchange": "SH",
+      "name": "湖南天雁",
+      "source_fields": {}
+    }
+  ]
+}

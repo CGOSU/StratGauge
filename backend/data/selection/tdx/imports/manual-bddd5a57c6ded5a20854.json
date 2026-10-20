@@ -1,0 +1,36 @@
+{
+  "batch": {
+    "batch_id": "manual-bddd5a57c6ded5a20854",
+    "source": "manual",
+    "source_filename": "manual-2026-08-19.json",
+    "formula_id": "formula-c6971d6d4d9f17a453bb",
+    "selection_date": "2026-08-19",
+    "exported_at": "2026-08-19T22:03:00+08:00",
+    "imported_at": "2026-08-19T14:03:28.235832Z",
+    "formula_name": "十字星",
+    "formula_version": null,
+    "formula_sha256": null,
+    "source_file_sha256": "bddd5a57c6ded5a208549be3534a7651f04d3d75bf079b62289bb1ca7b5d4c46",
+    "candidate_count": 2
+  },
+  "candidates": [
+    {
+      "candidate_id": "manual-bddd5a57c6ded5a20854:601665.SH",
+      "batch_id": "manual-bddd5a57c6ded5a20854",
+      "local_code": "601665",
+      "symbol": "601665.SH",
+      "exchange": "SH",
+      "name": "齐鲁银行",
+      "source_fields": {}
+    },
+    {
+      "candidate_id": "manual-bddd5a57c6ded5a20854:600926.SH",
+      "batch_id": "manual-bddd5a57c6ded5a20854",
+      "local_code": "600926",
+      "symbol": "600926.SH",
+      "exchange": "SH",
+      "name": "杭州银行",
+      "source_fields": {}
+    }
+  ]
+}

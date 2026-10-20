@@ -1,0 +1,24 @@
+{
+  "annotation_id": "annotation-86a7b501ffca262019e4",
+  "candidate_id": "tdx-6168511c26dbe2f52382:600222.SH",
+  "reviewed_at": "2026-09-03T15:08:49.494000Z",
+  "recorded_at": "2026-09-03T15:08:49.516829Z",
+  "overall_score": 4,
+  "outlook": "bullish",
+  "decision": "watch",
+  "position_tags": [
+    "resistance"
+  ],
+  "pattern_tags": [
+    "trend_continuation"
+  ],
+  "price_volume_tags": [
+    "price_up_volume_up"
+  ],
+  "sector_tags": [
+    "sector_following"
+  ],
+  "reusable_tag_snapshots": [],
+  "taxonomy_version": "selection-annotation-taxonomy-v1",
+  "note": null
+}

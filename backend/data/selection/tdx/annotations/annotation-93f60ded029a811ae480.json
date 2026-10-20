@@ -1,0 +1,24 @@
+{
+  "annotation_id": "annotation-93f60ded029a811ae480",
+  "candidate_id": "manual-c8cd7022b3cd1833433c:002508.SZ",
+  "reviewed_at": "2026-08-14T09:37:37.698000Z",
+  "recorded_at": "2026-08-14T09:37:38.005082Z",
+  "overall_score": 4,
+  "outlook": "bullish",
+  "decision": "prepare_buy",
+  "position_tags": [
+    "support"
+  ],
+  "pattern_tags": [
+    "consolidation"
+  ],
+  "price_volume_tags": [
+    "volume_pullback"
+  ],
+  "sector_tags": [
+    "sector_following"
+  ],
+  "reusable_tag_snapshots": [],
+  "taxonomy_version": "selection-annotation-taxonomy-v1",
+  "note": "相对于跌幅，缩量更小"
+}

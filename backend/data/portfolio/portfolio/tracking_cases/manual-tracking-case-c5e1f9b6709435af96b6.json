@@ -1,0 +1,23 @@
+{
+  "tracking_case_id": "manual-tracking-case-c5e1f9b6709435af96b6",
+  "tracking_policy_id": "manual-position-tracking-v1",
+  "security": {
+    "security_id": "portfolio-002365.SZ",
+    "local_code": "002365",
+    "symbol": "002365.SZ",
+    "exchange": "SZ",
+    "name": "永安药业",
+    "listed_at": null,
+    "listed": true,
+    "delisted_at": null
+  },
+  "tracking_started_at": "2026-09-01T14:24:59.600246Z",
+  "created_at": "2026-09-01T14:24:59.602778Z",
+  "origin": "historical_enrollment",
+  "source_order_ids": [
+    "6d61d4c3-e0d9-439d-9dd3-dc4735ea0559"
+  ],
+  "source_fill_ids": [
+    "34cfbcd7-d15e-41b3-b863-f50f9e1a0b7a"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "batch": {
+    "batch_id": "manual-f5f7a41c6f9f353fd0f9",
+    "source": "manual",
+    "source_filename": "manual-2026-08-25.json",
+    "formula_id": "formula-1e331f30f04de8b52638",
+    "selection_date": "2026-08-25",
+    "exported_at": "2026-08-25T19:23:00+08:00",
+    "imported_at": "2026-08-25T11:24:02.084777Z",
+    "formula_name": "缩量反弹",
+    "formula_version": null,
+    "formula_sha256": null,
+    "source_file_sha256": "f5f7a41c6f9f353fd0f916ca7338e72d767a5502313b06ceb0ee64003d43157d",
+    "candidate_count": 2
+  },
+  "candidates": [
+    {
+      "candidate_id": "manual-f5f7a41c6f9f353fd0f9:000926.SZ",
+      "batch_id": "manual-f5f7a41c6f9f353fd0f9",
+      "local_code": "000926",
+      "symbol": "000926.SZ",
+      "exchange": "SZ",
+      "name": "福星股份",
+      "source_fields": {}
+    },
+    {
+      "candidate_id": "manual-f5f7a41c6f9f353fd0f9:002743.SZ",
+      "batch_id": "manual-f5f7a41c6f9f353fd0f9",
+      "local_code": "002743",
+      "symbol": "002743.SZ",
+      "exchange": "SZ",
+      "name": "富煌钢构",
+      "source_fields": {}
+    }
+  ]
+}

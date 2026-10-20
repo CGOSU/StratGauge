@@ -1,0 +1,7 @@
+{
+  "batch_id": "tdx-9b49a73bbf45a108cd09",
+  "source_file_sha256": "027c6983fd07b71b48ae179a56cbf36b7fc269471512cdfd37e2c58d24514e44",
+  "candidate_count": 2,
+  "raw_path": "tdx\\raw\\027c6983fd07b71b48ae179a56cbf36b7fc269471512cdfd37e2c58d24514e44.bin",
+  "import_path": "tdx\\imports\\tdx-9b49a73bbf45a108cd09.json"
+}

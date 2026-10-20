@@ -1,0 +1,35 @@
+{
+  "event_id": "maturity-event-20cc163d2bcae83232c7",
+  "task_id": "maturity-task-86ae37e165dcfb331fbd",
+  "event_type": "attempt_result",
+  "occurred_at": "2026-08-11T11:48:58.375680Z",
+  "attempt_count": 1,
+  "status": "failed",
+  "outcomes_written": 0,
+  "rejected_candidates": [
+    [
+      "tdx-4c5433f66491a06c9a2b:002773.SZ",
+      "market_snapshot_quality_rejected"
+    ],
+    [
+      "tdx-4c5433f66491a06c9a2b:001298.SZ",
+      "market_snapshot_quality_rejected"
+    ],
+    [
+      "tdx-4c5433f66491a06c9a2b:002021.SZ",
+      "market_snapshot_quality_rejected"
+    ],
+    [
+      "tdx-4c5433f66491a06c9a2b:603061.SH",
+      "market_snapshot_quality_rejected"
+    ],
+    [
+      "tdx-4c5433f66491a06c9a2b:603819.SH",
+      "market_snapshot_quality_rejected"
+    ]
+  ],
+  "market_snapshot_ids": [],
+  "failure_reason": "market_snapshot_quality_rejected",
+  "retryable": false,
+  "reason": "attempt_finished"
+}

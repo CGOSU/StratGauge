@@ -1,0 +1,25 @@
+{
+  "annotation_id": "annotation-92d9c3334153c183f39f",
+  "candidate_id": "manual-c8cd7022b3cd1833433c:600698.SH",
+  "reviewed_at": "2026-08-13T13:25:33.995000Z",
+  "recorded_at": "2026-08-13T13:25:34.000141Z",
+  "overall_score": 5,
+  "outlook": "bullish",
+  "decision": "prepare_buy",
+  "position_tags": [
+    "low",
+    "support"
+  ],
+  "pattern_tags": [
+    "pullback"
+  ],
+  "price_volume_tags": [
+    "volume_pullback"
+  ],
+  "sector_tags": [
+    "sector_weak"
+  ],
+  "reusable_tag_snapshots": [],
+  "taxonomy_version": "selection-annotation-taxonomy-v1",
+  "note": "1，90%筹码集中度20%左右远大于70%筹码集中度的8.7%。\n2，最近一年有7次涨停"
+}

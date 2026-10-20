@@ -1,0 +1,23 @@
+{
+  "tracking_case_id": "manual-tracking-case-d2f7192ab5470919d653",
+  "tracking_policy_id": "manual-position-tracking-v1",
+  "security": {
+    "security_id": "portfolio-002298.SZ",
+    "local_code": "002298",
+    "symbol": "002298.SZ",
+    "exchange": "SZ",
+    "name": "中电鑫龙",
+    "listed_at": null,
+    "listed": true,
+    "delisted_at": null
+  },
+  "tracking_started_at": "2026-09-04T07:39:54.382000Z",
+  "created_at": "2026-09-04T07:39:54.389023Z",
+  "origin": "confirmed_trade",
+  "source_order_ids": [
+    "ddfa566e-64b1-437c-9c93-1d0c833317fa"
+  ],
+  "source_fill_ids": [
+    "5248078a-e75f-49c3-959b-f887485d88bd"
+  ]
+}

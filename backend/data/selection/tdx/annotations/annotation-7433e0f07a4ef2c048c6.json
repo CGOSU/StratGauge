@@ -1,0 +1,24 @@
+{
+  "annotation_id": "annotation-7433e0f07a4ef2c048c6",
+  "candidate_id": "tdx-0221520e528803d11528:601038.SH",
+  "reviewed_at": "2026-09-08T15:35:10.003000Z",
+  "recorded_at": "2026-09-08T15:35:10.026116Z",
+  "overall_score": 3,
+  "outlook": "neutral",
+  "decision": "watch",
+  "position_tags": [
+    "new_high"
+  ],
+  "pattern_tags": [
+    "trend_continuation"
+  ],
+  "price_volume_tags": [
+    "price_up_volume_down"
+  ],
+  "sector_tags": [
+    "sector_following"
+  ],
+  "reusable_tag_snapshots": [],
+  "taxonomy_version": "selection-annotation-taxonomy-v1",
+  "note": null
+}

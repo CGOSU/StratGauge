@@ -1,0 +1,14 @@
+{
+  "snapshot_id": "tushare-reference-278819ba7c8d5c92fe37",
+  "provider": "tushare",
+  "endpoint": "stock_basic",
+  "request": {
+    "exchanges": "SSE,SZSE",
+    "list_status": "L",
+    "market": "主板"
+  },
+  "content_sha256": "278819ba7c8d5c92fe379bcbc124b0e42995fd50afbb6152b97ab491e0893147",
+  "raw_path": "tushare/reference/raw/278819ba7c8d5c92fe379bcbc124b0e42995fd50afbb6152b97ab491e0893147.json",
+  "status": "approved",
+  "created_at": "2026-08-10T15:25:00Z"
+}

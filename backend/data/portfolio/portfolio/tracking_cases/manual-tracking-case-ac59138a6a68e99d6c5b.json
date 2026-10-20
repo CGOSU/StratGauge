@@ -1,0 +1,23 @@
+{
+  "tracking_case_id": "manual-tracking-case-ac59138a6a68e99d6c5b",
+  "tracking_policy_id": "manual-position-tracking-v1",
+  "security": {
+    "security_id": "portfolio-600184.SH",
+    "local_code": "600184",
+    "symbol": "600184.SH",
+    "exchange": "SH",
+    "name": "光电股份",
+    "listed_at": null,
+    "listed": true,
+    "delisted_at": null
+  },
+  "tracking_started_at": "2026-09-17T11:24:37.389000Z",
+  "created_at": "2026-09-17T11:24:37.405720Z",
+  "origin": "confirmed_trade",
+  "source_order_ids": [
+    "a576b1e9-0205-4427-badf-a21cee5f3c65"
+  ],
+  "source_fill_ids": [
+    "eb9c6922-4832-4c55-b7b5-cf12449f9140"
+  ]
+}

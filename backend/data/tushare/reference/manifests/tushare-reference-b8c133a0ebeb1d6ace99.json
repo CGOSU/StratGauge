@@ -1,0 +1,15 @@
+{
+  "snapshot_id": "tushare-reference-b8c133a0ebeb1d6ace99",
+  "provider": "tushare",
+  "endpoint": "trade_cal",
+  "request": {
+    "end_date": "20261020",
+    "exchange": "SSE",
+    "is_open": "1",
+    "start_date": "20260812"
+  },
+  "content_sha256": "b8c133a0ebeb1d6ace99d7c3d1657b7aaef6e3f7e7acb9546ea9359b1828ccc5",
+  "raw_path": "tushare/reference/raw/b8c133a0ebeb1d6ace99d7c3d1657b7aaef6e3f7e7acb9546ea9359b1828ccc5.json",
+  "status": "approved",
+  "created_at": "2026-09-01T09:00:00Z"
+}

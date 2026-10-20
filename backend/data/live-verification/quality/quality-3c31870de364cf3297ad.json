@@ -1,0 +1,16 @@
+{
+  "snapshot_id": "snapshot-d54705ddc2f1363311f2",
+  "checked_rows": 0,
+  "issues": [
+    {
+      "severity": "error",
+      "code": "MISSING_SECURITY",
+      "message": "预期证券没有返回日线。",
+      "symbol": null,
+      "session_date": null,
+      "details": {
+        "security_id": "live-000001.SZ"
+      }
+    }
+  ]
+}

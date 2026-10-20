@@ -1,0 +1,22 @@
+{
+  "order_id": "6966e3e7-d4d2-4e97-8b2c-464e07a1bc6b",
+  "security": {
+    "security_id": "portfolio-600267.SH",
+    "local_code": "600267",
+    "symbol": "600267.SH",
+    "exchange": "SH",
+    "name": "海正药业",
+    "listed_at": null,
+    "listed": true,
+    "delisted_at": null
+  },
+  "side": "sell",
+  "ordered_at": "2026-08-24T09:47:00+08:00",
+  "quantity": "100",
+  "limit_price": null,
+  "strategy_version_id": null,
+  "recommendation_id": null,
+  "selection_candidate_id": "manual-7c0f5d7129d4b69d2fda:600267.SH",
+  "sell_reason": "target_reached",
+  "note": null
+}

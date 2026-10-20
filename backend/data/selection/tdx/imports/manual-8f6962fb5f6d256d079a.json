@@ -1,0 +1,36 @@
+{
+  "batch": {
+    "batch_id": "manual-8f6962fb5f6d256d079a",
+    "source": "manual",
+    "source_filename": "manual-2026-08-20.json",
+    "formula_id": "formula-c6971d6d4d9f17a453bb",
+    "selection_date": "2026-08-20",
+    "exported_at": "2026-08-20T20:55:00+08:00",
+    "imported_at": "2026-08-20T12:56:42.536112Z",
+    "formula_name": "十字星",
+    "formula_version": null,
+    "formula_sha256": null,
+    "source_file_sha256": "8f6962fb5f6d256d079a46bbc2d4754b91df8d27d3084e3876959024f555c01a",
+    "candidate_count": 2
+  },
+  "candidates": [
+    {
+      "candidate_id": "manual-8f6962fb5f6d256d079a:002648.SZ",
+      "batch_id": "manual-8f6962fb5f6d256d079a",
+      "local_code": "002648",
+      "symbol": "002648.SZ",
+      "exchange": "SZ",
+      "name": "卫星化学",
+      "source_fields": {}
+    },
+    {
+      "candidate_id": "manual-8f6962fb5f6d256d079a:000333.SZ",
+      "batch_id": "manual-8f6962fb5f6d256d079a",
+      "local_code": "000333",
+      "symbol": "000333.SZ",
+      "exchange": "SZ",
+      "name": "美的集团",
+      "source_fields": {}
+    }
+  ]
+}

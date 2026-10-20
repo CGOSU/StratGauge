@@ -1,0 +1,150 @@
+{
+  "job_id": "job-1fc41da0ff45f28bedba",
+  "kind": "market_sync_main_board",
+  "payload": {
+    "request": {
+      "session_date": "2026-09-28",
+      "minimum_coverage": "0.90",
+      "lookback_days": 10
+    },
+    "market_root": "D:\\Code\\Python\\StratGauge\\backend\\data\\selection-market",
+    "universe_root": "D:\\Code\\Python\\StratGauge\\backend\\data"
+  },
+  "status": "partial",
+  "attempt_count": 1,
+  "max_retries": 2,
+  "timeout_seconds": 900.0,
+  "created_at": "2026-09-28T14:07:09.122588Z",
+  "updated_at": "2026-09-28T14:07:15.394746Z",
+  "started_at": "2026-09-28T14:07:12.457891Z",
+  "finished_at": "2026-09-28T14:07:15.394746Z",
+  "result": {
+    "response": {
+      "requested_through": "2026-09-28",
+      "universe_snapshot_id": "universe-d8b8d8f30a3f50c43fd9",
+      "security_count": 3193,
+      "research_ready": false,
+      "sessions": [
+        {
+          "session_date": "2026-09-25",
+          "market_snapshot_id": "snapshot-173db34cda1877b65a12",
+          "market_status": "rejected",
+          "adjustment_factor_snapshot_id": null,
+          "adjustment_factor_status": null,
+          "skipped": false,
+          "market_diagnostic": {
+            "phase": "market_daily",
+            "phase_label": "日线行情",
+            "session_date": "2026-09-25",
+            "snapshot_id": "snapshot-173db34cda1877b65a12",
+            "status": "rejected",
+            "quality_run_id": "quality-85647c8ce67c89e7ab10",
+            "expected_securities": 3193,
+            "actual_securities": 0,
+            "coverage": "0",
+            "minimum_coverage": "0.90",
+            "issues": [
+              {
+                "severity": "error",
+                "code": "MISSING_SESSION",
+                "label": "交易日缺失",
+                "message": "请求范围内缺少预期交易日。",
+                "symbol": null,
+                "session_date": "2026-09-25",
+                "details": {},
+                "action": "确认该日期是否为交易日，并检查数据源日期参数后重试。"
+              },
+              {
+                "severity": "warning",
+                "code": "MISSING_SECURITY",
+                "label": "证券数据缺失",
+                "message": "部分证券未返回日线，可能为停牌或供应商未提供记录。",
+                "symbol": null,
+                "session_date": null,
+                "details": {
+                  "missing_count": "3193",
+                  "expected_count": "3193",
+                  "actual_count": "0"
+                },
+                "action": "确认数据源是否已返回该证券；需要完整覆盖时请在数据补齐后重试。"
+              },
+              {
+                "severity": "error",
+                "code": "LOW_SECURITY_COVERAGE",
+                "label": "证券覆盖率不足",
+                "message": "日线证券覆盖率低于质量门阈值。",
+                "symbol": null,
+                "session_date": null,
+                "details": {
+                  "coverage": "0",
+                  "minimum_coverage": "0.90",
+                  "expected_count": "3193",
+                  "actual_count": "0"
+                },
+                "action": "确认数据源已发布完整证券范围后重试；未达到阈值前快照不会进入研究。"
+              }
+            ],
+            "summary": "日线行情未通过质量门，快照已保存但不会进入研究。",
+            "action": "确认该日期是否为交易日，并检查数据源日期参数后重试。"
+          },
+          "adjustment_factor_diagnostic": null
+        },
+        {
+          "session_date": "2026-09-28",
+          "market_snapshot_id": "snapshot-3c73cf5c21a825ad48d7",
+          "market_status": "approved",
+          "adjustment_factor_snapshot_id": "snapshot-5c4425adde46dcbe0c59",
+          "adjustment_factor_status": "approved",
+          "skipped": false,
+          "market_diagnostic": {
+            "phase": "market_daily",
+            "phase_label": "日线行情",
+            "session_date": "2026-09-28",
+            "snapshot_id": "snapshot-3c73cf5c21a825ad48d7",
+            "status": "approved",
+            "quality_run_id": "quality-8f671c4a1477d2ee769e",
+            "expected_securities": 3193,
+            "actual_securities": 3185,
+            "coverage": "0.9974945192608831819605386784",
+            "minimum_coverage": "0.90",
+            "issues": [
+              {
+                "severity": "warning",
+                "code": "MISSING_SECURITY",
+                "label": "证券数据缺失",
+                "message": "部分证券未返回日线，可能为停牌或供应商未提供记录。",
+                "symbol": null,
+                "session_date": null,
+                "details": {
+                  "missing_count": "8",
+                  "expected_count": "3193",
+                  "actual_count": "3185"
+                },
+                "action": "确认数据源是否已返回该证券；需要完整覆盖时请在数据补齐后重试。"
+              }
+            ],
+            "summary": "日线行情已通过质量门，但有 1 条提示。",
+            "action": "核对提示项；当前快照已批准，可以用于研究。"
+          },
+          "adjustment_factor_diagnostic": {
+            "phase": "adjustment_factor",
+            "phase_label": "复权因子",
+            "session_date": "2026-09-28",
+            "snapshot_id": "snapshot-5c4425adde46dcbe0c59",
+            "status": "approved",
+            "quality_run_id": "quality-97b48e56961328b7dcc3",
+            "expected_securities": 3193,
+            "actual_securities": 3193,
+            "coverage": "1",
+            "minimum_coverage": "0.90",
+            "issues": [],
+            "summary": "复权因子已通过质量门，可以用于研究。",
+            "action": "无需处理；该阶段数据可以用于研究。"
+          }
+        }
+      ]
+    },
+    "research_ready": false
+  },
+  "error": null
+}

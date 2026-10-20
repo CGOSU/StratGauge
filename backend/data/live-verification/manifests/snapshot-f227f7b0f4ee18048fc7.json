@@ -1,0 +1,14 @@
+{
+  "snapshot_id": "snapshot-f227f7b0f4ee18048fc7",
+  "provider": "waizao",
+  "adapter_version": "0.1",
+  "start_date": "2024-01-02",
+  "end_date": "2024-01-05",
+  "row_count": 4,
+  "content_sha256": "f227f7b0f4ee18048fc77953826e48409d837195d99d27db4e9d0f42919e84de",
+  "raw_path": "raw\\snapshot-f227f7b0f4ee18048fc7.json",
+  "normalized_path": "normalized\\snapshot-f227f7b0f4ee18048fc7.parquet",
+  "status": "approved",
+  "quality_run_id": "quality-9f1909d25e3e1cc3b57d",
+  "created_at": "2026-08-09T16:22:47.056892Z"
+}

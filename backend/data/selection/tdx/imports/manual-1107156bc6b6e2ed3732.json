@@ -1,0 +1,27 @@
+{
+  "batch": {
+    "batch_id": "manual-1107156bc6b6e2ed3732",
+    "source": "manual",
+    "source_filename": "manual-2026-08-26.json",
+    "formula_id": "formula-23de21ca454e53c782cd",
+    "selection_date": "2026-08-26",
+    "exported_at": "2026-08-26T19:31:00+08:00",
+    "imported_at": "2026-08-26T11:31:45.807912Z",
+    "formula_name": "三阳一阴（买入版）",
+    "formula_version": null,
+    "formula_sha256": null,
+    "source_file_sha256": "1107156bc6b6e2ed37321f6301e3c4f9eeb3508aeebefc5b914d84a0b2fa3693",
+    "candidate_count": 1
+  },
+  "candidates": [
+    {
+      "candidate_id": "manual-1107156bc6b6e2ed3732:001230.SZ",
+      "batch_id": "manual-1107156bc6b6e2ed3732",
+      "local_code": "001230",
+      "symbol": "001230.SZ",
+      "exchange": "SZ",
+      "name": "劲旅环境",
+      "source_fields": {}
+    }
+  ]
+}

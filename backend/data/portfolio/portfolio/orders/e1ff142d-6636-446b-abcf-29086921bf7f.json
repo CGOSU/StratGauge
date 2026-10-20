@@ -1,0 +1,22 @@
+{
+  "order_id": "e1ff142d-6636-446b-abcf-29086921bf7f",
+  "security": {
+    "security_id": "portfolio-002743.SZ",
+    "local_code": "002743",
+    "symbol": "002743.SZ",
+    "exchange": "SZ",
+    "name": "富煌钢构",
+    "listed_at": null,
+    "listed": true,
+    "delisted_at": null
+  },
+  "side": "buy",
+  "ordered_at": "2026-08-26T09:30:00+08:00",
+  "quantity": "100",
+  "limit_price": null,
+  "strategy_version_id": null,
+  "recommendation_id": null,
+  "selection_candidate_id": "manual-f5f7a41c6f9f353fd0f9:002743.SZ",
+  "sell_reason": null,
+  "note": null
+}

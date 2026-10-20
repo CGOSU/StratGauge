@@ -1,0 +1,23 @@
+{
+  "order_id": "a576b1e9-0205-4427-badf-a21cee5f3c65",
+  "security": {
+    "security_id": "portfolio-600184.SH",
+    "local_code": "600184",
+    "symbol": "600184.SH",
+    "exchange": "SH",
+    "name": "光电股份",
+    "listed_at": null,
+    "listed": true,
+    "delisted_at": null
+  },
+  "side": "buy",
+  "ordered_at": "2026-09-17T11:24:37.389000Z",
+  "quantity": "100",
+  "limit_price": null,
+  "strategy_version_id": null,
+  "recommendation_id": null,
+  "selection_candidate_id": null,
+  "tracking_case_id": "manual-tracking-case-ac59138a6a68e99d6c5b",
+  "sell_reason": null,
+  "note": null
+}

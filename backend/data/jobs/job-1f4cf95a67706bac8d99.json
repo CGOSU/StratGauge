@@ -1,0 +1,23 @@
+{
+  "job_id": "job-1f4cf95a67706bac8d99",
+  "kind": "market_sync_main_board",
+  "payload": {
+    "request": {
+      "session_date": "2026-10-09",
+      "minimum_coverage": "0.90",
+      "lookback_days": 10
+    },
+    "market_root": "D:\\Code\\Python\\StratGauge\\backend\\data\\selection-market",
+    "universe_root": "D:\\Code\\Python\\StratGauge\\backend\\data"
+  },
+  "status": "failed",
+  "attempt_count": 1,
+  "max_retries": 2,
+  "timeout_seconds": 900.0,
+  "created_at": "2026-10-09T09:21:50.919868Z",
+  "updated_at": "2026-10-09T09:21:56.586782Z",
+  "started_at": "2026-10-09T09:21:52.854006Z",
+  "finished_at": "2026-10-09T09:21:56.586782Z",
+  "result": null,
+  "error": "MARKET_SYNC_PROVIDER_DATA_INVALID: 行情数据源返回的数据无法通过字段或格式校验。"
+}

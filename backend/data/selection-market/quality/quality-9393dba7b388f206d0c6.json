@@ -1,0 +1,39 @@
+{
+  "snapshot_id": "snapshot-4811d10c57feb1864c46",
+  "checked_rows": 0,
+  "issues": [
+    {
+      "severity": "error",
+      "code": "MISSING_SESSION",
+      "message": "请求范围内缺少预期交易日。",
+      "symbol": null,
+      "session_date": "2026-10-02",
+      "details": {}
+    },
+    {
+      "severity": "warning",
+      "code": "MISSING_SECURITY",
+      "message": "部分证券未返回日线，可能为停牌或供应商未提供记录。",
+      "symbol": null,
+      "session_date": null,
+      "details": {
+        "missing_count": "3193",
+        "expected_count": "3193",
+        "actual_count": "0"
+      }
+    },
+    {
+      "severity": "error",
+      "code": "LOW_SECURITY_COVERAGE",
+      "message": "日线证券覆盖率低于质量门阈值。",
+      "symbol": null,
+      "session_date": null,
+      "details": {
+        "coverage": "0",
+        "minimum_coverage": "0.90",
+        "expected_count": "3193",
+        "actual_count": "0"
+      }
+    }
+  ]
+}

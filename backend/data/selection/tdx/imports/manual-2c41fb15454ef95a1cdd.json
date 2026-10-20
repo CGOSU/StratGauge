@@ -1,0 +1,27 @@
+{
+  "batch": {
+    "batch_id": "manual-2c41fb15454ef95a1cdd",
+    "source": "manual",
+    "source_filename": "manual-2026-08-25.json",
+    "formula_id": "formula-c6971d6d4d9f17a453bb",
+    "selection_date": "2026-08-25",
+    "exported_at": "2026-08-25T19:23:00+08:00",
+    "imported_at": "2026-08-25T11:25:12.870414Z",
+    "formula_name": "十字星",
+    "formula_version": null,
+    "formula_sha256": null,
+    "source_file_sha256": "2c41fb15454ef95a1cddf632fa64609733cf12db3f78cfa3a2a7cc36e889998a",
+    "candidate_count": 1
+  },
+  "candidates": [
+    {
+      "candidate_id": "manual-2c41fb15454ef95a1cdd:000651.SZ",
+      "batch_id": "manual-2c41fb15454ef95a1cdd",
+      "local_code": "000651",
+      "symbol": "000651.SZ",
+      "exchange": "SZ",
+      "name": "格力电器",
+      "source_fields": {}
+    }
+  ]
+}

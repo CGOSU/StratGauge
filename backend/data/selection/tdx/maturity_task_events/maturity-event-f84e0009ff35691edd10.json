@@ -1,0 +1,14 @@
+{
+  "event_id": "maturity-event-f84e0009ff35691edd10",
+  "task_id": "maturity-task-86ae37e165dcfb331fbd",
+  "event_type": "queued",
+  "occurred_at": "2026-08-11T11:48:58.325714Z",
+  "attempt_count": 0,
+  "status": "queued",
+  "outcomes_written": 0,
+  "rejected_candidates": [],
+  "market_snapshot_ids": [],
+  "failure_reason": null,
+  "retryable": false,
+  "reason": "task_created"
+}

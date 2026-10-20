@@ -1,0 +1,24 @@
+{
+  "annotation_id": "annotation-c6d2ec114bf7ef77d923",
+  "candidate_id": "tdx-caf8d55f2052d6ce0fc3:600593.SH",
+  "reviewed_at": "2026-08-14T09:29:30.516000Z",
+  "recorded_at": "2026-08-14T09:29:30.829712Z",
+  "overall_score": 4,
+  "outlook": "bullish",
+  "decision": "prepare_buy",
+  "position_tags": [
+    "support"
+  ],
+  "pattern_tags": [
+    "pullback"
+  ],
+  "price_volume_tags": [
+    "volume_pullback"
+  ],
+  "sector_tags": [
+    "sector_weak"
+  ],
+  "reusable_tag_snapshots": [],
+  "taxonomy_version": "selection-annotation-taxonomy-v1",
+  "note": "90%筹码集中度变多"
+}

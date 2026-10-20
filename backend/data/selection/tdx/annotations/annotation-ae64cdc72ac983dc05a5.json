@@ -1,0 +1,24 @@
+{
+  "annotation_id": "annotation-ae64cdc72ac983dc05a5",
+  "candidate_id": "tdx-2857980a8b70703d95bd:603666.SH",
+  "reviewed_at": "2026-08-25T15:41:22.829000Z",
+  "recorded_at": "2026-08-25T15:41:22.885357Z",
+  "overall_score": 3,
+  "outlook": "neutral",
+  "decision": "watch",
+  "position_tags": [
+    "support"
+  ],
+  "pattern_tags": [
+    "consolidation"
+  ],
+  "price_volume_tags": [
+    "price_down_volume_down"
+  ],
+  "sector_tags": [
+    "sector_weak"
+  ],
+  "reusable_tag_snapshots": [],
+  "taxonomy_version": "selection-annotation-taxonomy-v1",
+  "note": null
+}

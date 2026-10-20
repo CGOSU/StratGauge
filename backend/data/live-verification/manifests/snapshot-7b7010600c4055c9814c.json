@@ -1,0 +1,14 @@
+{
+  "snapshot_id": "snapshot-7b7010600c4055c9814c",
+  "provider": "baostock",
+  "adapter_version": "0.1",
+  "start_date": "2024-01-02",
+  "end_date": "2024-01-05",
+  "row_count": 4,
+  "content_sha256": "7b7010600c4055c9814c03d96ed65c5cccc63d40831148cdba78127097fa6028",
+  "raw_path": "raw\\snapshot-7b7010600c4055c9814c.json",
+  "normalized_path": "normalized\\snapshot-7b7010600c4055c9814c.parquet",
+  "status": "approved",
+  "quality_run_id": "quality-ea7baf7e70f20f100dfc",
+  "created_at": "2026-08-09T16:22:47.569587Z"
+}

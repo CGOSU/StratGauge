@@ -1,0 +1,23 @@
+{
+  "order_id": "daa3785f-fa4c-44fb-8048-a8d2cc8a3738",
+  "security": {
+    "security_id": "portfolio-002925.SZ",
+    "local_code": "002925",
+    "symbol": "002925.SZ",
+    "exchange": "SZ",
+    "name": "盈趣科技",
+    "listed_at": null,
+    "listed": true,
+    "delisted_at": null
+  },
+  "side": "buy",
+  "ordered_at": "2026-09-16T10:20:00+08:00",
+  "quantity": "100",
+  "limit_price": null,
+  "strategy_version_id": null,
+  "recommendation_id": null,
+  "selection_candidate_id": "tdx-a767a0067bcdf5239a54:002925.SZ",
+  "tracking_case_id": null,
+  "sell_reason": null,
+  "note": null
+}

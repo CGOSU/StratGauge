@@ -1,0 +1,46 @@
+{
+  "task_id": "maturity-task-86ae37e165dcfb331fbd",
+  "batch_id": "tdx-4c5433f66491a06c9a2b",
+  "provider": "tushare",
+  "market_data_mode": "provider",
+  "universe_snapshot_id": null,
+  "input_market_snapshot_ids": [],
+  "evaluated_at": "2026-08-25T19:32:00+08:00",
+  "target_evaluation_date": "2026-08-25",
+  "tracking_policy_id": "selection-policy-36c8ab89d6d741804339",
+  "horizon_sessions": 5,
+  "position_notional": "10000",
+  "max_retries": 2,
+  "timeout_seconds": 900.0,
+  "status": "failed",
+  "attempt_count": 1,
+  "outcomes_written": 0,
+  "rejected_candidates": [
+    [
+      "tdx-4c5433f66491a06c9a2b:002773.SZ",
+      "market_snapshot_quality_rejected"
+    ],
+    [
+      "tdx-4c5433f66491a06c9a2b:001298.SZ",
+      "market_snapshot_quality_rejected"
+    ],
+    [
+      "tdx-4c5433f66491a06c9a2b:002021.SZ",
+      "market_snapshot_quality_rejected"
+    ],
+    [
+      "tdx-4c5433f66491a06c9a2b:603061.SH",
+      "market_snapshot_quality_rejected"
+    ],
+    [
+      "tdx-4c5433f66491a06c9a2b:603819.SH",
+      "market_snapshot_quality_rejected"
+    ]
+  ],
+  "market_snapshot_ids": [],
+  "failure_reason": "market_snapshot_quality_rejected",
+  "retryable": false,
+  "created_at": "2026-08-11T11:48:58.325617Z",
+  "updated_at": "2026-08-11T11:48:58.375680Z",
+  "events": []
+}
